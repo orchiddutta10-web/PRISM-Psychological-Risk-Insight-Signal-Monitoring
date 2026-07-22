@@ -210,6 +210,33 @@ Each specification is complete, internally consistent, and ready to hand to engi
 
 ---
 
+## 🔴 CRITICAL REVISION: Phase-Based Scope
+
+**Status Change**: Previous MVP-SCOPE.md was too large. Now refocused on **core loop only**.
+
+### New Documents (2026-07-23)
+1. **[MVP-V1-CORE.md](MVP-V1-CORE.md)** — Focused MVP V1 (3 sensors, rule-based, 7 days)
+2. **[PRODUCT-ROADMAP.md](PRODUCT-ROADMAP.md)** — Multi-phase delivery plan (Phase 1-4+)
+
+### Previous Document (Now Superseded)
+- **[MVP-SCOPE.md](MVP-SCOPE.md)** — ⚠️ SUPERSEDED by MVP-V1-CORE.md (kept for reference)
+
+### What Changed
+- ✅ MVP V1: 3 sensors (GPS, app, accelerometer) → 7 days
+- ✅ Keystroke → Deferred to Phase 2
+- ✅ Voice → Deferred to Phase 2
+- ✅ GSR/PPG real → Deferred to Phase 2
+- ✅ AI companion → Deferred to Phase 3
+- ✅ Wearables → Deferred to Phase 2
+- ✅ Advanced ML/DL → Deferred to Phase 3+
+
+### Why
+- Too many features = missed deadlines
+- Core loop (baseline → anomaly → alert) is the priority
+- Everything else builds on that foundation
+
+---
+
 ## Quick Links
 
 - 📋 [Product Requirements Document (PRD)](PRD.md)
