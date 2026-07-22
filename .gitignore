@@ -1,2 +1,65 @@
-node_modules/ 
-**/node_modules/ 
+# Dependencies
+node_modules/
+**/node_modules/
+.venv/
+venv/
+env/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Build & dist
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Next.js
+.next/
+**/next/
+apps/*/.next/
+out/
+
+# Python cache & testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDE & editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+.flake8
+
+# Databases (local dev only)
+*.db
+*.sqlite
+*.sqlite3
+prism.db
+**/*.db
+
+# Uploaded files (runtime)
+/uploads/
+uploads/
+**/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Development artifacts
+local_voice_assistant.py
+*.wav
+*.mp3
