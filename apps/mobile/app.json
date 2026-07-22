@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "PRISM",
+    "slug": "prism-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0A0A0A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.prism.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "PRISM uses coarse location metadata to detect movement patterns (e.g., steps, travel variance). No GPS coordinates are stored or transmitted.",
+        "NSMotionUsageDescription": "PRISM uses accelerometer data to compute movement patterns. No raw sensor data is stored."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0A"
+      },
+      "package": "com.prism.mobile",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACTIVITY_RECOGNITION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "PRISM uses coarse location metadata to detect movement patterns. No coordinates are stored or transmitted."
+        }
+      ]
+    ]
+  }
+}

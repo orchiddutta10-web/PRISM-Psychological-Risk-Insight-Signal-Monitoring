@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: prism-db
+    environment:
+      POSTGRES_USER: prism_user
+      POSTGRES_PASSWORD: prism_secure_password123
+      POSTGRES_DB: prism_wellbeing
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prism_user -d prism_wellbeing"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: prism-redis
+    ports:
+      - "6379:6379"
+
+  api:
+    build:
+      context: ../
+      dockerfile: infra/Dockerfile.api
+    container_name: prism-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://prism_user:prism_secure_password123@db:5432/prism_wellbeing
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET=super-secret-jwt-key-change-in-production-123456
+      - ENCRYPTION_KEY=U1RyT05nX0VOQ1JZUFRJT05fS0VZX0ZPUl9QUklTTV9URVNUMTIzNDU=
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  dashboard:
+    build:
+      context: ../
+      dockerfile: apps/dashboard/Dockerfile
+    container_name: prism-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install backend deps
+        working-directory: services/api
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run pytest
+        working-directory: services/api
+        run: pytest -q
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend deps
+        working-directory: apps/dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        working-directory: apps/dashboard
+        run: npx tsc --noEmit
+      - name: Build
+        working-directory: apps/dashboard
+        run: npm run build
+name: PRISM Backend CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, staging, dev ]
+  pull_request:
+    branches: [ main, staging ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y sqlite3
+
+    - name: Install Python Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f services/api/requirements.txt ]; then pip install -r services/api/requirements.txt; fi
+        pip install pytest pytest-cov black flake8
+
+    - name: Run Code Formatter Checks (Black)
+      run: |
+        black --check services/api/app
+
+    - name: Run Linter (Flake8)
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 services/api/app --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings.
+        flake8 services/api/app --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+    - name: Run Backend Pytest Suite
+      env:
+        ENV: development
+        JWT_SECRET: dev_jwt_secret_must_be_long_and_secure_key_here
+        ENCRYPTION_KEY: u_S9vWJc9wD-G39eQv6L2eK5e9f8n7H8J9K0L1M2N3o=
+        PYTHONPATH: services/api
+      run: |
+        pytest services/api/app/tests -vv --cov=services/api/app --cov-report=xml
+
+  docker-build:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Staging Docker Image
+      run: |
+        docker build -f infra/Dockerfile.api -t prism-api:staging services/api
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: apps/dashboard/package-lock.json
+
+    - name: Install Frontend Dependencies
+      run: |
+        cd apps/dashboard
+        npm ci
+
+    - name: Build Dashboard Frontend
+      run: |
+        cd apps/dashboard
+        npm run build
+
