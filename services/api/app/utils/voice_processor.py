@@ -71,8 +71,9 @@ def extract_acoustic_features(audio_bytes: bytes) -> np.ndarray:
             feat = np.concatenate((mfccs, chroma, mel))
             if len(feat) == 153:
                 return feat
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Audio feature extraction failed: %s", str(e))
             
     # Fallback/Mock deterministic feature projection for test/onboarding clips
     return rng.normal(0.5, 0.5, 153)
@@ -92,8 +93,9 @@ def classify_affect(audio_bytes: bytes) -> tuple[str, float]:
             probs = voice_clf.predict_proba([features])[0]
             confidence = float(np.max(probs))
             return labels_map.get(pred, "calm"), confidence
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Voice classification failed, falling back to amplitude baseline: %s", str(e))
             
     # Simple mathematical amplitude variance baseline fallback
     if len(audio_bytes) == 0:

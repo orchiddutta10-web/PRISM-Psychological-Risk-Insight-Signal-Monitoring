@@ -31,14 +31,17 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 from jose import jwt
                 payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
                 actor_id = payload.get("sub")
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to decode JWT for audit middleware: %s", str(e))
 
         path = request.url.path
         method = request.method
         action = None
         
-        if "events/ingest" in path:
+        if "physio" in path:
+            action = "WRITE_PHYSIO_TELEMETRY"
+        elif "events/ingest" in path:
             action = "WRITE_TELEMETRY"
         elif "events/alerts" in path:
             action = "READ_ALERTS"

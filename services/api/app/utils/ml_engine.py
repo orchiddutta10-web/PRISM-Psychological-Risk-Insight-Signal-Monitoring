@@ -26,12 +26,8 @@ async def publish_alert_to_websockets(guardian_id: str, alert_data: dict):
             }
         }))
     except Exception as e:
-        # Fail gracefully when Redis is unavailable in local/dev environments.
-        try:
-            import logging
-            logging.getLogger(__name__).warning("Redis publish failed: %s", str(e))
-        except Exception:
-            pass
+        import logging
+        logging.getLogger(__name__).warning("Redis publish failed: %s", str(e))
 
 def evaluate_mobility_model(device_id: str, metadata: dict, db: Session) -> models.RiskScore:
     """

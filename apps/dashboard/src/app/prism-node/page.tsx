@@ -119,6 +119,9 @@ export default function PrismNodePage() {
         fetch(`http://localhost:8000/api/v1/physio/readings/${did}?sensor_type=ppg&limit=60`, { headers: { Authorization: `Bearer ${tk}` } }),
         fetch(`http://localhost:8000/api/v1/physio/readings/${did}?sensor_type=gsr&limit=60`, { headers: { Authorization: `Bearer ${tk}` } }),
       ])
+      if (!ppgRes.ok || !gsrRes.ok) {
+        throw new Error('API returned error status')
+      }
       const ppg: PhysioReading[] = await ppgRes.json()
       const gsr: PhysioReading[] = await gsrRes.json()
       if (ppg.length === 0 && gsr.length === 0) {
@@ -141,13 +144,16 @@ export default function PrismNodePage() {
   const fetchSleep = useCallback(async (tk: string, did: string) => {
     try {
       const res = await fetch(`http://localhost:8000/api/v1/physio/sleep/${did}?limit=30`, { headers: { Authorization: `Bearer ${tk}` } })
-      setSleepWindows(await res.json())
+      if (!res.ok) throw new Error(`Sleep API returned ${res.status}`)
+      const data = await res.json()
+      setSleepWindows(Array.isArray(data) ? data : [])
     } catch { setSleepWindows([]) }
   }, [])
 
   const fetchStatus = useCallback(async (tk: string, did: string) => {
     try {
       const res = await fetch(`http://localhost:8000/api/v1/physio/status/${did}`, { headers: { Authorization: `Bearer ${tk}` } })
+      if (!res.ok) throw new Error(`Status API returned ${res.status}`)
       setNodeStatus(await res.json())
     } catch { setNodeStatus({ connected: false, last_seen: null, sensor: null }) }
   }, [])
@@ -286,7 +292,7 @@ export default function PrismNodePage() {
               {[
                 { label: 'Readings (PPG)', value: `${ppgReadings.length}`, unit: 'pts' },
                 { label: 'Readings (GSR)', value: `${gsrReadings.length}`, unit: 'pts' },
-                { label: 'Node Status', value: nodeStatus.connected ? 'Online' : 'Offline', unit: '' },
+                { label: 'Node Status', value: isDemoMode ? 'Demo' : nodeStatus.connected ? 'Online' : 'Offline', unit: '' },
                 { label: 'Data Mode', value: isDemoMode ? 'Synthetic' : 'Real', unit: '' },
               ].map((s) => (
                 <div key={s.label} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px', backdropFilter: 'blur(8px)' }}>
@@ -305,7 +311,7 @@ export default function PrismNodePage() {
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24, maxWidth: 620, lineHeight: 1.6 }}>
               Estimated from screen-off events, stillness periods, and typing gaps. These are statistical estimates — not medical measurements.
             </p>
-            {sleepWindows.length === 0 ? (
+            {!Array.isArray(sleepWindows) || sleepWindows.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '60px 0', border: '1px dashed var(--border)', borderRadius: 20 }}>
                 <p style={{ fontSize: 36, marginBottom: 12 }}>🌙</p>
                 <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>No sleep windows yet</p>

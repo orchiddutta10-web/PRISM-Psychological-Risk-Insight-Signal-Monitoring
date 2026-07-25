@@ -1,0 +1,39 @@
+[Unit]
+Description=PRISM Edge Behaviour Node
+Documentation=https://github.com/prism/prism-edge
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/prism-edge
+EnvironmentFile=/opt/prism-edge/.env
+ExecStart=/opt/prism-edge/.venv/bin/python /opt/prism-edge/main.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging
+StandardOutput=append:/var/log/prism-edge/prism-edge.log
+StandardError=append:/var/log/prism-edge/prism-edge.log
+
+# Resource limits
+MemoryHigh=800M
+MemoryMax=1G
+CPUQuota=200%
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log/prism-edge /var/lib/prism-edge /tmp
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

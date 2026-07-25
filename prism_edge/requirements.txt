@@ -1,0 +1,37 @@
+# PRISM Edge Behaviour Node — Dependencies
+# Optimized for Raspberry Pi 4B (64-bit Raspberry Pi OS Bookworm)
+# Install: pip install -r requirements.txt
+
+# Camera capture + image processing
+opencv-python-headless>=4.10.0
+
+# MediaPipe for face mesh + pose landmark extraction
+mediapipe>=0.10.14
+
+# Numerical computing
+numpy>=1.24.0,<2.0
+scipy>=1.10.0
+
+# Audio capture (system dependency: sudo apt install libportaudio2 portaudio19-dev)
+sounddevice>=0.4.6
+
+# Audio feature extraction (system dependency: sudo apt install libsndfile1)
+librosa>=0.10.0
+
+# HTTP API client
+requests>=2.31.0
+
+# WebSocket client (optional — not used in V1 but reserved)
+websocket-client>=1.6.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# ESP32 Bridge light HTTP server
+flask>=3.0.0
+
+# JSON structured logging
+python-json-logger>=2.0.0
+
+# System health monitoring (CPU, RAM, temp)
+psutil>=5.9.0

@@ -375,3 +375,19 @@ class VoiceProfile(Base):
     @voiceprint.setter
     def voiceprint(self, raw_payload: list):
         self.encrypted_voiceprint = encrypt_field(json.dumps(raw_payload))
+
+
+class PulseMultiFactorReading(Base):
+    """ESP32 PRISM PULSE: Multi-factor pulse sensor + accelerometer fused reading."""
+    __tablename__ = "pulse_readings"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, default=_now, nullable=False)
+    ts_ms = Column(Float, nullable=False, comment="ESP32 millis() timestamp")
+    pulse_raw = Column(Float, nullable=False, comment="Analog pulse sensor raw ADC value")
+    bpm = Column(Float, nullable=False)
+    g_force = Column(Float, nullable=False, comment="MPU6050 total acceleration in g")
+    alert_status = Column(String, nullable=False, comment="OK | WARNING-Xs | ISD_TRIGGERED")
+
+    device = relationship("ChildDevice")

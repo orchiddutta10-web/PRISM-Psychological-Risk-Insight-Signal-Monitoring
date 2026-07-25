@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -7,6 +7,8 @@ from typing import List, Optional
 from app import models
 from app.database import get_db
 from app.utils import auth, audit
+from app.utils.redis_client import get_redis_client
+from app.utils.ml_engine import run_risk_engine
 
 router = APIRouter(prefix="/api/v1/physio", tags=["prism-node"])
 
@@ -70,8 +72,9 @@ async def ingest_physio(
     try:
         redis_conn = get_redis_client()
         await redis_conn.set(f"prism:health:{payload.sensor_type}", "synthetic", ex=3600)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to update physio health cache: %s", str(e))
 
     audit.log_audit_event(
         db,
@@ -143,3 +146,98 @@ def get_node_status(
     if latest:
         return {"connected": True, "last_seen": latest.timestamp.isoformat(), "sensor": latest.sensor_type}
     return {"connected": False, "last_seen": None, "sensor": None}
+
+
+# ── PRISM PULSE (ESP32 Multi-Factor) ────────────────────────────────
+
+class PulseIngest(BaseModel):
+    ts_ms: float = Field(..., description="ESP32 millis() timestamp")
+    pulse_raw: float = Field(..., description="Analog pulse sensor raw ADC value")
+    bpm: float = Field(..., ge=0, le=250)
+    g_force: float = Field(..., description="MPU6050 total acceleration in g")
+    alert_status: str = Field(..., description="OK | WARNING-Xs | ISD_TRIGGERED")
+
+
+class PulseReadingOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    subject_id: str
+    ts_ms: float
+    pulse_raw: float
+    bpm: float
+    g_force: float
+    alert_status: str
+    timestamp: datetime
+
+
+@router.post("/pulse/ingest", response_model=dict)
+async def ingest_pulse(
+    payload: PulseIngest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_device: models.ChildDevice = Depends(auth.get_current_device)
+):
+    """
+    Ingest a single multi-factor reading from the ESP32 PRISM PULSE node.
+    Stores pulse raw value, BPM, g-force, and alert_status.
+    Triggers risk engine when alert_status indicates a warning or trigger.
+    """
+    reading = models.PulseMultiFactorReading(
+        subject_id=current_device.id,
+        ts_ms=payload.ts_ms,
+        pulse_raw=payload.pulse_raw,
+        bpm=payload.bpm,
+        g_force=payload.g_force,
+        alert_status=payload.alert_status
+    )
+    db.add(reading)
+    db.commit()
+    db.refresh(reading)
+
+    # Update health cache
+    try:
+        redis_conn = get_redis_client()
+        await redis_conn.set("prism:health:pulse", "real", ex=3600)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to update pulse health cache: %s", str(e))
+
+    # If alert_status indicates a warning or trigger, run the risk engine
+    if payload.alert_status != "OK":
+        is_triggered = "TRIGGERED" in payload.alert_status
+        metadata = {
+            "ts_ms": payload.ts_ms,
+            "pulse_raw": payload.pulse_raw,
+            "bpm": payload.bpm,
+            "g_force": payload.g_force,
+            "alert_status": payload.alert_status,
+            "isd_triggered": is_triggered
+        }
+        await run_risk_engine(current_device.id, "pulse", metadata, db)
+
+    audit.log_audit_event(
+        db,
+        action=f"Pulse reading ingested: BPM={payload.bpm:.0f} G={payload.g_force:.2f} status={payload.alert_status}",
+        device_id=current_device.id
+    )
+
+    return {"status": "accepted", "reading_id": reading.id}
+
+
+@router.get("/pulse/readings/{device_id}", response_model=List[PulseReadingOut])
+def get_pulse_readings(
+    device_id: str,
+    limit: int = 120,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user)
+):
+    """Return recent PRISM PULSE multi-factor readings for a child device."""
+    auth.verify_guardian_device_access(current_guardian, device_id, db)
+    return (
+        db.query(models.PulseMultiFactorReading)
+        .filter(models.PulseMultiFactorReading.subject_id == device_id)
+        .order_by(models.PulseMultiFactorReading.timestamp.desc())
+        .limit(limit)
+        .all()
+    )

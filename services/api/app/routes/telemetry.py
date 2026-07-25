@@ -72,8 +72,9 @@ async def ingest_telemetry(
         status_str = "synthetic" if is_synth else "real"
         redis_conn = get_redis_client()
         await redis_conn.set(f"prism:health:{payload.signal_type}", status_str, ex=3600)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to update health cache: %s", str(e))
 
     # Log successful ingestion
     audit.log_audit_event(
@@ -159,8 +160,9 @@ async def ingest_unified(
         status_str = "synthetic" if is_synth else "real"
         redis_conn = get_redis_client()
         await redis_conn.set(f"prism:health:{payload.modality}", status_str, ex=3600)
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to update unified health cache: %s", str(e))
 
     # Check for risks in new apps / metadata
     check_event_for_risks(db, current_device.id, payload.modality, payload.value)
@@ -172,8 +174,14 @@ async def ingest_unified(
 
 @router.get("/health", response_model=schemas.IngestionHealthResponse)
 def legacy_health():
-    # Deprecated path
-    return {"status": "moved"}
+    """Redirect to the internal health endpoint."""
+    return {
+        "status": "moved",
+        "active_modalities": {
+            "gsr": "inactive", "ppg": "inactive", "pulse": "inactive",
+            "location": "inactive", "typing": "inactive", "app_usage": "inactive"
+        }
+    }
 
 # Creating a sub-router for internal endpoints to match the requested path
 internal_router = APIRouter(prefix="/api/internal", tags=["internal"])
@@ -186,7 +194,7 @@ async def ingestion_health(
     Reports whether real or synthetic data is currently flowing per modality.
     Uses Redis distributed caching to completely eliminate N+1 DB lookup query bottlenecks.
     """
-    modalities = ["gsr", "ppg", "location", "typing", "app_usage"]
+    modalities = ["gsr", "ppg", "pulse", "location", "typing", "app_usage"]
     status_map = {}
     
     redis_conn = get_redis_client()
@@ -196,8 +204,9 @@ async def ingestion_health(
             if cached and isinstance(cached, (str, bytes)):
                 status_map[mod] = cached if isinstance(cached, str) else cached.decode("utf-8")
                 continue
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to read health cache for %s: %s", mod, str(e))
 
         # Fallback database scan if cache is empty
         latest_event = db.query(models.UnifiedEvent).filter(
@@ -211,8 +220,9 @@ async def ingestion_health(
             status_map[mod] = status_str
             try:
                 await redis_conn.set(f"prism:health:{mod}", status_str, ex=60)
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to write-back health cache for %s: %s", mod, str(e))
         else:
             latest_raw = db.query(models.RawSignalEvent).filter(
                 models.RawSignalEvent.signal_type == mod
@@ -220,15 +230,18 @@ async def ingestion_health(
             if latest_raw:
                 try:
                     val_dict = json.loads(latest_raw.metadata_json)
-                except Exception:
+                except (json.JSONDecodeError, TypeError) as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to parse metadata_json for raw event: %s", str(e))
                     val_dict = {}
                 is_synth = val_dict.get("is_synthetic", False)
                 status_str = "synthetic" if is_synth else "real"
                 status_map[mod] = status_str
                 try:
                     await redis_conn.set(f"prism:health:{mod}", status_str, ex=60)
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to write-back health cache for %s: %s", mod, str(e))
             else:
                 status_map[mod] = "inactive"
                 

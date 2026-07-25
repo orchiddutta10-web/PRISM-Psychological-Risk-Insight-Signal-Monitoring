@@ -121,7 +121,7 @@ class TelemetryIngest(BaseModel):
 
 class UnifiedEventIngest(BaseModel):
     subject_id: str
-    modality: str = Field(..., pattern=r"^(location|typing|app_usage|gsr|ppg|browse_metadata)$")
+    modality: str = Field(..., pattern=r"^(location|typing|app_usage|gsr|ppg|browse_metadata|edge_behaviour)$")
     value: Dict[str, Any] = Field(..., description="Signal measurement values")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

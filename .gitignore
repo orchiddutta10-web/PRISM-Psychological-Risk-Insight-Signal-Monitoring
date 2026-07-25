@@ -20,6 +20,8 @@ build/
 **/next/
 apps/*/.next/
 out/
+*.tsbuildinfo
+**/*.tsbuildinfo
 
 # Python cache & testing
 .pytest_cache/
@@ -63,3 +65,6 @@ Thumbs.db
 local_voice_assistant.py
 *.wav
 *.mp3
+
+# Command Code AI assistant
+.commandcode/
