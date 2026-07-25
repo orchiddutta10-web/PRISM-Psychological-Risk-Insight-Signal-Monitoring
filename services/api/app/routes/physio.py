@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -51,7 +51,12 @@ async def ingest_physio(
         models.ConsentGrant.subject_id == current_device.id,
         models.ConsentGrant.modality == "gsr"
     ).first()
-    if not consent or not consent.is_granted:
+    if not consent:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Active consent for physio telemetry not granted."
+        )
+    if consent.is_granted is not True:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Active consent for physio telemetry not granted."
@@ -76,10 +81,11 @@ async def ingest_physio(
         import logging
         logging.getLogger(__name__).warning("Failed to update physio health cache: %s", str(e))
 
+    device_id = str(current_device.id)
     audit.log_audit_event(
         db,
         action=f"PhysioReading ingested: {payload.sensor_type} val={payload.value:.3f}",
-        device_id=current_device.id
+        device_id=device_id
     )
 
     return {"status": "accepted", "reading_id": reading.id}
@@ -129,12 +135,15 @@ def get_node_status(
 ):
     """
     Returns PRISM Node connection status:
-    whether the device has sent physio data in the last 5 minutes.
+    whether the device has sent physio or pulse data in the last 5 minutes.
+    Checks both PhysioReading and PulseMultiFactorReading tables.
     """
     auth.verify_guardian_device_access(current_guardian, device_id, db)
     from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-    latest = (
+
+    # Check legacy PhysioReading table
+    latest_physio = (
         db.query(models.PhysioReading)
         .filter(
             models.PhysioReading.subject_id == device_id,
@@ -143,8 +152,29 @@ def get_node_status(
         .order_by(models.PhysioReading.timestamp.desc())
         .first()
     )
-    if latest:
-        return {"connected": True, "last_seen": latest.timestamp.isoformat(), "sensor": latest.sensor_type}
+
+    # Check new PulseMultiFactorReading table (ESP32 PRISM PULSE)
+    latest_pulse = (
+        db.query(models.PulseMultiFactorReading)
+        .filter(
+            models.PulseMultiFactorReading.subject_id == device_id,
+            models.PulseMultiFactorReading.timestamp >= cutoff
+        )
+        .order_by(models.PulseMultiFactorReading.timestamp.desc())
+        .first()
+    )
+
+    # Return whichever is more recent
+    candidates = []
+    if latest_physio:
+        candidates.append((latest_physio.timestamp, latest_physio.sensor_type))
+    if latest_pulse:
+        candidates.append((latest_pulse.timestamp, "pulse"))
+
+    if candidates:
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        ts, sensor = candidates[0]
+        return {"connected": True, "last_seen": ts.isoformat(), "sensor": sensor}
     return {"connected": False, "last_seen": None, "sensor": None}
 
 
@@ -174,7 +204,6 @@ class PulseReadingOut(BaseModel):
 @router.post("/pulse/ingest", response_model=dict)
 async def ingest_pulse(
     payload: PulseIngest,
-    request: Request,
     db: Session = Depends(get_db),
     current_device: models.ChildDevice = Depends(auth.get_current_device)
 ):
@@ -214,12 +243,13 @@ async def ingest_pulse(
             "alert_status": payload.alert_status,
             "isd_triggered": is_triggered
         }
-        await run_risk_engine(current_device.id, "pulse", metadata, db)
+        device_id = str(current_device.id)
+        await run_risk_engine(device_id, "pulse", metadata, db)
 
     audit.log_audit_event(
         db,
         action=f"Pulse reading ingested: BPM={payload.bpm:.0f} G={payload.g_force:.2f} status={payload.alert_status}",
-        device_id=current_device.id
+        device_id=str(current_device.id)
     )
 
     return {"status": "accepted", "reading_id": reading.id}

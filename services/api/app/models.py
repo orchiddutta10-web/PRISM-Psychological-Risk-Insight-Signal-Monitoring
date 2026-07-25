@@ -74,12 +74,12 @@ class RawSignalEvent(Base):
     @property
     def metadata_json(self) -> str:
         """Decrypt payload automatically on read."""
-        return decrypt_field(self.encrypted_metadata)
+        return decrypt_field(str(self.encrypted_metadata))
 
     @metadata_json.setter
     def metadata_json(self, raw_payload: str):
         """Encrypt payload automatically on write."""
-        self.encrypted_metadata = encrypt_field(raw_payload)
+        self.encrypted_metadata = encrypt_field(raw_payload)  # type: ignore[assignment]
 
 class BaselineProfile(Base):
     __tablename__ = "baseline_profiles"
@@ -101,12 +101,12 @@ class BaselineProfile(Base):
         """Decrypt metadata automatically on read."""
         if not self.encrypted_metadata:
             return "{}"
-        return decrypt_field(self.encrypted_metadata)
+        return decrypt_field(str(self.encrypted_metadata))
 
     @metadata_json.setter
     def metadata_json(self, raw_payload: str):
         """Encrypt metadata automatically on write."""
-        self.encrypted_metadata = encrypt_field(raw_payload)
+        self.encrypted_metadata = encrypt_field(raw_payload)  # type: ignore[assignment]
 
 class RiskScore(Base):
     __tablename__ = "risk_scores"
@@ -126,7 +126,7 @@ class RiskScore(Base):
     @property
     def contributing_factors(self) -> list:
         """Decrypt factors automatically on read."""
-        val = decrypt_field(self.contributing_factors_json)
+        val = decrypt_field(str(self.contributing_factors_json))
         try:
             return json.loads(val)
         except Exception:
@@ -135,7 +135,7 @@ class RiskScore(Base):
     @contributing_factors.setter
     def contributing_factors(self, raw_factors: list):
         """Encrypt factors automatically on write."""
-        self.contributing_factors_json = encrypt_field(json.dumps(raw_factors))
+        self.contributing_factors_json = encrypt_field(json.dumps(raw_factors))  # type: ignore[assignment]
 
 class Alert(Base):
     __tablename__ = "alerts"
@@ -154,7 +154,7 @@ class Alert(Base):
     @property
     def contributing_factors(self) -> list:
         """Decrypt factors automatically on read."""
-        val = decrypt_field(self.contributing_factors_json)
+        val = decrypt_field(str(self.contributing_factors_json))
         try:
             return json.loads(val)
         except Exception:
@@ -163,7 +163,7 @@ class Alert(Base):
     @contributing_factors.setter
     def contributing_factors(self, raw_factors: list):
         """Encrypt factors automatically on write."""
-        self.contributing_factors_json = encrypt_field(json.dumps(raw_factors))
+        self.contributing_factors_json = encrypt_field(json.dumps(raw_factors))  # type: ignore[assignment]
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -193,7 +193,7 @@ class AuditLogEntry(Base):
     @property
     def context(self) -> dict:
         """Decrypt context automatically on read."""
-        val = decrypt_field(self.audit_detail_json)
+        val = decrypt_field(str(self.audit_detail_json))
         try:
             return json.loads(val)
         except Exception:
@@ -202,7 +202,7 @@ class AuditLogEntry(Base):
     @context.setter
     def context(self, raw_context: dict):
         """Encrypt context automatically on write."""
-        self.audit_detail_json = encrypt_field(json.dumps(raw_context))
+        self.audit_detail_json = encrypt_field(json.dumps(raw_context))  # type: ignore[assignment]
 
 # --- Phase 3 Wearable Ingestion physiological baseline contract ---
 class PhysiologicalBaseline(Base):
@@ -247,7 +247,7 @@ class UnifiedEvent(Base):
 
     @property
     def value(self) -> dict:
-        val = decrypt_field(self.encrypted_value)
+        val = decrypt_field(str(self.encrypted_value))
         try:
             return json.loads(val)
         except Exception:
@@ -255,7 +255,7 @@ class UnifiedEvent(Base):
 
     @value.setter
     def value(self, raw_payload: dict):
-        self.encrypted_value = encrypt_field(json.dumps(raw_payload))
+        self.encrypted_value = encrypt_field(json.dumps(raw_payload))  # type: ignore[assignment]
 
 class PhysioReading(Base):
     __tablename__ = "physio_readings"
@@ -283,7 +283,7 @@ class VoiceSession(Base):
 
     @property
     def features(self) -> dict:
-        val = decrypt_field(self.encrypted_features)
+        val = decrypt_field(str(self.encrypted_features))
         try:
             return json.loads(val)
         except Exception:
@@ -291,7 +291,7 @@ class VoiceSession(Base):
 
     @features.setter
     def features(self, raw_payload: dict):
-        self.encrypted_features = encrypt_field(json.dumps(raw_payload))
+        self.encrypted_features = encrypt_field(json.dumps(raw_payload))  # type: ignore[assignment]
 
 class SleepWindow(Base):
     __tablename__ = "sleep_windows"
@@ -366,7 +366,7 @@ class VoiceProfile(Base):
 
     @property
     def voiceprint(self) -> list:
-        val = decrypt_field(self.encrypted_voiceprint)
+        val = decrypt_field(str(self.encrypted_voiceprint))
         try:
             return json.loads(val)
         except Exception:
@@ -374,7 +374,7 @@ class VoiceProfile(Base):
 
     @voiceprint.setter
     def voiceprint(self, raw_payload: list):
-        self.encrypted_voiceprint = encrypt_field(json.dumps(raw_payload))
+        self.encrypted_voiceprint = encrypt_field(json.dumps(raw_payload))  # type: ignore[assignment]
 
 
 class PulseMultiFactorReading(Base):

@@ -3,11 +3,22 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
-// PRISM Node — Physiological Wearable Monitor
-// Alternate brand names in reserve: Pulse, Aura, VitalLink
+// PRISM Node — Physiological Wearable Monitor (v4.0 Multi-Factor Edition)
+// Hardware: ESP32 + Analog Pulse Sensor (GPIO34) + MPU6050 (I2C) + ISD1820 + I2C LCD
 // This surface is intentionally isolated — no imports from the behavior dashboard.
 
 type Tab = 'vitals' | 'sleep' | 'status' | 'about'
+
+interface PulseReading {
+  id: string
+  subject_id: string
+  ts_ms: number
+  pulse_raw: number
+  bpm: number
+  g_force: number
+  alert_status: string
+  timestamp: string
+}
 
 interface PhysioReading {
   id: string
@@ -32,13 +43,41 @@ interface NodeStatus {
   sensor: string | null
 }
 
-function generateSyntheticReadings(type: 'ppg' | 'gsr', count = 60): PhysioReading[] {
+function generateSyntheticPulseReadings(count = 60): PulseReading[] {
   const now = Date.now()
   return Array.from({ length: count }, (_, i) => {
     const t = (i / count) * Math.PI * 4
-    const base = type === 'ppg' ? 65 : 0.5
-    const noise = (Math.random() - 0.5) * (type === 'ppg' ? 4 : 0.05)
-    const wave = type === 'ppg' ? Math.sin(t) * 3 : Math.sin(t * 0.5) * 0.08
+    const bpmBase = 72
+    const bpmNoise = (Math.random() - 0.5) * 6
+    const bpmWave = Math.sin(t) * 4
+    const bpm = Math.max(40, Math.min(180, bpmBase + bpmWave + bpmNoise))
+
+    const gBase = 1.0
+    const gNoise = (Math.random() - 0.5) * 0.15
+    const gForce = Math.max(0.5, gBase + gNoise)
+
+    const pulseRaw = 1800 + Math.sin(t * 2) * 300 + (Math.random() - 0.5) * 200
+
+    return {
+      id: `synth-pulse-${i}`,
+      subject_id: 'demo',
+      ts_ms: now - (count - i) * 5000,
+      pulse_raw: Math.round(pulseRaw),
+      bpm: Math.round(bpm),
+      g_force: parseFloat(gForce.toFixed(2)),
+      alert_status: bpm > 110 && gForce < 1.2 ? 'WARNING' : 'OK',
+      timestamp: new Date(now - (count - i) * 5000).toISOString(),
+    }
+  })
+}
+
+function generateSyntheticReadings(type: 'ppg', count = 60): PhysioReading[] {
+  const now = Date.now()
+  return Array.from({ length: count }, (_, i) => {
+    const t = (i / count) * Math.PI * 4
+    const base = 65
+    const noise = (Math.random() - 0.5) * 4
+    const wave = Math.sin(t) * 3
     return {
       id: `synth-${i}`,
       subject_id: 'demo',
@@ -51,22 +90,21 @@ function generateSyntheticReadings(type: 'ppg' | 'gsr', count = 60): PhysioReadi
 }
 
 function Sparkline({
-  readings,
+  data,
   color,
   height = 60,
 }: {
-  readings: PhysioReading[]
+  data: number[]
   color: string
   height?: number
 }) {
-  if (!readings.length) return null
-  const values = readings.map((r) => r.value)
-  const min = Math.min(...values)
-  const max = Math.max(...values)
+  if (!data.length) return null
+  const min = Math.min(...data)
+  const max = Math.max(...data)
   const range = max - min || 1
-  const pts = values
+  const pts = data
     .map((v, i) => {
-      const x = (i / (values.length - 1)) * 100
+      const x = (i / (data.length - 1)) * 100
       const y = height - ((v - min) / range) * (height - 8) - 4
       return `${x.toFixed(1)},${y.toFixed(1)}`
     })
@@ -93,13 +131,19 @@ function sleepLabel(hours: number): { label: string; color: string } {
   return { label: 'Fragmented sleep', color: '#ef4444' }
 }
 
+function alertBadge(status: string) {
+  if (status === 'OK') return { bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.4)', color: '#6ee7b7', text: '✓ NORMAL' }
+  if (status.startsWith('WARNING')) return { bg: 'rgba(245,158,11,0.15)', border: 'rgba(245,158,11,0.4)', color: '#fbbf24', text: '⚠ ' + status }
+  return { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.4)', color: '#fca5a5', text: '🔴 ' + status }
+}
+
 export default function PrismNodePage() {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('vitals')
   const [token, setToken] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState<string | null>(null)
+  const [pulseReadings, setPulseReadings] = useState<PulseReading[]>([])
   const [ppgReadings, setPpgReadings] = useState<PhysioReading[]>([])
-  const [gsrReadings, setGsrReadings] = useState<PhysioReading[]>([])
   const [sleepWindows, setSleepWindows] = useState<SleepWindow[]>([])
   const [nodeStatus, setNodeStatus] = useState<NodeStatus>({ connected: false, last_seen: null, sensor: null })
   const [isDemoMode, setIsDemoMode] = useState(false)
@@ -115,27 +159,34 @@ export default function PrismNodePage() {
 
   const fetchVitals = useCallback(async (tk: string, did: string) => {
     try {
-      const [ppgRes, gsrRes] = await Promise.all([
-        fetch(`http://localhost:8000/api/v1/physio/readings/${did}?sensor_type=ppg&limit=60`, { headers: { Authorization: `Bearer ${tk}` } }),
-        fetch(`http://localhost:8000/api/v1/physio/readings/${did}?sensor_type=gsr&limit=60`, { headers: { Authorization: `Bearer ${tk}` } }),
-      ])
-      if (!ppgRes.ok || !gsrRes.ok) {
-        throw new Error('API returned error status')
+      // Fetch from PRISM PULSE multi-factor endpoint (ESP32 BPM + G-Force)
+      const pulseRes = await fetch(`http://localhost:8000/api/v1/physio/pulse/readings/${did}?limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
+      // Also try legacy PPG readings
+      const ppgRes = await fetch(`http://localhost:8000/api/v1/physio/readings/${did}?sensor_type=ppg&limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
+
+      let pulseData: PulseReading[] = []
+      let ppgData: PhysioReading[] = []
+
+      if (pulseRes.ok) {
+        pulseData = await pulseRes.json()
       }
-      const ppg: PhysioReading[] = await ppgRes.json()
-      const gsr: PhysioReading[] = await gsrRes.json()
-      if (ppg.length === 0 && gsr.length === 0) {
+      if (ppgRes.ok) {
+        ppgData = await ppgRes.json()
+      }
+
+      if (pulseData.length === 0 && ppgData.length === 0) {
+        // No real data — fall back to synthetic demo
+        setPulseReadings(generateSyntheticPulseReadings())
         setPpgReadings(generateSyntheticReadings('ppg'))
-        setGsrReadings(generateSyntheticReadings('gsr'))
         setIsDemoMode(true)
       } else {
-        setPpgReadings([...ppg].reverse())
-        setGsrReadings([...gsr].reverse())
+        setPulseReadings([...pulseData].reverse())
+        setPpgReadings([...ppgData].reverse())
         setIsDemoMode(false)
       }
     } catch {
+      setPulseReadings(generateSyntheticPulseReadings())
       setPpgReadings(generateSyntheticReadings('ppg'))
-      setGsrReadings(generateSyntheticReadings('gsr'))
       setIsDemoMode(true)
     }
     setLastRefresh(new Date())
@@ -170,8 +221,15 @@ export default function PrismNodePage() {
     return () => clearInterval(iv)
   }, [token, deviceId, fetchVitals, fetchSleep, fetchStatus])
 
-  const currentHR = ppgReadings.length ? ppgReadings[ppgReadings.length - 1].value.toFixed(0) : '—'
-  const currentGSR = gsrReadings.length ? gsrReadings[gsrReadings.length - 1].value.toFixed(3) : '—'
+  // Derive current values from pulse readings
+  const latestPulse = pulseReadings.length ? pulseReadings[pulseReadings.length - 1] : null
+  const currentBPM = latestPulse ? latestPulse.bpm.toFixed(0) : '—'
+  const currentGForce = latestPulse ? latestPulse.g_force.toFixed(2) : '—'
+  const currentAlert = latestPulse ? latestPulse.alert_status : 'OK'
+  const alertInfo = alertBadge(currentAlert)
+
+  // Count active alerts in last 60 readings
+  const alertCount = pulseReadings.filter(r => r.alert_status !== 'OK').length
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'vitals', label: '❤️  Live Vitals' },
@@ -213,7 +271,7 @@ export default function PrismNodePage() {
               <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', animation: 'nodePulse 3s ease-in-out infinite', flexShrink: 0 }} />
               <div>
                 <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-0.02em' }}>PRISM Node</span>
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: -2 }}>Physiological Wearable Monitor</span>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: -2 }}>Multi-Factor Physiological Monitor (v4.0)</span>
               </div>
             </div>
           </div>
@@ -223,6 +281,9 @@ export default function PrismNodePage() {
                 ✦ SYNTHETIC DEMO MODE
               </span>
             )}
+            <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: alertInfo.bg, border: `1px solid ${alertInfo.border}`, color: alertInfo.color, fontWeight: 700 }}>
+              {alertInfo.text}
+            </span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Refreshed {lastRefresh.toLocaleTimeString()}</span>
           </div>
         </div>
@@ -252,46 +313,46 @@ export default function PrismNodePage() {
         {tab === 'vitals' && (
           <div className="pn-slide">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-              {/* HR Card */}
+              {/* Heart Rate (BPM) Card */}
               <div className="pn-card" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 20, padding: 24, backdropFilter: 'blur(12px)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div>
                     <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#a5b4fc', marginBottom: 4 }}>Heart Rate</p>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>PPG inter-beat interval</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Analog Pulse Sensor (GPIO 34)</p>
                   </div>
                   <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(99,102,241,0.2)', color: '#c7d2fe', fontWeight: 700, height: 'fit-content' }}>LIVE</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 16 }}>
-                  <span style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', color: '#e0e7ff', lineHeight: 1 }}>{currentHR}</span>
+                  <span style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', color: '#e0e7ff', lineHeight: 1 }}>{currentBPM}</span>
                   <span style={{ fontSize: 14, color: '#a5b4fc', fontWeight: 600 }}>bpm</span>
                 </div>
-                <Sparkline readings={ppgReadings} color="#818cf8" height={70} />
-                {isDemoMode && <p style={{ fontSize: 10, color: '#818cf8', marginTop: 8, opacity: 0.7 }}>⚡ Synthetic waveform — connect hardware for live data</p>}
+                <Sparkline data={pulseReadings.map(r => r.bpm)} color="#818cf8" height={70} />
+                {isDemoMode && <p style={{ fontSize: 10, color: '#818cf8', marginTop: 8, opacity: 0.7 }}>⚡ Synthetic waveform — connect ESP32 for live data</p>}
               </div>
 
-              {/* GSR Card */}
-              <div className="pn-card" style={{ background: 'rgba(16,185,129,0.07)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: 20, padding: 24, backdropFilter: 'blur(12px)' }}>
+              {/* G-Force / Movement Card */}
+              <div className="pn-card" style={{ background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 20, padding: 24, backdropFilter: 'blur(12px)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div>
-                    <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#6ee7b7', marginBottom: 4 }}>Skin Conductance</p>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>GSR tonic / phasic level</p>
+                    <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#fbbf24', marginBottom: 4 }}>Movement / G-Force</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>MPU6050 Accelerometer (I2C)</p>
                   </div>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(16,185,129,0.2)', color: '#6ee7b7', fontWeight: 700, height: 'fit-content' }}>LIVE</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(245,158,11,0.2)', color: '#fbbf24', fontWeight: 700, height: 'fit-content' }}>LIVE</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 16 }}>
-                  <span style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', color: '#d1fae5', lineHeight: 1 }}>{currentGSR}</span>
-                  <span style={{ fontSize: 14, color: '#6ee7b7', fontWeight: 600 }}>µS</span>
+                  <span style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', color: '#fef3c7', lineHeight: 1 }}>{currentGForce}</span>
+                  <span style={{ fontSize: 14, color: '#fbbf24', fontWeight: 600 }}>g</span>
                 </div>
-                <Sparkline readings={gsrReadings} color="#34d399" height={70} />
-                {isDemoMode && <p style={{ fontSize: 10, color: '#34d399', marginTop: 8, opacity: 0.7 }}>⚡ Synthetic waveform — connect hardware for live data</p>}
+                <Sparkline data={pulseReadings.map(r => r.g_force)} color="#f59e0b" height={70} />
+                {isDemoMode && <p style={{ fontSize: 10, color: '#f59e0b', marginTop: 8, opacity: 0.7 }}>⚡ Synthetic waveform — connect ESP32 for live data</p>}
               </div>
             </div>
 
             {/* Stats strip */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12 }}>
               {[
-                { label: 'Readings (PPG)', value: `${ppgReadings.length}`, unit: 'pts' },
-                { label: 'Readings (GSR)', value: `${gsrReadings.length}`, unit: 'pts' },
+                { label: 'Pulse Readings', value: `${pulseReadings.length}`, unit: 'pts' },
+                { label: 'Alerts Fired', value: `${alertCount}`, unit: alertCount > 0 ? '⚠' : '✓' },
                 { label: 'Node Status', value: isDemoMode ? 'Demo' : nodeStatus.connected ? 'Online' : 'Offline', unit: '' },
                 { label: 'Data Mode', value: isDemoMode ? 'Synthetic' : 'Real', unit: '' },
               ].map((s) => (
@@ -368,11 +429,13 @@ export default function PrismNodePage() {
               )}
             </div>
             <div style={{ padding: '16px 20px', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hardware Spec (MVP Demo)</p>
+              <p style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hardware Spec (PRISM PULSE v4.0)</p>
               <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
-                PRISM Node uses an ESP32 microcontroller with a Grove-compatible GSR sensor and MAX30102 PPG module.
-                Data is streamed via MQTT to an edge buffer, then batch-pushed to the PRISM API over TLS.
-                No audio, video, or message content is ever captured.
+                PRISM Node uses an ESP32-D0WD-V3 microcontroller with an Analog Pulse Sensor (GPIO 34) for heart rate,
+                an MPU6050 accelerometer/gyroscope (I2C) for movement context, an ISD1820 voice recorder module (GPIO 4)
+                for local alerts, and a 16×2 I2C LCD display for on-device feedback.
+                Multi-factor sensor fusion ensures voice alerts trigger only during sustained anomalous conditions
+                (High BPM + Low Movement for 15 seconds). No audio, video, or message content is ever captured.
               </p>
             </div>
           </div>
@@ -385,9 +448,10 @@ export default function PrismNodePage() {
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 28 }}>A plain-language explainer for guardians, teens, and clinicians.</p>
 
             {[
-              { icon: '❤️', title: 'Heart Rate (PPG)', color: '#818cf8', desc: 'Detects resting heart rate patterns derived from the time between heartbeats (inter-beat intervals). This is NOT used for medical diagnosis. Deviations from a personal baseline may indicate physiological stress and prompt a supportive conversation.' },
-              { icon: '⚡', title: 'Skin Conductance (GSR)', color: '#34d399', desc: 'Detects stress arousal patterns from sweat gland activity on the skin surface — metadata only, no clinical interpretation. Elevated GSR tonic levels may correlate with heightened emotional arousal and are surfaced as context clues, never diagnoses.' },
-              { icon: '🌙', title: 'Sleep Windows', color: '#a78bfa', desc: 'Inferred from stillness patterns, screen-off timestamps, and typing activity gaps. When physiological data is available, resting HR plateaus and low GSR variance add further signal. These are statistical estimates only — not clinical sleep studies.' },
+              { icon: '❤️', title: 'Heart Rate (Pulse Sensor)', color: '#818cf8', desc: 'Detects resting heart rate patterns using an analog pulse sensor worn on the fingertip. Photoplethysmography light passes through the skin to measure blood volume changes between heartbeats. Deviations from a personal baseline may indicate physiological stress and prompt a supportive check-in. This is NOT used for medical diagnosis.' },
+              { icon: '🏃', title: 'Movement & G-Force (MPU6050)', color: '#f59e0b', desc: 'Tracks physical activity context using a 3-axis accelerometer and gyroscope. This sensor distinguishes between rest, walking, running, and falls. High heart rate during physical activity is normal — high heart rate while sitting still is not. The MPU6050 provides this critical context to prevent false alerts.' },
+              { icon: '🔊', title: 'Local Voice Alert (ISD1820)', color: '#f87171', desc: 'When both heart rate and inactivity are abnormal for a sustained 15-second window, the ESP32 triggers a pre-recorded voice message via the ISD1820 module. This provides immediate, private, on-device support without requiring an internet connection. The message is recorded by the user and is never transmitted or stored digitally.' },
+              { icon: '🌙', title: 'Sleep Windows', color: '#a78bfa', desc: 'Inferred from stillness patterns, screen-off timestamps, and typing activity gaps. When physiological data is available, resting heart rate plateaus and low movement variance add further signal. These are statistical estimates only — not clinical sleep studies.' },
             ].map((item) => (
               <div key={item.title} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '20px 24px', marginBottom: 14, display: 'flex', gap: 16 }}>
                 <span style={{ fontSize: 28, flexShrink: 0 }}>{item.icon}</span>

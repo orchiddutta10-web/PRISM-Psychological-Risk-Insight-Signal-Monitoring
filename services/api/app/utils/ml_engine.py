@@ -278,4 +278,4 @@ async def aggregate_alerts(device_id: str, db: Session):
         "contributing_factors": factors,
         "timestamp": alert.timestamp.isoformat()
     }
-    await publish_alert_to_websockets(device.guardian_id, alert_payload)
+    await publish_alert_to_websockets(str(device.guardian_id), alert_payload)

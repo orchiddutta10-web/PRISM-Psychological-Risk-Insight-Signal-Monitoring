@@ -44,8 +44,8 @@ async def ingest_telemetry(
         audit.log_audit_event(
             db,
             action=f"Telemetry ingestion REJECTED: Consent missing or revoked for signal type '{payload.signal_type}'",
-            device_id=current_device.id,
-            guardian_id=current_device.guardian_id,
+            device_id=str(current_device.id),
+            guardian_id=str(current_device.guardian_id),
             ip_address=request.client.host if request.client else None
         )
         raise HTTPException(
@@ -80,8 +80,8 @@ async def ingest_telemetry(
     audit.log_audit_event(
         db,
         action=f"Telemetry ingested successfully: {payload.signal_type} (Event ID: {event.id})",
-        device_id=current_device.id,
-        guardian_id=current_device.guardian_id,
+        device_id=str(current_device.id),
+        guardian_id=str(current_device.guardian_id),
         ip_address=request.client.host if request.client else None
     )
 
@@ -165,7 +165,7 @@ async def ingest_unified(
         logging.getLogger(__name__).warning("Failed to update unified health cache: %s", str(e))
 
     # Check for risks in new apps / metadata
-    check_event_for_risks(db, current_device.id, payload.modality, payload.value)
+    check_event_for_risks(db, str(current_device.id), payload.modality, payload.value)
 
     return {
         "status": "accepted",
@@ -266,16 +266,16 @@ def trigger_worker_jobs(
     audit.log_audit_event(
         db,
         action=f"Worker run triggered: Baseline profiles updated, sleep windows estimated, {purged} old events purged.",
-        guardian_id=current_guardian.id,
+        guardian_id=str(current_guardian.id),
     )
-    
+
     return {
         "status": "completed",
         "events_purged": purged
     }
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str = None):
+async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
     """
     WebSocket endpoint for guardians to receive live updates and chat with Aria.
     Connection URL: ws://localhost:8000/api/v1/events/ws?token=<jwt_token>
@@ -465,8 +465,8 @@ def mark_alert_viewed(
     alert = db.query(models.Alert).filter(models.Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
-    auth.verify_guardian_device_access(current_guardian, alert.device_id, db)
-    alert.is_viewed = True
+    auth.verify_guardian_device_access(current_guardian, str(alert.device_id), db)
+    alert.is_viewed = True  # type: ignore[assignment]
     db.commit()
     return {"status": "updated", "alert_id": alert_id}
 
@@ -552,7 +552,7 @@ def seed_baselines(
     audit.log_audit_event(
         db,
         action=f"Guardian-reported baseline seed saved for device {req.device_id}",
-        guardian_id=current_guardian.id,
+        guardian_id=str(current_guardian.id),
         device_id=req.device_id
     )
 
