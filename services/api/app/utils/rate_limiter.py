@@ -7,6 +7,7 @@ from app.utils.redis_client import get_redis_client
 _MEM_LIMITS = collections.defaultdict(list)
 _MEM_LOCK = threading.Lock()
 
+
 def check_in_memory_limit(ip: str, path: str, limit: int = 5, period: int = 60) -> bool:
     """Fallback thread-safe sliding window rate-limiter in memory."""
     key = f"{ip}:{path}"
@@ -20,6 +21,7 @@ def check_in_memory_limit(ip: str, path: str, limit: int = 5, period: int = 60) 
         _MEM_LIMITS[key] = timestamps
         return True
 
+
 async def rate_limit(request: Request, limit: int = 5, period: int = 60):
     """
     Asynchronous rate limiter dependency.
@@ -27,6 +29,7 @@ async def rate_limit(request: Request, limit: int = 5, period: int = 60):
     Bypassed in non-production environments to avoid test suite lockout.
     """
     from app.config import settings
+
     if settings.ENV.lower() != "production":
         return
 
@@ -42,7 +45,7 @@ async def rate_limit(request: Request, limit: int = 5, period: int = 60):
         if current and int(current) >= limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Rate limit exceeded. Please try again after 60 seconds."
+                detail="Rate limit exceeded. Please try again after 60 seconds.",
             )
         pipe = r.pipeline()
         pipe.incr(redis_key)
@@ -56,5 +59,5 @@ async def rate_limit(request: Request, limit: int = 5, period: int = 60):
         if not allowed:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Rate limit exceeded. Please try again after 60 seconds."
+                detail="Rate limit exceeded. Please try again after 60 seconds.",
             )

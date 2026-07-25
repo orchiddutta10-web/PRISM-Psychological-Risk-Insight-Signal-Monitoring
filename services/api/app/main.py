@@ -17,28 +17,36 @@ models.Base.metadata.create_all(bind=engine)
 
 # Seed the Risk Registry
 from app.utils.risk_registry import seed_registry
+
 seed_registry(SessionLocal())
+
 
 class AuditLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        
+
         actor_id = None
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
             try:
                 from jose import jwt
-                payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+
+                payload = jwt.decode(
+                    token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+                )
                 actor_id = payload.get("sub")
             except Exception as e:
                 import logging
-                logging.getLogger(__name__).warning("Failed to decode JWT for audit middleware: %s", str(e))
+
+                logging.getLogger(__name__).warning(
+                    "Failed to decode JWT for audit middleware: %s", str(e)
+                )
 
         path = request.url.path
         method = request.method
         action = None
-        
+
         if "physio" in path:
             action = "WRITE_PHYSIO_TELEMETRY"
         elif "events/ingest" in path:
@@ -62,13 +70,11 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             db = SessionLocal()
             try:
                 entry = models.AuditLogEntry(
-                    actor_id=actor_id,
-                    action=action,
-                    resource=f"{method} {path}"
+                    actor_id=actor_id, action=action, resource=f"{method} {path}"
                 )
                 entry.context = {
                     "ip": request.client.host if request.client else None,
-                    "status_code": response.status_code
+                    "status_code": response.status_code,
                 }
                 db.add(entry)
                 db.commit()
@@ -76,13 +82,14 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 print(f"Failed to log audit event: {e}")
             finally:
                 db.close()
-                
+
         return response
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Consent-first behavioral well-being signal telemetry ingestion and guardian alerting API.",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Enable CORS
@@ -100,14 +107,16 @@ app.add_middleware(APMMiddleware)
 # Enable Immutable Audit Logging Middleware
 app.add_middleware(AuditLoggingMiddleware)
 
+
 # Root endpoint
 @app.get("/")
 def read_root():
     return {
         "status": "online",
         "service": settings.PROJECT_NAME,
-        "mode": "consent-first-telemetry"
+        "mode": "consent-first-telemetry",
     }
+
 
 # Register routers
 app.include_router(auth.router)

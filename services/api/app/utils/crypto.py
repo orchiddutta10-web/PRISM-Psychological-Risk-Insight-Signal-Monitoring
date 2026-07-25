@@ -12,11 +12,13 @@ except Exception:
     fallback_key = Fernet.generate_key()
     fernet_client = Fernet(fallback_key)
 
+
 def encrypt_field(plain_text: str) -> str:
     """Encrypts a string field and returns a base64 encoded cipher string."""
     if not plain_text:
         return ""
     return fernet_client.encrypt(plain_text.encode()).decode()
+
 
 def decrypt_field(cipher_text: str) -> str:
     """Decrypts a base64 encoded cipher string back into its original text."""

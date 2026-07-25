@@ -48,7 +48,7 @@ PERSONAS = {
             "want ideas, or do you just want to get this out?' and follow their answer.\n\n"
             "Boundaries: You are not running formal CBT therapy. You are modeling a way of "
             "thinking someone could also get from a real therapist, and you can say so."
-        )
+        ),
     },
     "listener": {
         "name": "The Listener",
@@ -73,7 +73,7 @@ PERSONAS = {
             "- Sit with silence and uncertainty rather than rushing to resolve it.\n\n"
             "Boundaries: Being non-directive doesn't mean being passive about safety — if "
             "something concerning surfaces, the shared safety rules above still apply in full."
-        )
+        ),
     },
     "strategist": {
         "name": "The Strategist",
@@ -95,7 +95,7 @@ PERSONAS = {
             "Boundaries: You are not dismissing the past or the feeling behind a problem — "
             "you can acknowledge it briefly — but your default lens is 'what's next,' not "
             "'why did this happen.'"
-        )
+        ),
     },
     "clinician": {
         "name": "The Clinician",
@@ -122,7 +122,7 @@ PERSONAS = {
             "Boundaries: This persona is the one most likely to be mistaken for a real "
             "clinician because of its tone — be more explicit and more frequent about the "
             "disclosure than the other four personas."
-        )
+        ),
     },
     "mentor": {
         "name": "The Mentor",
@@ -148,17 +148,26 @@ PERSONAS = {
             "Boundaries: 'Challenging' never means confrontational, guilt-inducing, or "
             "shaming. If a conversation turns toward self-harm or crisis content, drop this "
             "style immediately and defer to the shared safety rules above."
-        )
-    }
+        ),
+    },
 }
 
 CRISIS_KEYWORDS = [
-    "suicide", "kill myself", "want to die", "end it all",
-    "cut myself", "self harm", "hurt myself",
-    "abuse", "hit me", "beating me", "don't want to live"
+    "suicide",
+    "kill myself",
+    "want to die",
+    "end it all",
+    "cut myself",
+    "self harm",
+    "hurt myself",
+    "abuse",
+    "hit me",
+    "beating me",
+    "don't want to live",
 ]
 
 CRISIS_RESPONSE = "This sounds like an emergency. I'm an AI, not a human, and I want you to be safe. Please contact emergency services immediately or text HOME to 741741 to reach a crisis counselor."
+
 
 def check_crisis(message: str) -> bool:
     """Hard-coded crisis classifier."""
@@ -168,31 +177,38 @@ def check_crisis(message: str) -> bool:
             return True
     return False
 
+
 def handle_companion_message(db: Session, session_id: str, message: str) -> str:
     """
     Processes an incoming message for a companion session.
     Bypasses the persona if a crisis is detected.
     """
-    comp_session = db.query(models.CompanionSession).filter(models.CompanionSession.id == session_id).first()
+    comp_session = (
+        db.query(models.CompanionSession)
+        .filter(models.CompanionSession.id == session_id)
+        .first()
+    )
     if not comp_session:
         return "Session not found."
-        
+
     persona = PERSONAS.get(comp_session.persona_id, PERSONAS["listener"])
 
     is_crisis = check_crisis(message)
     if is_crisis:
         comp_session.crisis_flag = True
-        
+
         # Log escalation alert to guardian/clinician
         alert = models.Alert(
             device_id=comp_session.subject_id,
             severity_tier="red",
-            plain_language_summary="Crisis keywords detected in companion chat."
+            plain_language_summary="Crisis keywords detected in companion chat.",
         )
-        alert.contributing_factors = ["Emergency crisis escalation protocol triggered by AI companion."]
+        alert.contributing_factors = [
+            "Emergency crisis escalation protocol triggered by AI companion."
+        ]
         db.add(alert)
         db.commit()
-        
+
         return CRISIS_RESPONSE
 
     # Mock LLM Response for Week-1 Demo
@@ -200,6 +216,6 @@ def handle_companion_message(db: Session, session_id: str, message: str) -> str:
     responses = [
         f"[{persona['display_name']}] That's interesting. Tell me more about how that affects you.",
         f"[{persona['display_name']}] I hear you. What do you think is the next best step?",
-        f"[{persona['display_name']}] Thank you for sharing that with me."
+        f"[{persona['display_name']}] Thank you for sharing that with me.",
     ]
     return random.choice(responses)

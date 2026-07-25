@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app import models
 import json
 
+
 def run_baseline_aggregation(db: Session):
     """
     Computes baseline profiles (rolling mean/variance) for all active devices and signal types.
@@ -14,11 +15,15 @@ def run_baseline_aggregation(db: Session):
     for device in devices:
         for sig_type in signal_types:
             cutoff_date = datetime.now(timezone.utc) - timedelta(days=30)
-            events = db.query(models.RawSignalEvent).filter(
-                models.RawSignalEvent.device_id == device.id,
-                models.RawSignalEvent.signal_type == sig_type,
-                models.RawSignalEvent.timestamp >= cutoff_date
-            ).all()
+            events = (
+                db.query(models.RawSignalEvent)
+                .filter(
+                    models.RawSignalEvent.device_id == device.id,
+                    models.RawSignalEvent.signal_type == sig_type,
+                    models.RawSignalEvent.timestamp >= cutoff_date,
+                )
+                .all()
+            )
 
             if not events:
                 continue
@@ -43,15 +48,18 @@ def run_baseline_aggregation(db: Session):
             if n > 1:
                 variance = sum((x - mean) ** 2 for x in values) / (n - 1)
 
-            profile = db.query(models.BaselineProfile).filter(
-                models.BaselineProfile.device_id == device.id,
-                models.BaselineProfile.signal_type == sig_type
-            ).first()
+            profile = (
+                db.query(models.BaselineProfile)
+                .filter(
+                    models.BaselineProfile.device_id == device.id,
+                    models.BaselineProfile.signal_type == sig_type,
+                )
+                .first()
+            )
 
             if not profile:
                 profile = models.BaselineProfile(
-                    device_id=device.id,
-                    signal_type=sig_type
+                    device_id=device.id, signal_type=sig_type
                 )
                 db.add(profile)
 
@@ -61,13 +69,16 @@ def run_baseline_aggregation(db: Session):
 
     db.commit()
 
+
 def purge_raw_events(db: Session, days: int = 30) -> int:
     """
     Deletes raw signal events older than the specified number of days (default 30).
     """
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
-    deleted_count = db.query(models.RawSignalEvent).filter(
-        models.RawSignalEvent.timestamp < cutoff_date
-    ).delete()
+    deleted_count = (
+        db.query(models.RawSignalEvent)
+        .filter(models.RawSignalEvent.timestamp < cutoff_date)
+        .delete()
+    )
     db.commit()
     return deleted_count

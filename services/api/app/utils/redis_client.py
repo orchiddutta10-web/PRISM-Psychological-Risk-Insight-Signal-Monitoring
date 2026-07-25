@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 _mem_db: Dict[str, str] = {}
 _subscribers: Dict[str, Set[asyncio.Queue]] = {}
 
+
 class MockPubSub:
     def __init__(self):
         self.subscribed_channels: Set[str] = set()
@@ -36,6 +37,7 @@ class MockPubSub:
         except asyncio.TimeoutError:
             return None
 
+
 class MockRedisClient:
     async def ping(self):
         return True
@@ -48,11 +50,7 @@ class MockRedisClient:
         return True
 
     async def publish(self, channel: str, message: str):
-        msg = {
-            "type": "message",
-            "channel": channel,
-            "data": message
-        }
+        msg = {"type": "message", "channel": channel, "data": message}
         if channel in _subscribers:
             for q in _subscribers[channel]:
                 await q.put(msg)
@@ -63,6 +61,7 @@ class MockRedisClient:
 
     def pipeline(self):
         return MockPipeline(self)
+
 
 class MockPipeline:
     def __init__(self, client):
@@ -89,6 +88,7 @@ class MockPipeline:
                 results.append(True)
         self.commands = []
         return results
+
 
 class LazyPubSub:
     def __init__(self, lazy_client):
@@ -117,7 +117,10 @@ class LazyPubSub:
 
     async def get_message(self, ignore_subscribe_messages=True, timeout=1.0):
         ps = await self._get_pubsub()
-        return await ps.get_message(ignore_subscribe_messages=ignore_subscribe_messages, timeout=timeout)
+        return await ps.get_message(
+            ignore_subscribe_messages=ignore_subscribe_messages, timeout=timeout
+        )
+
 
 class LazyPipeline:
     def __init__(self, lazy_client):
@@ -151,6 +154,7 @@ class LazyPipeline:
             self.commands = []
             return res
 
+
 class LazyFallbackRedisClient:
     def __init__(self):
         self._real_client = None
@@ -167,12 +171,20 @@ class LazyFallbackRedisClient:
 
             if self._real_client is None:
                 try:
-                    self._real_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                    self._real_client = aioredis.from_url(
+                        settings.REDIS_URL, decode_responses=True
+                    )
                     # Try to ping the real Redis server with a short timeout
                     await asyncio.wait_for(self._real_client.ping(), timeout=1.0)
-                    logger.info("Successfully connected to Redis at %s", settings.REDIS_URL)
+                    logger.info(
+                        "Successfully connected to Redis at %s", settings.REDIS_URL
+                    )
                 except Exception as e:
-                    logger.warning("Could not connect to Redis at %s: %s. Falling back to in-memory MockRedisClient.", settings.REDIS_URL, e)
+                    logger.warning(
+                        "Could not connect to Redis at %s: %s. Falling back to in-memory MockRedisClient.",
+                        settings.REDIS_URL,
+                        e,
+                    )
                     self._use_mock = True
                     self._mock_client = MockRedisClient()
                     return self._mock_client
@@ -201,8 +213,9 @@ class LazyFallbackRedisClient:
     def pipeline(self):
         return LazyPipeline(self)
 
+
 redis_client = LazyFallbackRedisClient()
+
 
 def get_redis_client() -> LazyFallbackRedisClient:
     return redis_client
-
