@@ -86,4 +86,4 @@ jobs:
         uses: docker/setup-buildx-action@v2
 
       - name: Build API Docker Image
-        run: docker build -f infra/Dockerfile.api -t prism-api:staging services/api
+        run: docker build -f infra/Dockerfile.api -t prism-api:staging .
