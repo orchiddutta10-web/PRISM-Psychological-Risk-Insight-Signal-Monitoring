@@ -8,6 +8,7 @@ import {
   Database, X, Clock, Smartphone, MapPin, Keyboard,
   AlertTriangle, CheckCircle, Info, BarChart2, Zap, Users
 } from 'lucide-react'
+import MetricCard from '../../components/MetricCard'
 
 /* ─────────────────────────────────────────────────────────────
    DEMO DATA — realistic, non-alarming baseline values
@@ -374,7 +375,8 @@ export default function OverviewPage() {
       {/* ══════════════════════════════════════════════════════
           BODY LAYOUT  (sidebar + main)
       ══════════════════════════════════════════════════════ */}
-      <div style={{ display: 'flex', maxWidth: 1320, margin: '0 auto', padding: '28px 28px 48px', gap: 24 }}>
+      <div style={{ display: 'flex', maxWidth: 1320, margin: '0 auto', padding: '32px 24px', gap: 24 }}>
+        {/* Adjusted outer container padding for increased whitespace */}
 
         {/* ── SIDEBAR ──────────────────────────────────────── */}
         <aside style={{ width: 248, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -391,11 +393,16 @@ export default function OverviewPage() {
                 // Persist selected device for isolated PRISM Node surface
                 localStorage.setItem('prism_selected_device', d.id)
               }} style={{
-                background: active ? C.text : C.card,
-                color: active ? C.accentTxt : C.text,
-                border: `1.5px solid ${active ? C.text : C.border}`,
-                borderRadius: 14, padding: '14px 16px', textAlign: 'left',
-                cursor: 'pointer', transition: 'all 0.2s', width: '100%',
+                 background: active ? C.text : C.card,
+                 color: active ? C.accentTxt : C.text,
+                 border: `1.5px solid ${active ? C.text : C.border}`,
+                 borderRadius: 16,
+                 padding: '18px 20px',
+                 textAlign: 'left',
+                 cursor: 'pointer',
+                 transition: 'all 0.2s, transform 0.15s',
+                 width: '100%',
+                 ...(active ? { transform: 'scale(1.02)' } : {}),
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   <div style={{
@@ -519,9 +526,11 @@ export default function OverviewPage() {
 
           {/* Profile header card */}
           <div style={{
-            background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
-            padding: '22px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            animation: 'fadeUp 0.4s both',
+             background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
+             padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+             animation: 'fadeUp 0.4s both',
+             transition: 'box-shadow 0.2s',
+             boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
               <div style={{
@@ -587,76 +596,23 @@ export default function OverviewPage() {
           {/* Signal cards — 2×2 grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, animation: 'fadeUp 0.4s 0.06s both' }}>
             {device.signals.map((sig, i) => {
-              const Icon = sig.icon
-              const deviation = Math.abs(sig.delta)
-              const isHigh = deviation > 40
-              return (
-                <div key={sig.label} style={{
-                  background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
-                  padding: '20px 22px', animation: `fadeUp 0.4s ${i * 0.07}s both`,
-                }}>
-                  {/* Top row */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 34, height: 34, borderRadius: 10, background: C.hover, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Icon size={16} color={C.sub} />
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{sig.label}</span>
-                    </div>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 5,
-                      padding: '4px 10px', borderRadius: 20,
-                      background: isHigh ? (dk ? '#2C2C2E' : '#F0F0F0') : C.hover,
-                      border: `1px solid ${isHigh ? C.border : 'transparent'}`,
-                    }}>
-                      {sig.trend === 'up' ? <TrendingUp size={11} color={C.text} /> : sig.trend === 'down' ? <TrendingDown size={11} color={C.text} /> : <Activity size={11} color={C.text} />}
-                      <span style={{ fontSize: 11, fontWeight: 800, color: C.text }}>
-                        {sig.delta > 0 ? '+' : ''}{sig.delta}%
-                      </span>
-                    </div>
-                  </div>
+              const Icon = sig.icon;
+              const deviation = Math.abs(sig.delta);
+              let status: 'good' | 'warning' | 'critical';
+              if (deviation > 40) status = 'critical';
+              else if (deviation > 20) status = 'warning';
+              else status = 'good';
+              <MetricCard title={sig.label} value={sig.actual.toLocaleString()} unit={sig.unit} icon={<Icon size={16} />} status={status} progress={Math.min((sig.actual / sig.baseline) * 100, 100)} lastUpdated="Just now" />
 
-                  {/* Value */}
-                  <div style={{ marginBottom: 16 }}>
-                    <span style={{ fontSize: 32, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, letterSpacing: '-0.02em' }}>
-                      {sig.actual.toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: 13, color: C.sub, marginLeft: 6 }}>{sig.unit}</span>
-                  </div>
-
-                  {/* Dual bar */}
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ height: 6, borderRadius: 3, background: C.hover, position: 'relative', overflow: 'hidden' }}>
-                      {/* baseline */}
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 3,
-                        width: `${Math.min((sig.baseline / Math.max(sig.baseline, sig.actual)) * 100, 100)}%`,
-                        background: C.muted, transition: 'width 1s ease',
-                      }} />
-                      {/* actual */}
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 3,
-                        width: `${Math.min((sig.actual / Math.max(sig.baseline, sig.actual)) * 100, 100)}%`,
-                        background: C.text, transition: 'width 1s ease',
-                        opacity: 0.85,
-                      }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.muted }}>
-                    <span>Baseline: {sig.baseline.toLocaleString()} {sig.unit}</span>
-                    <span style={{ fontWeight: 700, color: deviation > 20 ? C.text : C.muted }}>
-                      {deviation > 20 ? '⚑ Flagged' : '✓ Normal'}
-                    </span>
-                  </div>
-                </div>
-              )
             })}
           </div>
 
           {/* Chart card */}
           <div style={{
-            background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
-            padding: '24px 28px', animation: 'fadeUp 0.4s 0.15s both',
+             background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
+             padding: '28px 32px', animation: 'fadeUp 0.4s 0.15s both',
+             transition: 'box-shadow 0.2s',
+             boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
