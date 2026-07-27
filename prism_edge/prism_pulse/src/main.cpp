@@ -316,16 +316,22 @@ void loop() {
       lastDisplayMs = now;
       
       lcd.setCursor(0, 0);
-      lcd.print("BPM:"); lcd.print(BPM); lcd.print(" G:"); lcd.print(currentGForce, 1);
+      lcd.print("BPM:"); 
+      if (BPM < 100) lcd.print(" ");
+      if (BPM < 10) lcd.print(" ");
+      lcd.print(BPM);
+      lcd.print(" G:");
+      if (currentGForce < 10) lcd.print(" ");
+      lcd.print(currentGForce, 1);
       
-      // WiFi indicator on LCD row 0
-      lcd.setCursor(13, 0);
+      // WiFi indicator on LCD row 0, column 14
+      lcd.setCursor(14, 0);
       if (wifiState == WIFI_CONNECTED) {
         lcd.print("W");
       } else {
         lcd.print(".");
       }
-      lcd.print("  ");
+      lcd.print(" ");
 
       lcd.setCursor(0, 1);
       if (pulseValue == 0) {

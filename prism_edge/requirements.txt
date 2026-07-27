@@ -3,10 +3,8 @@
 # Install: pip install -r requirements.txt
 
 # Camera capture + image processing
-opencv-python-headless>=4.10.0
 
 # MediaPipe for face mesh + pose landmark extraction
-mediapipe>=0.10.14
 
 # Numerical computing
 numpy>=1.24.0,<2.0
