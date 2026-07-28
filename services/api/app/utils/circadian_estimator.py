@@ -1,7 +1,9 @@
-from datetime import datetime, timedelta, timezone
-from sqlalchemy.orm import Session
-from app import models
 import math
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy.orm import Session
+
+from app import models
 
 
 def calculate_circadian_regularity(db: Session, subject_id: str) -> float:

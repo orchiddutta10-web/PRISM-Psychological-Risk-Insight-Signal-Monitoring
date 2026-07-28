@@ -211,24 +211,45 @@ class VoiceFeatureExtractor:
             })
             return features
 
-        # ── Zero Crossing Rate ────────────────────────────────────
-        zcr = float(librosa.feature.zero_crossing_rate(audio, frame_length=self._n_fft, hop_length=self._hop_length).mean())
+        # ── Zero Crossing Rate & Voice Stability ──────────────────
+        zcr_array = librosa.feature.zero_crossing_rate(audio, frame_length=self._n_fft, hop_length=self._hop_length)
+        zcr = float(zcr_array.mean())
         features["zero_crossing_rate"] = round(zcr, 4)
+        
+        # Voice stability proxy (inverse of ZCR std dev)
+        zcr_std = float(zcr_array.std())
+        features["voice_stability"] = round(1.0 / (zcr_std + 1e-6), 2)
 
-        # ── Pitch Estimation (YIN algorithm via librosa.pyin) ─────
+        # ── Pitch Estimation & Variation ──────────────────────────
         try:
             f0, voiced_flag, _ = librosa.pyin(
                 audio,
-                fmin=librosa.note_to_hz("C2"),    # ~65 Hz
-                fmax=librosa.note_to_hz("C7"),    # ~2093 Hz
+                fmin=librosa.note_to_hz("C2"),
+                fmax=librosa.note_to_hz("C7"),
                 sr=self._sample_rate,
                 frame_length=self._n_fft,
             )
             voiced_f0 = f0[voiced_flag] if voiced_flag is not None and f0 is not None else np.array([])
             pitch = float(np.median(voiced_f0)) if len(voiced_f0) > 0 else 0.0
+            pitch_std = float(np.std(voiced_f0)) if len(voiced_f0) > 0 else 0.0
         except Exception:
             pitch = 0.0
+            pitch_std = 0.0
+            
         features["pitch_hz"] = round(pitch, 2)
+        features["pitch_variation"] = round(pitch_std, 2)
+        
+        # ── Speech Rate Proxy (Envelope Peaks) ────────────────────
+        try:
+            # Envelope of the audio signal
+            envelope = np.abs(librosa.onset.onset_strength(y=audio, sr=self._sample_rate))
+            peaks = librosa.util.peak_pick(envelope, pre_max=3, post_max=3, pre_avg=3, post_avg=5, delta=0.5, wait=10)
+            # peaks per second
+            speech_rate = len(peaks) / (self._chunk_ms / 1000.0)
+        except Exception:
+            speech_rate = 0.0
+            
+        features["speech_rate_proxy"] = round(speech_rate, 2)
 
         # ── MFCC ──────────────────────────────────────────────────
         try:

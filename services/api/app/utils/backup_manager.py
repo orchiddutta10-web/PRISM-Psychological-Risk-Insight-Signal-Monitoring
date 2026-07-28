@@ -1,8 +1,7 @@
+import logging
 import os
 import shutil
 import sqlite3
-import time
-import logging
 from datetime import datetime
 
 
@@ -40,7 +39,7 @@ def perform_point_in_time_backup(db_path: str, backup_dir: str) -> str:
         )
         return backup_filepath
     except Exception as e:
-        logging.error(f"Backup failed: {str(e)}")
+        logging.error(f"Backup failed: {e!s}")
         raise e
 
 
@@ -68,7 +67,7 @@ def restore_disaster_recovery_rollback(backup_filepath: str, db_path: str):
             f"Disaster recovery rollback successful. Restored database to snapshot: {backup_filepath}"
         )
     except Exception as e:
-        logging.error(f"Disaster recovery rollback failed: {str(e)}")
+        logging.error(f"Disaster recovery rollback failed: {e!s}")
         # Restore safety temporary copy if available
         if os.path.exists(f"{db_path}.safety_tmp"):
             shutil.move(f"{db_path}.safety_tmp", db_path)

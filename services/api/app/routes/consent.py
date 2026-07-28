@@ -1,11 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy.orm import Session
 from datetime import datetime, timezone
-from typing import List
+
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from app import models, schemas
 from app.database import get_db
-from app.utils import auth, audit
+from app.utils import audit, auth
 
 router = APIRouter(prefix="/api/v1/consent", tags=["consent"])
 
@@ -67,7 +68,7 @@ def record_or_update_consent(
     return record
 
 
-@router.get("/{device_id}", response_model=List[schemas.ConsentRecordResponse])
+@router.get("/{device_id}", response_model=list[schemas.ConsentRecordResponse])
 def get_consent_records(
     device_id: str,
     db: Session = Depends(get_db),

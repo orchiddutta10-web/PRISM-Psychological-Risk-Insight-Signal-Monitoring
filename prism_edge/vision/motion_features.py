@@ -117,8 +117,9 @@ class MotionFeatureExtractor:
                         flows = good_new - good_old
                         flow_mean = float(np.mean(np.linalg.norm(flows, axis=1)))
                         # Average direction
-                        avg_flow = np.mean(flows, axis=0)
-                        motion_direction = float(np.degrees(np.arctan2(avg_flow[1], avg_flow[0])))
+                        avg_flow = np.mean(flows, axis=0).flatten()
+                        if len(avg_flow) >= 2:
+                            motion_direction = float(np.degrees(np.arctan2(avg_flow[1], avg_flow[0])))
                         speed = flow_mean * self._fps   # px/sec
             except cv2.error as e:
                 logger.debug("Optical flow error: %s", e)

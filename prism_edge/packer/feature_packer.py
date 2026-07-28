@@ -112,6 +112,7 @@ class FeaturePacker:
                 "pose": pose,
                 "motion": motion,
                 "voice": voice,
+                "tracking": self._shared.get("tracking_state", {}),
                 "esp32_pulse": esp32_pulse,
                 "system_health": health,
             },

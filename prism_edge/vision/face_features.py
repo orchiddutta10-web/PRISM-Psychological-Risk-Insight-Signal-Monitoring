@@ -61,10 +61,11 @@ class FaceFeatureExtractor:
     def start(self) -> None:
         """Initialize MediaPipe Face Mesh."""
         try:
-            import mediapipe as mp
-            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+            import mediapipe.python.solutions.face_mesh as mp_face_mesh
+            self._mp_face = mp_face_mesh
+            self._face_mesh = self._mp_face.FaceMesh(
                 static_image_mode=False,
-                max_num_faces=1,
+                max_num_faces=self._max_faces,
                 refine_landmarks=True,    # enables iris + lip detail landmarks
                 min_detection_confidence=self._confidence,
                 min_tracking_confidence=self._confidence,
@@ -109,7 +110,7 @@ class FaceFeatureExtractor:
             "smile_coefficient": 0.0,
             "face_center_x": -1.0,
             "face_center_y": -1.0,
-            "face_bbox": [],
+            "face_bbox": None,
             "tracking_id": 0,
         }
 
@@ -206,25 +207,42 @@ class FaceFeatureExtractor:
                 x_max = x_min + 10
             if y_max - y_min < 10:
                 y_max = y_min + 10
-            face_bbox = [x_min, y_min, x_max - x_min, y_max - y_min]
+            face_bbox = (x_min, y_min, x_max - x_min, y_max - y_min)
         else:
-            face_bbox = []
+            face_bbox = None
 
         # ── Face Center (normalized 0-1) ──────────────────────────
         face_center_x = (pts[1][0] + face_mid[0]) / (2.0 * w)
         face_center_y = (pts[1][1] + face_mid[1]) / (2.0 * h)
 
-        # ── Confidence ────────────────────────────────────────────
-        # Use detection confidence from MediaPipe (not directly exposed per-landmark);
-        # we estimate from landmark count stability
+        # ── Approximate Gaze Direction (using Iris Landmarks) ──────
+        # Iris centers are 468 (left) and 473 (right) when refine_landmarks=True
+        approx_gaze = "center"
+        if n_landmarks > 473:
+            left_iris_x = pts[468][0]
+            left_eye_inner_x = pts[133][0]
+            left_eye_outer_x = pts[33][0]
+            # Ratio of iris position between corners (0 = left, 1 = right roughly)
+            eye_width = abs(left_eye_inner_x - left_eye_outer_x) + 1e-6
+            gaze_ratio = abs(left_iris_x - left_eye_outer_x) / eye_width
+            
+            if gaze_ratio < 0.35:
+                approx_gaze = "left"
+            elif gaze_ratio > 0.65:
+                approx_gaze = "right"
+
+        # ── Confidence & Face Count ───────────────────────────────
         confidence = 0.95 if n_landmarks >= 468 else 0.8
+        face_count = 1 if self._last_present else 0
 
         return {
             "present": True,
+            "face_count": face_count,
             "confidence": round(confidence, 3),
             "eye_openness_left": round(eye_open_left, 3),
             "eye_openness_right": round(eye_open_right, 3),
             "blink_ratio": round(blink_ratio, 3),
+            "approximate_gaze": approx_gaze,
             "head_yaw_deg": round(head_yaw, 2),
             "head_pitch_deg": round(head_pitch, 2),
             "head_roll_deg": round(head_roll, 2),

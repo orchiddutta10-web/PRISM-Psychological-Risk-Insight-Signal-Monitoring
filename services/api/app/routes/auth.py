@@ -1,11 +1,12 @@
+
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app import models, schemas
 from app.database import get_db
+from app.services.auth_service import AuthService
 from app.utils import auth
 from app.utils.rate_limiter import rate_limit
-from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -88,3 +89,17 @@ def register_otp_guardian(
 ):
     ip = request.client.host if request.client else None
     return AuthService.register_otp_guardian(req, db, ip_address=ip)
+
+
+@router.get("/devices", response_model=list[schemas.ChildDeviceResponse])
+def list_guardian_devices(
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """List all devices registered under the authenticated guardian."""
+    devices = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == current_guardian.id)
+        .all()
+    )
+    return devices

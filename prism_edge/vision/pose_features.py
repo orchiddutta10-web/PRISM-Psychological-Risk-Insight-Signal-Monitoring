@@ -48,8 +48,8 @@ class PoseFeatureExtractor:
 
     def start(self) -> None:
         try:
-            import mediapipe as mp
-            self._pose = mp.solutions.pose.Pose(
+            import mediapipe.python.solutions.pose as mp_pose
+            self._pose = mp_pose.Pose(
                 static_image_mode=False,
                 model_complexity=1,               # 1 = balanced (0=lite, 2=heavy)
                 smooth_landmarks=True,

@@ -70,6 +70,26 @@ HEALTH_CHECK_INTERVAL_SEC: float = float(os.getenv("PRISM_HEALTH_CHECK_SEC", "30
 TEMP_THROTTLE_C: float = float(os.getenv("PRISM_TEMP_THROTTLE_C", "80.0"))
 RAM_WARNING_PCT: float = float(os.getenv("PRISM_RAM_WARNING_PCT", "90.0"))
 
+# ── Offline Queue ──────────────────────────────────────────────────────
+OFFLINE_DB_PATH: Path = Path(os.getenv("PRISM_OFFLINE_DB_PATH", str(DATA_DIR / "offline_queue.db")))
+OFFLINE_SYNC_BATCH_SIZE: int = int(os.getenv("PRISM_SYNC_BATCH_SIZE", "100"))
+OFFLINE_SYNC_MAX_RETRIES: int = int(os.getenv("PRISM_SYNC_MAX_RETRIES", "5"))
+OFFLINE_SYNC_PURGE_HOURS: int = int(os.getenv("PRISM_SYNC_PURGE_HOURS", "24"))
+OFFLINE_SYNC_PURGE_AGGRESSIVE: int = int(os.getenv("PRISM_SYNC_PURGE_AGGRESSIVE", "1000"))
+OFFLINE_QUEUE_MAX_DISK_MB: int = int(os.getenv("PRISM_QUEUE_MAX_DISK_MB", "100"))
+OFFLINE_QUEUE_MIN_FREE_MB: int = int(os.getenv("PRISM_QUEUE_MIN_FREE_MB", "10"))
+
+# ── Connectivity ──────────────────────────────────────────────────────
+CONNECTIVITY_PROBE_INTERVAL_ONLINE: float = float(os.getenv("PRISM_CONNECTIVITY_PROBE_INTERVAL_ONLINE", "15.0"))
+CONNECTIVITY_PROBE_INTERVAL_OFFLINE: float = float(os.getenv("PRISM_CONNECTIVITY_PROBE_INTERVAL_OFFLINE", "5.0"))
+CONNECTIVITY_PROBE_TIMEOUT: float = float(os.getenv("PRISM_CONNECTIVITY_PROBE_TIMEOUT", "3.0"))
+CONNECTIVITY_FAILURES_TO_OFFLINE: int = int(os.getenv("PRISM_CONNECTIVITY_FAILURES_TO_OFFLINE", "3"))
+CONNECTIVITY_SUCCESSES_TO_ONLINE: int = int(os.getenv("PRISM_CONNECTIVITY_SUCCESSES_TO_ONLINE", "2"))
+
+# ── LCD Controller ────────────────────────────────────────────────────
+LCD_SERIAL_PORT: str = os.getenv("PRISM_LCD_SERIAL_PORT", "/dev/ttyUSB0")
+LCD_BAUD: int = int(os.getenv("PRISM_LCD_BAUD", "115200"))
+
 # ── Logging ───────────────────────────────────────────────────────────
 LOG_LEVEL: str = os.getenv("PRISM_LOG_LEVEL", "INFO")
 LOG_FORMAT: str = "json"  # "json" or "text"
@@ -83,6 +103,7 @@ def ensure_directories() -> None:
     """Create required directories if they don't exist."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     OFFLINE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    OFFLINE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
 def print_config() -> None:

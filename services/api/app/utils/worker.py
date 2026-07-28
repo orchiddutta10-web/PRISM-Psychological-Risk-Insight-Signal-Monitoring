@@ -1,7 +1,9 @@
-from datetime import datetime, timedelta, timezone
-from sqlalchemy.orm import Session
-from app import models
 import json
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy.orm import Session
+
+from app import models
 
 
 def run_baseline_aggregation(db: Session):

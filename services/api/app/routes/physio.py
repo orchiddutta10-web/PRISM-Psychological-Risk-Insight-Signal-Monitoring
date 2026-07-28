@@ -1,14 +1,14 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
-from typing import List, Optional
 
 from app import models
 from app.database import get_db
-from app.utils import auth, audit
-from app.utils.redis_client import get_redis_client
+from app.utils import audit, auth
 from app.utils.ml_engine import run_risk_engine
+from app.utils.redis_client import get_redis_client
 
 router = APIRouter(prefix="/api/v1/physio", tags=["prism-node"])
 
@@ -17,7 +17,7 @@ class PhysioReadingIn(BaseModel):
     sensor_type: str  # 'gsr' or 'ppg'
     value: float
     variance: float = 0.0
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
 
 
 class SleepWindowOut(BaseModel):
@@ -104,10 +104,10 @@ async def ingest_physio(
     return {"status": "accepted", "reading_id": reading.id}
 
 
-@router.get("/readings/{device_id}", response_model=List[PhysioReadingOut])
+@router.get("/readings/{device_id}", response_model=list[PhysioReadingOut])
 def get_physio_readings(
     device_id: str,
-    sensor_type: Optional[str] = None,
+    sensor_type: str | None = None,
     limit: int = 120,
     db: Session = Depends(get_db),
     current_guardian: models.Guardian = Depends(auth.get_current_user),
@@ -125,7 +125,7 @@ def get_physio_readings(
     return q.order_by(models.PhysioReading.timestamp.desc()).limit(limit).all()
 
 
-@router.get("/sleep/{device_id}", response_model=List[SleepWindowOut])
+@router.get("/sleep/{device_id}", response_model=list[SleepWindowOut])
 def get_sleep_windows(
     device_id: str,
     limit: int = 30,
@@ -278,7 +278,7 @@ async def ingest_pulse(
     return {"status": "accepted", "reading_id": reading.id}
 
 
-@router.get("/pulse/readings/{device_id}", response_model=List[PulseReadingOut])
+@router.get("/pulse/readings/{device_id}", response_model=list[PulseReadingOut])
 def get_pulse_readings(
     device_id: str,
     limit: int = 120,

@@ -32,10 +32,10 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://prism_user:prism_secure_password123@db:5432/prism_wellbeing
+      - DATABASE_URL=postgresql://prism_user:${DB_PASSWORD:-prism_secure_password123}@db:5432/prism_wellbeing
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET=super-secret-jwt-key-change-in-production-123456
-      - ENCRYPTION_KEY=U1RyT05nX0VOQ1JZUFRJT05fS0VZX0ZPUl9QUklTTV9URVNUMTIzNDU=
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-change-in-production-123456}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI=}
     depends_on:
       db:
         condition: service_healthy

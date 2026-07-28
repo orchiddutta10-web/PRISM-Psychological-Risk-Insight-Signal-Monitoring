@@ -1,7 +1,9 @@
-import numpy as np
 import hashlib
 import os
+from typing import Optional
+
 import joblib
+import numpy as np
 
 # Load the trained RandomForest model if available
 MODEL_PATH = os.path.join(
@@ -9,7 +11,7 @@ MODEL_PATH = os.path.join(
     "resources",
     "voice_model.joblib",
 )
-voice_clf = None
+voice_clf: Optional[object] = None
 if os.path.exists(MODEL_PATH):
     try:
         voice_clf = joblib.load(MODEL_PATH)
@@ -63,8 +65,9 @@ def extract_acoustic_features(audio_bytes: bytes) -> np.ndarray:
     if len(audio_bytes) > 1000:
         try:
             import io
-            import soundfile as sf
+
             import librosa
+            import soundfile as sf
 
             data, samplerate = sf.read(io.BytesIO(audio_bytes))
             if len(data.shape) > 1:

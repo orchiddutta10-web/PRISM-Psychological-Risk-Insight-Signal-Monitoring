@@ -1,7 +1,8 @@
-import time
 import json
 import logging
 import sys
+import time
+
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -72,7 +73,7 @@ class APMMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             process_time_ms = (time.perf_counter() - start_time) * 1000
             logging.error(
-                f"APM TRACE ERROR: {method} {path} failed after {process_time_ms:.2f}ms due to: {str(e)}",
+                f"APM TRACE ERROR: {method} {path} failed after {process_time_ms:.2f}ms due to: {e!s}",
                 exc_info=True,
                 extra={
                     "extra_data": {
@@ -85,7 +86,7 @@ class APMMiddleware(BaseHTTPMiddleware):
                 },
             )
             trigger_critical_alert(
-                error_msg=f"HTTP endpoint {method} {path} failed: {str(e)}",
+                error_msg=f"HTTP endpoint {method} {path} failed: {e!s}",
                 context={"latency_ms": process_time_ms},
             )
             raise e

@@ -1,7 +1,7 @@
-import sqlite3
 import os
+import sqlite3
 
-db_path = 'prism.db'
+db_path = "prism.db"
 if not os.path.exists(db_path):
     print("prism.db does not exist!")
 else:

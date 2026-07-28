@@ -1,4 +1,5 @@
 import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,8 +17,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Symmetric Fernet key for encrypting sensitive fields at rest (e.g. GPS coordinates).
+    # Default is a cryptographically valid key for development only — MUST be overridden in production.
     ENCRYPTION_KEY: str = os.getenv(
-        "ENCRYPTION_KEY", "U1RyT05nX0VOQ1JZUFRJT05fS0VZX0ZPUl9QUklTTV9URVNUMTIzNDU="
+        "ENCRYPTION_KEY", "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI="
     )
 
     # Meta API Webhook Configuration
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
                 )
             if (
                 self.ENCRYPTION_KEY
-                == "U1RyT05nX0VOQ1JZUFRJT05fS0VZX0ZPUl9QUklTTV9URVNUMTIzNDU="
+                == "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI="
             ):
                 raise ValueError(
                     "Security Hardening Failure: Default ENCRYPTION_KEY is active in production mode."

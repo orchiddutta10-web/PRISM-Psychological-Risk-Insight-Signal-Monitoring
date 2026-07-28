@@ -1,16 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
-from datetime import datetime
-import os
-import shutil
 
 from app import models
 from app.database import get_db
-from app.utils import auth, audit
+from app.utils import audit, auth
 from app.utils.voice_processor import (
-    extract_speaker_embedding,
     calculate_cosine_similarity,
     classify_affect,
+    extract_speaker_embedding,
 )
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
@@ -121,33 +118,15 @@ async def voice_checkin(
 
     db.commit()
 
-    # 5. In-Memory Volatility Enforcement (Raw Audio Retention Check)
-    retention_consent = (
-        db.query(models.ConsentGrant)
-        .filter(
-            models.ConsentGrant.subject_id == current_device.id,
-            models.ConsentGrant.modality == "voice_retention",
-        )
-        .first()
-    )
+    # 5. Raw Audio Volatility Enforcement
+    # Per PRISM privacy spec, raw audio bytes are processed entirely in-memory
+    # and discarded after feature extraction. No raw content is ever persisted to disk.
+    # The voice_retention consent modality is reserved for future use with encrypted
+    # feature-vector retention only, not raw audio storage.
 
-    persisted = False
-    if retention_consent and retention_consent.is_granted:
-        # Persist raw audio file
-        upload_dir = "uploads/voice"
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"{session.id}_{audio.filename}")
-
-        # Reset read head and save
-        await audio.seek(0)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(audio.file, buffer)
-        persisted = True
-
-    # Audit logging
     audit.log_audit_event(
         db,
-        action=f"Voice check-in processed. Emotion: {emotion_label}. Audio persisted: {persisted}.",
+        action=f"Voice check-in processed. Emotion: {emotion_label}. Raw audio discarded per privacy policy.",
         device_id=current_device.id,
     )
 
@@ -156,5 +135,5 @@ async def voice_checkin(
         "speaker_verified": True,
         "emotion_label": emotion_label,
         "confidence": confidence,
-        "audio_discarded": not persisted,
+        "audio_discarded": True,
     }

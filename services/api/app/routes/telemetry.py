@@ -1,25 +1,25 @@
 import json
+from datetime import datetime, timezone
+
 from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
     Request,
-    status,
     WebSocket,
     WebSocketDisconnect,
+    status,
 )
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
-from typing import List
 
 from app import models, schemas
-from app.database import get_db, SessionLocal
-from app.utils import auth, audit
-from app.utils.redis_client import get_redis_client
-from app.utils.worker import run_baseline_aggregation, purge_raw_events
+from app.database import SessionLocal, get_db
+from app.utils import audit, auth
 from app.utils.circadian_estimator import infer_sleep_windows
 from app.utils.ml_engine import run_risk_engine
+from app.utils.redis_client import get_redis_client
 from app.utils.risk_registry import check_event_for_risks
+from app.utils.worker import purge_raw_events, run_baseline_aggregation
 
 router = APIRouter(prefix="/api/v1/events", tags=["telemetry"])
 
@@ -337,6 +337,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
 
     try:
         from jose import jwt
+
         from app.config import settings
 
         payload = jwt.decode(
@@ -450,7 +451,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
         await pubsub.unsubscribe(*channels)
 
 
-@router.get("/alerts/{device_id}", response_model=List[schemas.AlertResponse])
+@router.get("/alerts/{device_id}", response_model=list[schemas.AlertResponse])
 def get_alerts(
     device_id: str,
     db: Session = Depends(get_db),
@@ -466,7 +467,7 @@ def get_alerts(
     )
 
 
-@router.get("/scores/{device_id}", response_model=List[schemas.RiskScoreResponse])
+@router.get("/scores/{device_id}", response_model=list[schemas.RiskScoreResponse])
 def get_scores(
     device_id: str,
     db: Session = Depends(get_db),
@@ -653,7 +654,7 @@ def seed_baselines(
     return {"status": "seeded", "device_id": req.device_id}
 
 
-@router.get("/chat/history", response_model=List[schemas.ChatMessageResponse])
+@router.get("/chat/history", response_model=list[schemas.ChatMessageResponse])
 def get_chat_history(
     db: Session = Depends(get_db),
     current_guardian: models.Guardian = Depends(auth.get_current_user),

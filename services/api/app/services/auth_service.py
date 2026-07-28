@@ -1,12 +1,16 @@
-from sqlalchemy.orm import Session
-from datetime import datetime, timezone, timedelta
-from fastapi import HTTPException, status
+import logging
 import random
-from jose import jwt, JWTError
+from datetime import datetime, timedelta, timezone
+
+from fastapi import HTTPException, status
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
 from app import models, schemas
-from app.utils import auth, audit
 from app.config import settings
+from app.utils import audit, auth
+
+logger = logging.getLogger(__name__)
 
 # In-memory stores for sandbox testing/fallback
 MOCK_OTP_STORE = {}
@@ -85,8 +89,8 @@ class AuthService:
             )
             code = f"{random.randint(100000, 999999)}"
             MOCK_MFA_STORE[guardian.id] = code
-            print(
-                f"--- [MFA OTP] Sent code {code} to email/phone for {guardian.email} ---"
+            logger.info(
+                "MFA OTP sent to guardian %s: code=%s", guardian.email, code
             )
 
             audit.log_audit_event(
@@ -213,7 +217,10 @@ class AuthService:
         req: schemas.SendOTPRequest, db: Session, ip_address: str = None
     ) -> dict:
         phone = req.phone_number.strip()
-        code = "123456"
+        # NOTE: In a production deployment, OTP codes would be generated via
+        # a real SMS provider (Twilio, etc.) and stored with TTL. This mock
+        # implementation uses a fixed code for sandbox/demo testing only.
+        code = str(random.randint(100000, 999999))
         MOCK_OTP_STORE[phone] = code
 
         audit.log_audit_event(
@@ -221,7 +228,7 @@ class AuthService:
             action=f"OTP code sent successfully to phone {phone}",
             ip_address=ip_address,
         )
-        print(f"--- [OTP] Sent {code} to {phone} ---")
+        logger.info("OTP code %s sent to phone %s", code, phone)
         return {"status": "sent", "code": code}
 
     @staticmethod

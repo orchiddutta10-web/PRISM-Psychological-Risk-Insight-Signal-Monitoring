@@ -1,7 +1,9 @@
-import time
 import collections
 import threading
-from fastapi import Request, HTTPException, status
+import time
+
+from fastapi import HTTPException, Request, status
+
 from app.utils.redis_client import get_redis_client
 
 _MEM_LIMITS = collections.defaultdict(list)
@@ -13,12 +15,16 @@ def check_in_memory_limit(ip: str, path: str, limit: int = 5, period: int = 60) 
     key = f"{ip}:{path}"
     now = time.time()
     with _MEM_LOCK:
-        # filter out timestamps older than the window period
         timestamps = [t for t in _MEM_LIMITS[key] if now - t < period]
         if len(timestamps) >= limit:
             return False
         timestamps.append(now)
         _MEM_LIMITS[key] = timestamps
+        # Prevent unbounded memory growth: periodically purge stale entries
+        if len(_MEM_LIMITS) > 10000:
+            stale = [k for k, v in _MEM_LIMITS.items() if not v or now - max(v) > period * 10]
+            for k in stale:
+                del _MEM_LIMITS[k]
         return True
 
 

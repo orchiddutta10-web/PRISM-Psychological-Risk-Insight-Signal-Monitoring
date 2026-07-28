@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 // Hardware: ESP32 + Analog Pulse Sensor (GPIO34) + MPU6050 (I2C) + ISD1820 + I2C LCD
 // This surface is intentionally isolated — no imports from the behavior dashboard.
 
-type Tab = 'vitals' | 'sleep' | 'status' | 'about'
+type Tab = 'vitals' | 'sleep' | 'status' | 'system' | 'about'
 
 interface PulseReading {
   id: string
@@ -235,6 +235,7 @@ export default function PrismNodePage() {
     { id: 'vitals', label: '❤️  Live Vitals' },
     { id: 'sleep', label: '🌙  Sleep Windows' },
     { id: 'status', label: '📡  Device Status' },
+    { id: 'system', label: '⚙️  System Health' },
     { id: 'about', label: 'ℹ️  About' },
   ]
 
@@ -441,7 +442,84 @@ export default function PrismNodePage() {
           </div>
         )}
 
+        {/* ── System Health ── */}
+        {tab === 'system' && (
+          <div className="pn-slide">
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 24 }}>System Health & Edge Performance</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 24 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>CPU Usage</p>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 36, fontWeight: 900, color: '#e2e8f0' }}>24<span style={{ fontSize: 16, color: 'var(--text-muted)' }}>%</span></span>
+                  <span style={{ fontSize: 12, color: '#10b981' }}>↓ 2%</span>
+                </div>
+                <div style={{ marginTop: 12, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: '24%', height: '100%', background: '#3b82f6' }} />
+                </div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Memory (RAM)</p>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 36, fontWeight: 900, color: '#e2e8f0' }}>1.2<span style={{ fontSize: 16, color: 'var(--text-muted)' }}>GB</span></span>
+                </div>
+                <div style={{ marginTop: 12, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: '60%', height: '100%', background: '#8b5cf6' }} />
+                </div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Core Temp</p>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span style={{ fontSize: 36, fontWeight: 900, color: '#e2e8f0' }}>42<span style={{ fontSize: 16, color: 'var(--text-muted)' }}>°C</span></span>
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Stable</span>
+                </div>
+                <div style={{ marginTop: 12, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ width: '42%', height: '100%', background: '#f59e0b' }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 16 }}>Network & Sync</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Latency (Ping)</span>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>18 ms</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Throughput</span>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>1.4 MB/s</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Latest Block / Sync</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#10b981' }}>100% Synced</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 20, backdropFilter: 'blur(12px)' }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#fca5a5', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 16 }}>Offline Queue & Jobs</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Pending Jobs</span>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>0</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Processing Rate</span>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>142 / min</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Failures / Retries</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-muted)' }}>0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── About ── */}
+
         {tab === 'about' && (
           <div className="pn-slide" style={{ maxWidth: 700 }}>
             <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 6 }}>What PRISM Node Measures — and Why</h2>

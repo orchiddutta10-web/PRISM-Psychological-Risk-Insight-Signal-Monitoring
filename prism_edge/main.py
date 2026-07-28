@@ -32,6 +32,7 @@ shared_state: Dict[str, Any] = {
     "motion": {},
     "voice": {},
     "esp32_pulse": {},
+    "tracking_state": {},
 }
 state_lock = threading.Lock()
 
@@ -56,6 +57,48 @@ def main() -> None:
 
     # ── Import-heavy modules (lazy) ────────────────────────────────
     global cv2
+
+    # ── 0. Start Offline Infrastructure ──────────────────────────
+    from prism_edge.offline_queue import OfflineQueue, SyncEngine
+    from prism_edge.connectivity import ConnectivityMonitor
+    from prism_edge.lcd_controller import LCDController
+
+    lcd = LCDController(config.LCD_SERIAL_PORT, config.LCD_BAUD)
+    lcd.connect()
+    lcd.set_status("BOOTING")
+    _pipelines["lcd"] = lcd
+
+    offline_queue = OfflineQueue(config.OFFLINE_DB_PATH)
+    if not offline_queue.verify_integrity():
+        logger.critical("Offline queue integrity check FAILED — recreating")
+        offline_queue._db_path.unlink(missing_ok=True)
+        offline_queue._init_db()
+
+    connectivity = ConnectivityMonitor()
+    connectivity.start()
+    _pipelines["connectivity"] = connectivity
+
+    sync_engine = SyncEngine(
+        offline_queue, connectivity,
+        config.API_BASE_URL, config.API_DEVICE_JWT, config.API_DEVICE_ID,
+    )
+    sync_engine.start()
+    _pipelines["sync_engine"] = sync_engine
+
+    # Wire LCD status updates to connectivity state
+    def _on_connectivity_change():
+        if connectivity.is_online():
+            if sync_engine.active:
+                lcd.set_status("SYNCING")
+            else:
+                lcd.set_status("ONLINE")
+        else:
+            lcd.set_status("OFFLINE")
+
+    connectivity.on_online(lambda: _on_connectivity_change())
+    connectivity.on_offline(lambda: _on_connectivity_change())
+
+    sync_engine.on_status(lambda state: _on_connectivity_change())
 
     # ── 1. Start ESP32 Bridge (lightweight Flask HTTP server) ──────
     from prism_edge.bridge.esp32_bridge import start_bridge
@@ -128,9 +171,17 @@ def main() -> None:
 
     # ── 5. Start API Client (Writer) ───────────────────────────────
     from prism_edge.api.client import ApiClient
-    api_client = ApiClient(tx_queue)
+    api_client = ApiClient(tx_queue, offline_queue=offline_queue, connectivity_monitor=connectivity)
     api_client.start()
     _pipelines["api"] = api_client
+
+    # Wire edge_bridge.py global references for offline queue + LCD
+    try:
+        from prism_edge.edge_bridge import set_offline_queue, set_lcd_controller
+        set_offline_queue(offline_queue)
+        set_lcd_controller(lcd)
+    except ImportError:
+        pass
 
     logger.info("All pipelines started — running")
 
@@ -152,10 +203,14 @@ def main() -> None:
             from prism_edge.utils.health_monitor import get_health_snapshot
             health = get_health_snapshot()
             api_connected = "connected" if api_client.connected else f"disconnected ({api_client.consecutive_failures} failures)"
+            conn_status = "online" if connectivity.is_online() else "offline"
+            queue_stats = offline_queue.count_by_status()
+            pending = queue_stats.get("pending", 0) + queue_stats.get("failed", 0)
+            syncing = " (syncing)" if sync_engine.active else ""
             logger.info(
-                "Health: CPU=%.1f%% RAM=%.1f%% Temp=%.1f°C API=%s Queue=%d",
+                "Health: CPU=%.1f%% RAM=%.1f%% Temp=%.1f°C API=%s Net=%s Queue=%d%s",
                 health["cpu_percent"], health["ram_percent"],
-                health["temperature_c"], api_connected, tx_queue.qsize(),
+                health["temperature_c"], api_connected, conn_status, pending, syncing,
             )
 
             # Thermal throttle warning
@@ -182,6 +237,9 @@ def vision_loop(
     last_motion_frame_time = 0.0
     motion_interval = 1.0 / max(config.MOTION_FPS, 1)
 
+    from prism_edge.vision.state_tracker import StateTracker
+    state_tracker = StateTracker()
+
     logger.info("Vision pipeline started")
 
     while not shutdown_event.is_set():
@@ -189,6 +247,10 @@ def vision_loop(
         if frame is None:
             time.sleep(0.01)
             continue
+
+        face_feats = {}
+        pose_feats = {}
+        motion_feats = {}
 
         # Face extraction
         if face_extractor.ready:
@@ -217,6 +279,16 @@ def vision_loop(
                     shared_state["motion"] = motion_feats
             except Exception as e:
                 logger.debug("Motion extraction error: %s", e)
+
+        # Update Time-Series State Tracker
+        try:
+            with state_lock:
+                voice_feats = shared_state.get("voice", {})
+            tracking_state = state_tracker.update(face_feats, pose_feats, motion_feats, voice_feats, timestamp)
+            with state_lock:
+                shared_state["tracking_state"] = tracking_state
+        except Exception as e:
+            logger.debug("State tracker error: %s", e)
 
 
 def shutdown() -> None:

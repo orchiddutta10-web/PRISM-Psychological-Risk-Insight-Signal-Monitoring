@@ -1,14 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
 
 from app import models
 from app.database import get_db
-from app.utils import auth, audit
+from app.utils import audit, auth
 from app.utils.companion_engine import (
-    PERSONAS,
     DISCLOSURE_BANNER,
+    PERSONAS,
     handle_companion_message,
 )
 
@@ -147,11 +148,25 @@ def verify_meta_webhook(
 
 
 @router.post("/webhook/meta")
-async def meta_webhook(payload: dict, db: Session = Depends(get_db)):
+async def meta_webhook(payload: dict, request: Request, db: Session = Depends(get_db)):
     """
     Meta Inbound Webhook (WhatsApp & Instagram).
     Parses sender, text, and channels, then routes to AI + Crisis classifier.
     """
+    # Validate x-hub-signature-256 if META_APP_SECRET is configured
+    from app.config import settings
+
+    app_secret = os.environ.get("META_APP_SECRET", "")
+    signature = request.headers.get("x-hub-signature-256", "")
+    if app_secret:
+        import hashlib
+        import hmac
+
+        raw_body = await request.body()
+        expected_sig = f"sha256={hmac.new(app_secret.encode(), raw_body, hashlib.sha256).hexdigest()}"
+        if not hmac.compare_digest(signature, expected_sig):
+            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+
     channel = None
     sender_id = None
     message_text = None
@@ -220,7 +235,7 @@ async def meta_webhook(payload: dict, db: Session = Depends(get_db)):
         try:
             if channel == "whatsapp":
                 # Call WhatsApp Send Message API
-                whatsapp_url = f"https://graph.facebook.com/v17.0/me/messages"
+                whatsapp_url = "https://graph.facebook.com/v17.0/me/messages"
                 headers = {
                     "Authorization": f"Bearer {settings.META_ACCESS_TOKEN}",
                     "Content-Type": "application/json",
@@ -235,7 +250,7 @@ async def meta_webhook(payload: dict, db: Session = Depends(get_db)):
                     await client.post(whatsapp_url, headers=headers, json=body)
             elif channel == "instagram":
                 # Call Instagram Send Message API
-                instagram_url = f"https://graph.facebook.com/v17.0/me/messages"
+                instagram_url = "https://graph.facebook.com/v17.0/me/messages"
                 headers = {
                     "Authorization": f"Bearer {settings.META_ACCESS_TOKEN}",
                     "Content-Type": "application/json",

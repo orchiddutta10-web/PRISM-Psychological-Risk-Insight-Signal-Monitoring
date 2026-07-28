@@ -1,13 +1,17 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-import json
 
 from app import models
-from app.database import engine, SessionLocal
-from app.routes import auth, consent, telemetry, audit, voice, companion, physio
 from app.config import settings
-from app.utils.observability import setup_structured_logging, APMMiddleware
+from app.database import SessionLocal, engine
+from app.routes import audit, auth, behavior, companion, consent, guardian, ml, offline, physio, sensors, telemetry, voice
+from app.routes.ml import set_ml_engine
+from app.utils.observability import APMMiddleware, setup_structured_logging
+from app.utils.prism_ml_engine import PrismMLEngine
 
 # Initialize structured JSON logging
 setup_structured_logging()
@@ -79,17 +83,26 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 db.add(entry)
                 db.commit()
             except Exception as e:
-                print(f"Failed to log audit event: {e}")
+                logging.getLogger(__name__).error("Failed to log audit event: %s", str(e))
             finally:
                 db.close()
 
         return response
 
 
+# ── Lifespan — replaces deprecated @app.on_event("startup") ────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    set_ml_engine(PrismMLEngine(SessionLocal))
+    yield
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Consent-first behavioral well-being signal telemetry ingestion and guardian alerting API.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS
@@ -127,3 +140,8 @@ app.include_router(audit.router)
 app.include_router(voice.router)
 app.include_router(companion.router)
 app.include_router(physio.router)
+app.include_router(ml.router)
+app.include_router(sensors.router)
+app.include_router(behavior.router)
+app.include_router(guardian.router)
+app.include_router(offline.router)

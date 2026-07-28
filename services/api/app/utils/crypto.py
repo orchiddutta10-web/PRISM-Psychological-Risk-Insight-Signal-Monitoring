@@ -1,16 +1,24 @@
-import base64
+import logging
+
 from cryptography.fernet import Fernet
+
 from app.config import settings
 
-# Ensure key is valid base64 and 32 bytes. If not, generate a fallback key or pad/truncate it
+logger = logging.getLogger(__name__)
+
+# Validate configured encryption key. Generating a random fallback silently
+# would cause irreversible data loss — all previously encrypted fields would
+# become permanently unreadable after a restart.
 try:
     key_bytes = settings.ENCRYPTION_KEY.encode()
-    # Try creating Fernet instance to validate
     fernet_client = Fernet(key_bytes)
 except Exception:
-    # Generate a secure fallback key if the configured key is invalid or default
-    fallback_key = Fernet.generate_key()
-    fernet_client = Fernet(fallback_key)
+    raise ValueError(
+        "FATAL: Invalid ENCRYPTION_KEY in configuration. "
+        "Cannot silently fall back to a random key — this would permanently "
+        "corrupt all previously encrypted data. Provide a valid 32-byte "
+        "base64-encoded Fernet key."
+    )
 
 
 def encrypt_field(plain_text: str) -> str:

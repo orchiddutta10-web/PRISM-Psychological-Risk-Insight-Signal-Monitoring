@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from typing import List
 
 from app import models, schemas
 from app.database import get_db
@@ -9,7 +9,7 @@ from app.utils import auth
 router = APIRouter(prefix="/api/v1/audit", tags=["audit"])
 
 
-@router.get("", response_model=List[schemas.AuditLogResponse])
+@router.get("", response_model=list[schemas.AuditLogResponse])
 def get_audit_logs(
     db: Session = Depends(get_db),
     current_guardian: models.Guardian = Depends(auth.get_current_user),
@@ -38,7 +38,7 @@ def get_audit_logs(
     return logs
 
 
-@router.get("/entries", response_model=List[schemas.AuditLogEntryResponse])
+@router.get("/entries", response_model=list[schemas.AuditLogEntryResponse])
 def get_immutable_audit_entries(
     db: Session = Depends(get_db),
     current_guardian: models.Guardian = Depends(auth.RoleChecker(["guardian-admin"])),

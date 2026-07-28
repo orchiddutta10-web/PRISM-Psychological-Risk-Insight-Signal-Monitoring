@@ -1,14 +1,15 @@
-from typing import Optional
+
 from sqlalchemy.orm import Session
+
 from app import models
 
 
 def log_audit_event(
     db: Session,
     action: str,
-    guardian_id: Optional[str] = None,
-    device_id: Optional[str] = None,
-    ip_address: Optional[str] = None,
+    guardian_id: str | None = None,
+    device_id: str | None = None,
+    ip_address: str | None = None,
 ):
     """
     Writes an entry to the immutable audit log.

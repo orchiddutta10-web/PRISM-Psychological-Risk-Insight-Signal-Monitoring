@@ -1,13 +1,15 @@
 import time
-import json
-import numpy as np
-from fastapi.testclient import TestClient
-from app.main import app as fastapi_app
-from app.database import SessionLocal as TestingSessionLocal, engine, Base
-from app import models
 
 # Mock Redis client globally for standalone script run
 from unittest.mock import AsyncMock
+
+import numpy as np
+from fastapi.testclient import TestClient
+
+from app import models
+from app.database import Base, engine
+from app.database import SessionLocal as TestingSessionLocal
+from app.main import app as fastapi_app
 
 mock_redis_client = AsyncMock()
 mock_redis_client.publish = AsyncMock(return_value=1)

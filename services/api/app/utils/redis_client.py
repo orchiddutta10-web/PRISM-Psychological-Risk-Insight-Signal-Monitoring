@@ -1,19 +1,20 @@
 import asyncio
 import logging
-from typing import Dict, Set
+
 import redis.asyncio as aioredis
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 # Global in-memory storage and pubsub channels for the mock
-_mem_db: Dict[str, str] = {}
-_subscribers: Dict[str, Set[asyncio.Queue]] = {}
+_mem_db: dict[str, str] = {}
+_subscribers: dict[str, set[asyncio.Queue]] = {}
 
 
 class MockPubSub:
     def __init__(self):
-        self.subscribed_channels: Set[str] = set()
+        self.subscribed_channels: set[str] = set()
         self.queue: asyncio.Queue = asyncio.Queue()
 
     async def subscribe(self, *channels):

@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Any
+
 from sqlalchemy.orm import Session
+
 from app import models
 
 
@@ -27,16 +28,14 @@ class WearableIngestionContract(ABC):
         Validates telemetry signals, checks consent, and writes updates to
         the PhysiologicalBaseline database table.
         """
-        pass
 
     @abstractmethod
     def get_physiological_baseline(
         self, device_id: str, metric_type: str, db: Session
-    ) -> Optional[models.PhysiologicalBaseline]:
+    ) -> models.PhysiologicalBaseline | None:
         """
         Retrieves the rolling mean and variance parameters for a physiological signal.
         """
-        pass
 
 
 # --- 2. Multimodal Fusion Service Stub ---
@@ -50,17 +49,16 @@ class MultimodalFusionService(ABC):
     @abstractmethod
     def construct_temporal_fusion_matrix(
         self, device_id: str, window_size_hours: int, db: Session
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Queries and aligns historical RawSignalEvent and PhysiologicalBaseline rows
         into a synchronized feature vector sequence ready for neural network inference.
         """
-        pass
 
     @abstractmethod
     def predict_multimodal_wellbeing_anomaly(
-        self, feature_sequence: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, feature_sequence: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """
         Executes a sequence classifier to predict likelihood of wellness deviations.
         Returns:
@@ -70,7 +68,6 @@ class MultimodalFusionService(ABC):
                 "attention_weights": List[float]
             }
         """
-        pass
 
 
 # --- 3. Dynamic Risk Registry Interface ---
@@ -81,7 +78,7 @@ class RiskRegistryProvider(ABC):
     """
 
     @abstractmethod
-    def check_package_risk_category(self, package_name: str) -> Dict[str, Any]:
+    def check_package_risk_category(self, package_name: str) -> dict[str, Any]:
         """
         Checks a package name against a dynamic registry provider (e.g., CleanPlay, SafeApp API).
         Returns:
@@ -92,11 +89,9 @@ class RiskRegistryProvider(ABC):
                 "registry_source": str
             }
         """
-        pass
 
     @abstractmethod
-    def update_local_cache(self, risk_database_feed: List[Dict[str, Any]]) -> bool:
+    def update_local_cache(self, risk_database_feed: list[dict[str, Any]]) -> bool:
         """
         Synchronizes local cache with the latest crowdsourced feed.
         """
-        pass

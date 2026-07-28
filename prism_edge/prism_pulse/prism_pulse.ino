@@ -14,10 +14,10 @@
 #include <HTTPClient.h>
 
 // ── WiFi & API Config ─────────────────────────────────────────────
-#define WIFI_SSID       "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
-#define API_BASE_URL    "http://192.168.1.100:8000"  // PRISM API server IP
-#define DEVICE_JWT      "YOUR_DEVICE_JWT_TOKEN"       // From /api/v1/auth/device
+#define WIFI_SSID       "Galaxy A23 5G F647"
+#define WIFI_PASSWORD   "123456789"
+#define API_BASE_URL    "http://192.168.180.193:8500"  // Laptop PRISM Edge Bridge
+#define DEVICE_JWT      ""                              // Edge bridge runs without JWT
 
 // ── Pin Definitions ───────────────────────────────────────────────
 #define PULSE_PIN       34    // Analog Pulse Sensor (S) → GPIO34
@@ -55,6 +55,10 @@ unsigned long lastSampleMs   = 0;
 unsigned long lastDisplayMs  = 0;
 unsigned long lastSerialMs   = 0;
 unsigned long lastTxMs       = 0;
+
+// ── Pi Status (LCD indicator from Raspberry Pi) ────────────────────
+char piStatusChar = 'B';          // default: Booting
+unsigned long lastPiStatusMs = 0;
 
 const long SAMPLE_INTERVAL   = 20;     // 50 Hz sampling for pulse
 const long DISPLAY_INTERVAL  = 1000;   // Update LCD every 1s
@@ -236,6 +240,16 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
+  // ── Read Pi Status Byte from UART ────────────────────────────────
+  if (Serial.available() > 0) {
+    char c = Serial.read();
+    // Valid Pi status characters: O, X, S, E, B
+    if (c == 'O' || c == 'X' || c == 'S' || c == 'E' || c == 'B') {
+      piStatusChar = c;
+      lastPiStatusMs = now;
+    }
+  }
+
   // ── Handle WiFi state machine (non-blocking) ────────────────────
   if (now - lastSampleMs >= SAMPLE_INTERVAL || 
       wifiState == WIFI_CONNECTING || 
@@ -318,12 +332,13 @@ void loop() {
       lcd.setCursor(0, 0);
       lcd.print("BPM:"); lcd.print(BPM); lcd.print(" G:"); lcd.print(currentGForce, 1);
       
-      // WiFi indicator on LCD row 0
+      // Pi status character on LCD row 0 (replaces WiFi indicator)
+      // If no Pi status received for 10s, show '?'
       lcd.setCursor(13, 0);
-      if (wifiState == WIFI_CONNECTED) {
-        lcd.print("W");
+      if (now - lastPiStatusMs < 10000) {
+        lcd.print(piStatusChar);
       } else {
-        lcd.print(".");
+        lcd.print("?");
       }
       lcd.print("  ");
 
