@@ -347,6 +347,85 @@ def evaluate_pulse_model(
     return risk_score
 
 
+def evaluate_behavioral_ai_model(
+    device_id: str, metadata: dict, db: Session
+) -> list[models.RiskScore]:
+    """
+    Behavioral AI Model (Module 3): unobtrusive mental-wellbeing screening.
+
+    Runs the signal-level models (stress, cognitive load, typing fatigue,
+    typing stability) on a typing event, persists a RiskScore per dimension,
+    then runs the trend model over a rolling window to produce anxiety /
+    depression trend + a Mental Risk Score with confidence.
+
+    Every output ships human-readable contributing factors and the screening
+    disclaimer (behavioral pattern may warrant attention — NOT a diagnosis).
+    """
+    from app.utils import behavioral_ai
+
+    results = behavioral_ai.evaluate_signal(metadata)
+    created = []
+
+    for dim, res in results.items():
+        risk_score = models.RiskScore(
+            device_id=device_id,
+            model_name=f"behavioral_{dim}",
+            score=res["score"],
+            threshold=res["threshold"],
+            flagged=res["flagged"],
+        )
+        risk_score.contributing_factors = res["factors"]
+        db.add(risk_score)
+        created.append(risk_score)
+
+    # Trend: pull the last N behavioral signal scores for this device.
+    latest = (
+        db.query(models.RiskScore)
+        .filter(
+            models.RiskScore.device_id == device_id,
+            models.RiskScore.model_name.like("behavioral_%"),
+            models.RiskScore.model_name != "behavioral_mental_risk",
+        )
+        .order_by(models.RiskScore.timestamp.desc())
+        .limit(40)
+        .all()
+    )
+    # Group by timestamp into flat score dicts (newest last for slope sign).
+    by_ts: dict = {}
+    for s in latest:
+        ts = s.timestamp
+        dim = s.model_name.replace("behavioral_", "")
+        by_ts.setdefault(ts, {})[dim] = s.score
+    window = []
+    for ts in sorted(by_ts.keys()):
+        row = by_ts[ts]
+        window.append(
+            {
+                "stress": row.get("stress", 0.0),
+                "cognitive_load": row.get("cognitive_load", 0.0),
+                "typing_fatigue": row.get("typing_fatigue", 0.0),
+                "typing_stability": row.get("typing_stability", 0.0),
+            }
+        )
+
+    trend = behavioral_ai.evaluate_trend(window)
+    trend_score = models.RiskScore(
+        device_id=device_id,
+        model_name="behavioral_mental_risk",
+        score=trend["mental_risk_score"],
+        threshold=0.6,
+        flagged=trend["flagged"],
+    )
+    trend_score.contributing_factors = trend["factors"]
+    db.add(trend_score)
+    created.append(trend_score)
+
+    db.commit()
+    for s in created:
+        db.refresh(s)
+    return created
+
+
 async def run_risk_engine(
     device_id: str, signal_type: str, metadata: dict, db: Session
 ):
@@ -356,6 +435,7 @@ async def run_risk_engine(
     elif signal_type == "typing":
         evaluate_typing_model(device_id, metadata, db)
         evaluate_typing_rhythm_model(device_id, metadata, db)
+        evaluate_behavioral_ai_model(device_id, metadata, db)
     elif signal_type == "app_usage":
         if "new_installed_packages" in metadata:
             evaluate_risk_signatures(device_id, metadata, db)
@@ -368,7 +448,10 @@ async def run_risk_engine(
 
 async def aggregate_alerts(device_id: str, db: Session):
     """Aggregates scores and writes any generated alerts to PostgreSQL."""
-    models_list = ["mobility", "typing", "typing_rhythm", "app_usage", "signatures", "pulse"]
+    models_list = [
+        "mobility", "typing", "typing_rhythm", "behavioral_mental_risk",
+        "app_usage", "signatures", "pulse",
+    ]
     latest_scores = []
 
     for m in models_list:
@@ -402,6 +485,9 @@ async def aggregate_alerts(device_id: str, db: Session):
     is_typing_rhythm_flagged = any(
         s.model_name == "typing_rhythm" for s in flagged_scores
     )
+    is_mental_risk_flagged = any(
+        s.model_name == "behavioral_mental_risk" for s in flagged_scores
+    )
     is_pulse_flagged = any(s.model_name == "pulse" for s in flagged_scores)
 
     severity = "sage"
@@ -419,12 +505,17 @@ async def aggregate_alerts(device_id: str, db: Session):
             summary = "Unsafe anonymous chat installation with overnight usage surge."
         elif is_pulse_flagged and is_mobility_flagged:
             summary = "Elevated heart rate at rest with reduced movement — possible stress."
+        elif is_mental_risk_flagged:
+            summary = "Behavioral pattern suggests the child may benefit from attention — screening signal, not a diagnosis."
         else:
             summary = "Multiple behavioral deviations detected simultaneously."
     elif num_flags == 1:
         if is_pulse_flagged:
             severity = "red"
             summary = "Physiological stress event detected via PRISM Node (high BPM at rest)."
+        elif is_mental_risk_flagged:
+            severity = "amber"
+            summary = "Elevated mental-risk screening signal from typing behavior — may warrant attention, not a diagnosis."
         else:
             severity = "amber"
             flagged_model = flagged_scores[0].model_name

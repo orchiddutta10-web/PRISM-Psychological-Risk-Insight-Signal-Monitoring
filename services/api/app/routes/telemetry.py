@@ -564,6 +564,78 @@ class DemoTriggerRequest(BaseModel):
     scenario: str
 
 
+@router.get("/typing/behavioral/{device_id}")
+def get_behavioral_insights(
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    Behavioral AI screening insights (Module 3).
+
+    Returns the per-dimension behavioral scores (stress, cognitive load,
+    typing fatigue, typing stability) plus the rolling Mental Risk Score with
+    confidence. Every score ships explainable contributing factors and the
+    screening disclaimer. These are screening signals, never diagnoses.
+    """
+    from app.utils import audit as audit_util
+
+    auth.verify_guardian_device_access(current_guardian, device_id, db)
+    audit_util.log_audit_event(
+        db,
+        action="READ_BEHAVIORAL_INSIGHTS",
+        guardian_id=str(current_guardian.id),
+    )
+
+    dim_scores = (
+        db.query(models.RiskScore)
+        .filter(
+            models.RiskScore.device_id == device_id,
+            models.RiskScore.model_name.like("behavioral_%"),
+        )
+        .order_by(models.RiskScore.timestamp.desc())
+        .limit(200)
+        .all()
+    )
+
+    dims = [
+        "stress",
+        "cognitive_load",
+        "typing_fatigue",
+        "typing_stability",
+        "mental_risk",
+    ]
+    latest_by_dim = {}
+    for s in dim_scores:
+        dim = s.model_name.replace("behavioral_", "")
+        if dim not in latest_by_dim:
+            latest_by_dim[dim] = s
+
+    return {
+        "device_id": device_id,
+        "dimensions": [
+            {
+                "name": dim,
+                "score": (latest_by_dim[dim].score if dim in latest_by_dim else None),
+                "flagged": (latest_by_dim[dim].flagged if dim in latest_by_dim else False),
+                "contributing_factors": (
+                    latest_by_dim[dim].contributing_factors if dim in latest_by_dim else []
+                ),
+                "timestamp": (
+                    latest_by_dim[dim].timestamp.isoformat()
+                    if dim in latest_by_dim
+                    else None
+                ),
+            }
+            for dim in dims
+        ],
+        "disclaimer": (
+            "Behavioral screening signal, not a diagnosis. May indicate patterns "
+            "that warrant attention."
+        ),
+    }
+
+
 @router.post("/demo-trigger")
 async def trigger_demo_scenario(
     req: DemoTriggerRequest,
