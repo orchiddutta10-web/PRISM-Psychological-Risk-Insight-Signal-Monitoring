@@ -7,6 +7,7 @@ import {
   AlertTriangle, CheckCircle, Clock, BarChart3, ShieldAlert,
   ChevronDown, ChevronUp, Sliders, Moon, Sun, Eye, Info, X, HelpCircle
 } from 'lucide-react'
+import { API, wsUrl } from '@/lib/api'
 
 interface AlertItem {
   id: string
@@ -21,7 +22,7 @@ interface AlertItem {
 interface RiskScoreItem {
   id: string
   device_id: string
-  model_name: 'mobility' | 'typing' | 'app_usage' | 'signatures'
+  model_name: 'mobility' | 'typing' | 'app_usage' | 'signatures' | 'pulse'
   score: number
   threshold: number
   flagged: boolean
@@ -132,7 +133,7 @@ export default function ChildProfilePage({ params }: PageProps) {
     const nextState = !consentGrants[modality];
     setConsentGrants(prev => ({ ...prev, [modality]: nextState }));
     try {
-      await fetch(`http://localhost:8000/api/v1/consent/grants/${deviceId}`, {
+      await fetch(`${API}/consent/grants/${deviceId}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -177,7 +178,7 @@ export default function ChildProfilePage({ params }: PageProps) {
 
     const fetchData = async () => {
       try {
-        const resAlerts = await fetch(`http://localhost:8000/api/v1/events/alerts/${deviceId}`, {
+        const resAlerts = await fetch(`${API}/events/alerts/${deviceId}`, {
           headers: { 'Authorization': `Bearer ${activeToken}` }
         })
         const alertsData = await resAlerts.json()
@@ -186,12 +187,12 @@ export default function ChildProfilePage({ params }: PageProps) {
           setDeviceName(alertsData[0].device_name || 'Child Device')
         }
 
-        const resScores = await fetch(`http://localhost:8000/api/v1/events/scores/${deviceId}`, {
+        const resScores = await fetch(`${API}/events/scores/${deviceId}`, {
           headers: { 'Authorization': `Bearer ${activeToken}` }
         })
         setScores(await resScores.json())
 
-        const resBaselines = await fetch(`http://localhost:8000/api/v1/events/baselines/${deviceId}`, {
+        const resBaselines = await fetch(`${API}/events/baselines/${deviceId}`, {
           headers: { 'Authorization': `Bearer ${activeToken}` }
         })
         setBaselines(await resBaselines.json())
@@ -205,7 +206,7 @@ export default function ChildProfilePage({ params }: PageProps) {
 
     const fetchConsentGrants = async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/v1/consent/grants/${deviceId}`, {
+        const res = await fetch(`${API}/consent/grants/${deviceId}`, {
           headers: { 'Authorization': `Bearer ${activeToken}` }
         })
         const data = await res.json()
@@ -224,8 +225,8 @@ export default function ChildProfilePage({ params }: PageProps) {
     fetchData()
     fetchConsentGrants()
 
-    const wsUrl = `ws://localhost:8000/api/v1/events/ws?token=${activeToken}`
-    const ws = new WebSocket(wsUrl)
+    const wsUrl_ = wsUrl('/events/ws?token=' + activeToken)
+    const ws = new WebSocket(wsUrl_)
 
     ws.onmessage = (event) => {
       try {
@@ -827,7 +828,7 @@ export default function ChildProfilePage({ params }: PageProps) {
                 <button
                   onClick={async () => {
                     try {
-                      await fetch(`http://localhost:8000/api/v1/events/alerts/viewed/${selectedAlert.id}`, {
+                      await fetch(`${API}/events/alerts/viewed/${selectedAlert.id}`, {
                         method: 'POST',
                         headers: { 'Authorization': `Bearer ${token}` }
                       })

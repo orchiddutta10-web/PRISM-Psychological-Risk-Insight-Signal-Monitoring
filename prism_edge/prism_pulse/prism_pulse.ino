@@ -47,6 +47,7 @@ const unsigned long SUSTAINED_DURATION_MS = 15000;
 unsigned long anomalyStartTime = 0;
 bool anomalyActive = false;
 unsigned long lastISDTrigger = 0;
+bool isdTriggeredFlag = false;   // latches until next successful TX
 
 float currentGForce = 1.0;
 
@@ -91,6 +92,7 @@ void triggerISD1820(const char* reason) {
   delay(100);
   digitalWrite(ISD_PLAY_PIN, LOW);
   
+  isdTriggeredFlag = true;   // report to cloud on next transmit
   lastISDTrigger = millis();
 }
 
@@ -141,8 +143,8 @@ void transmitReading() {
 
   // Build JSON payload matching the API format
   String alertStatus;
-  if (BPM == 0) {
-    alertStatus = "OK";
+  if (isdTriggeredFlag) {
+    alertStatus = "ISD_TRIGGERED";
   } else if (anomalyActive) {
     long remaining = (SUSTAINED_DURATION_MS - (millis() - anomalyStartTime)) / 1000;
     alertStatus = "WARNING-" + String(remaining) + "s";
@@ -173,6 +175,7 @@ void transmitReading() {
     Serial.print(" — ");
     if (httpCode == 200 || httpCode == 201) {
       Serial.println("OK");
+      isdTriggeredFlag = false;  // latch cleared once the cloud has it
     } else {
       Serial.println("FAIL");
       String response = http.getString();

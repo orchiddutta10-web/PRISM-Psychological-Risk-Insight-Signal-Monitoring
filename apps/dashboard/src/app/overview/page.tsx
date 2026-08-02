@@ -8,6 +8,7 @@ import {
   Database, X, Clock, Smartphone, MapPin, Keyboard,
   AlertTriangle, CheckCircle, Info, BarChart2, Zap, Users
 } from 'lucide-react'
+import { API, wsUrl } from '@/lib/api'
 
 /* ─────────────────────────────────────────────────────────────
    DEMO DATA — realistic, non-alarming baseline values
@@ -192,7 +193,7 @@ export default function OverviewPage() {
     // Fetch real guardian devices from the API; fall back to demo data if none.
     const loadDevices = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/v1/auth/devices', {
+        const res = await fetch(`${API}/auth/devices`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) throw new Error(`Devices API returned ${res.status}`)
@@ -236,7 +237,7 @@ export default function OverviewPage() {
     loadDevices()
 
     try {
-      const ws = new WebSocket(`ws://localhost:8000/api/v1/events/ws?token=${token}`)
+      const ws = new WebSocket(wsUrl('/events/ws?token=' + token))
       wsRef.current = ws
       ws.onopen  = () => setWsStatus('connected')
       ws.onclose = () => setWsStatus('disconnected')

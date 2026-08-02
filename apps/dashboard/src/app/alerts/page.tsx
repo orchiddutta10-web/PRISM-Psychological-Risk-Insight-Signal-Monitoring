@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShieldCheck, ArrowLeft, Inbox, ShieldAlert, Cpu, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
+import { API } from '@/lib/api'
 
 interface ApiAlert {
   id: string
@@ -37,7 +38,7 @@ export default function AlertsPage() {
   const loadAlerts = useCallback(async (token: string) => {
     try {
       // 1. Fetch guardian's devices
-      const devRes = await fetch('http://localhost:8000/api/v1/auth/devices', {
+      const devRes = await fetch(`${API}/auth/devices`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!devRes.ok) throw new Error(`Devices API returned ${devRes.status}`)
@@ -48,7 +49,7 @@ export default function AlertsPage() {
       // 2. Aggregate alerts across all devices
       const all: ApiAlert[] = []
       for (const device of devices) {
-        const res = await fetch(`http://localhost:8000/api/v1/events/alerts/${device.id}`, {
+        const res = await fetch(`${API}/events/alerts/${device.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (res.ok) {
@@ -81,7 +82,7 @@ export default function AlertsPage() {
     const token = localStorage.getItem('prism_token')
     if (!token) return
     try {
-      await fetch(`http://localhost:8000/api/v1/events/alerts/viewed/${alertId}`, {
+      await fetch(`${API}/events/alerts/viewed/${alertId}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       })

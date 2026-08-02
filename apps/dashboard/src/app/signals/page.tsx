@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BarChart3, Bell, ShieldCheck, HeartPulse, Activity, Moon, Smartphone } from 'lucide-react'
+import { API } from '@/lib/api'
 
 interface ApiDevice {
   id: string
@@ -34,7 +35,7 @@ export default function SignalsPage() {
 
   const loadSignals = useCallback(async (token: string) => {
     try {
-      const devRes = await fetch('http://localhost:8000/api/v1/auth/devices', {
+      const devRes = await fetch(`${API}/auth/devices`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!devRes.ok) throw new Error(`Devices API returned ${devRes.status}`)
@@ -44,7 +45,7 @@ export default function SignalsPage() {
 
       for (const device of devices) {
         // Baselines
-        const baseRes = await fetch(`http://localhost:8000/api/v1/events/baselines/${device.id}`, {
+        const baseRes = await fetch(`${API}/events/baselines/${device.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         let baselines: Record<string, { mean: number; variance: number }> = {}
@@ -54,7 +55,7 @@ export default function SignalsPage() {
         let pulseBpm: number | null = null
         let pulseG: number | null = null
         let pulseAt: string | null = null
-        const pulseRes = await fetch(`http://localhost:8000/api/v1/physio/pulse/readings/${device.id}?limit=1`, {
+        const pulseRes = await fetch(`${API}/physio/pulse/readings/${device.id}?limit=1`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (pulseRes.ok) {

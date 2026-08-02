@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { API } from '@/lib/api'
 
 // PRISM Node — Physiological Wearable Monitor (v4.0 Multi-Factor Edition)
 // Hardware: ESP32 + Analog Pulse Sensor (GPIO34) + MPU6050 (I2C) + ISD1820 + I2C LCD
@@ -160,9 +161,9 @@ export default function PrismNodePage() {
   const fetchVitals = useCallback(async (tk: string, did: string) => {
     try {
       // Fetch from PRISM PULSE multi-factor endpoint (ESP32 BPM + G-Force)
-      const pulseRes = await fetch(`http://localhost:8000/api/v1/physio/pulse/readings/${did}?limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
+      const pulseRes = await fetch(`${API}/physio/pulse/readings/${did}?limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
       // Also try legacy PPG readings
-      const ppgRes = await fetch(`http://localhost:8000/api/v1/physio/readings/${did}?sensor_type=ppg&limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
+      const ppgRes = await fetch(`${API}/physio/readings/${did}?sensor_type=ppg&limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
 
       let pulseData: PulseReading[] = []
       let ppgData: PhysioReading[] = []
@@ -194,7 +195,7 @@ export default function PrismNodePage() {
 
   const fetchSleep = useCallback(async (tk: string, did: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/physio/sleep/${did}?limit=30`, { headers: { Authorization: `Bearer ${tk}` } })
+      const res = await fetch(`${API}/physio/sleep/${did}?limit=30`, { headers: { Authorization: `Bearer ${tk}` } })
       if (!res.ok) throw new Error(`Sleep API returned ${res.status}`)
       const data = await res.json()
       setSleepWindows(Array.isArray(data) ? data : [])
@@ -203,7 +204,7 @@ export default function PrismNodePage() {
 
   const fetchStatus = useCallback(async (tk: string, did: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/physio/status/${did}`, { headers: { Authorization: `Bearer ${tk}` } })
+      const res = await fetch(`${API}/physio/status/${did}`, { headers: { Authorization: `Bearer ${tk}` } })
       if (!res.ok) throw new Error(`Status API returned ${res.status}`)
       setNodeStatus(await res.json())
     } catch { setNodeStatus({ connected: false, last_seen: null, sensor: null }) }

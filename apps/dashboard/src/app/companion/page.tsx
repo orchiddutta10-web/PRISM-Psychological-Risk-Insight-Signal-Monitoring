@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, MessageCircle, ShieldCheck, Sparkles } from 'lucide-react'
+import { API } from '@/lib/api'
 
 interface Persona {
   id: string
@@ -10,8 +11,6 @@ interface Persona {
   display_name: string
   description: string
 }
-
-const API = 'http://localhost:8000/api/v1'
 
 export default function CompanionPage() {
   const router = useRouter()

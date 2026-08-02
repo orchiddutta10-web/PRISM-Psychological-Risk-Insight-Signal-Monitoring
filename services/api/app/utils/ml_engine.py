@@ -219,6 +219,57 @@ def evaluate_risk_signatures(
     return risk_score
 
 
+def evaluate_pulse_model(
+    device_id: str, metadata: dict, db: Session
+) -> models.RiskScore:
+    """
+    PRISM PULSE Multi-Factor Model: physiological anomaly detector.
+    Flags when the ESP32 node reports a sustained high-BPM/low-movement condition
+    (WARNING-Xs) or a full ISD1820 voice-alert trigger (ISD_TRIGGERED).
+    Score reflects how close the node is to / past the alert threshold.
+    """
+    bpm = float(metadata.get("bpm", 0.0))
+    g_force = float(metadata.get("g_force", 1.0))
+    alert_status = str(metadata.get("alert_status", "OK"))
+    isd_triggered = bool(metadata.get("isd_triggered", False))
+
+    # 0 = normal, 0.5 = sustained warning, 1.0 = voice alert triggered
+    if isd_triggered or "TRIGGERED" in alert_status:
+        score = 1.0
+    elif alert_status.startswith("WARNING"):
+        score = 0.5
+    else:
+        score = 0.0
+
+    threshold = 0.5
+    flagged = score >= threshold
+
+    factors = []
+    if isd_triggered or "TRIGGERED" in alert_status:
+        factors.append(
+            "Physiological voice alert triggered on device: sustained elevated heart rate "
+            f"({bpm:.0f} BPM) with low movement ({g_force:.2f}g) for 15+ seconds."
+        )
+    elif alert_status.startswith("WARNING"):
+        factors.append(
+            f"Elevated heart rate ({bpm:.0f} BPM) with low movement ({g_force:.2f}g) "
+            "sustained — approaching voice-alert threshold."
+        )
+
+    risk_score = models.RiskScore(
+        device_id=device_id,
+        model_name="pulse",
+        score=score,
+        threshold=threshold,
+        flagged=flagged,
+    )
+    risk_score.contributing_factors = factors
+    db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
+    return risk_score
+
+
 async def run_risk_engine(
     device_id: str, signal_type: str, metadata: dict, db: Session
 ):
@@ -231,13 +282,15 @@ async def run_risk_engine(
         if "new_installed_packages" in metadata:
             evaluate_risk_signatures(device_id, metadata, db)
         evaluate_app_usage_model(device_id, metadata, db)
+    elif signal_type == "pulse":
+        evaluate_pulse_model(device_id, metadata, db)
 
     await aggregate_alerts(device_id, db)
 
 
 async def aggregate_alerts(device_id: str, db: Session):
     """Aggregates scores and writes any generated alerts to PostgreSQL."""
-    models_list = ["mobility", "typing", "app_usage", "signatures"]
+    models_list = ["mobility", "typing", "app_usage", "signatures", "pulse"]
     latest_scores = []
 
     for m in models_list:
@@ -268,6 +321,7 @@ async def aggregate_alerts(device_id: str, db: Session):
     is_signatures_flagged = any(s.model_name == "signatures" for s in flagged_scores)
     is_mobility_flagged = any(s.model_name == "mobility" for s in flagged_scores)
     is_typing_flagged = any(s.model_name == "typing" for s in flagged_scores)
+    is_pulse_flagged = any(s.model_name == "pulse" for s in flagged_scores)
 
     severity = "sage"
     summary = "System normal. Behavioral metrics aligned with baseline."
@@ -280,19 +334,25 @@ async def aggregate_alerts(device_id: str, db: Session):
             summary = "Social withdrawal and fatigue patterns co-detected."
         elif is_signatures_flagged and is_app_usage_flagged:
             summary = "Unsafe anonymous chat installation with overnight usage surge."
+        elif is_pulse_flagged and is_mobility_flagged:
+            summary = "Elevated heart rate at rest with reduced movement — possible stress."
         else:
             summary = "Multiple behavioral deviations detected simultaneously."
     elif num_flags == 1:
-        severity = "amber"
-        flagged_model = flagged_scores[0].model_name
-        if flagged_model == "app_usage":
-            summary = "Deviation in evening app screen time baseline."
-        elif flagged_model == "typing":
-            summary = "Minor variation in typing delay index."
-        elif flagged_model == "mobility":
-            summary = "Reduction in daily active travel patterns."
-        elif flagged_model == "signatures":
-            summary = "Potentially risky app package installation detected."
+        if is_pulse_flagged:
+            severity = "red"
+            summary = "Physiological stress event detected via PRISM Node (high BPM at rest)."
+        else:
+            severity = "amber"
+            flagged_model = flagged_scores[0].model_name
+            if flagged_model == "app_usage":
+                summary = "Deviation in evening app screen time baseline."
+            elif flagged_model == "typing":
+                summary = "Minor variation in typing delay index."
+            elif flagged_model == "mobility":
+                summary = "Reduction in daily active travel patterns."
+            elif flagged_model == "signatures":
+                summary = "Potentially risky app package installation detected."
 
     device = (
         db.query(models.ChildDevice).filter(models.ChildDevice.id == device_id).first()

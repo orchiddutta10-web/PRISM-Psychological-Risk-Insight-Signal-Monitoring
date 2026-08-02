@@ -709,6 +709,79 @@ def test_voice_checkin():
     assert response.json()["audio_discarded"] is False
 
 
+def test_pulse_isd_trigger_generates_guardian_alert():
+    """PRISM PULSE: an ISD_TRIGGERED multi-factor reading must surface as a
+    guardian-facing alert with explainable contributing factors (AGENTS.md:
+    no black-box ML outputs; alerts require contributing factors)."""
+    # 1. Setup Guardian and Device
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Sarah",
+            "email": "sarah@example.com",
+            "password": "password123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "sarah@example.com", "password": "password123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Tommy", "platform": "android", "device_token": "tok"},
+    )
+    device_id = res_dev.json()["device"]["id"]
+    device_jwt = res_dev.json()["device_jwt_token"]
+
+    # 2. Normal pulse reading — must NOT produce a flagged alert
+    client.post(
+        "/api/v1/physio/pulse/ingest",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json={
+            "ts_ms": 1000,
+            "pulse_raw": 1800,
+            "bpm": 72,
+            "g_force": 1.0,
+            "alert_status": "OK",
+        },
+    )
+    res_alerts_ok = client.get(
+        f"/api/v1/events/alerts/{device_id}",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+    )
+    assert res_alerts_ok.status_code == 200
+    assert all(a["severity_tier"] == "sage" for a in res_alerts_ok.json())
+
+    # 3. ISD_TRIGGERED reading — must generate a red guardian alert
+    res_trigger = client.post(
+        "/api/v1/physio/pulse/ingest",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json={
+            "ts_ms": 2000,
+            "pulse_raw": 2500,
+            "bpm": 135,
+            "g_force": 1.05,
+            "alert_status": "ISD_TRIGGERED",
+        },
+    )
+    assert res_trigger.status_code == 200
+    assert res_trigger.json()["status"] == "accepted"
+
+    res_alerts = client.get(
+        f"/api/v1/events/alerts/{device_id}",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+    )
+    assert res_alerts.status_code == 200
+    alerts = res_alerts.json()
+    assert len(alerts) > 0
+    latest = alerts[0]
+    assert latest["severity_tier"] == "red"
+    assert len(latest["contributing_factors"]) > 0
+    assert any("135" in f for f in latest["contributing_factors"])
+
+
 def test_companion_chat():
     """Unit test for Phase 6: Multi-Persona AI Companion and Crisis Gating."""
     # 1. Setup Guardian and Device
