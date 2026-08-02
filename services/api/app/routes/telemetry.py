@@ -501,6 +501,61 @@ def get_baselines(
     }
 
 
+@router.get("/typing/insights/{device_id}")
+def get_typing_insights(
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """Returns typing mental-state insights: recent typing risk scores +
+    the device's rolling typing baseline, for the typing-analytics panel."""
+    auth.verify_guardian_device_access(current_guardian, device_id, db)
+
+    scores = (
+        db.query(models.RiskScore)
+        .filter(
+            models.RiskScore.device_id == device_id,
+            models.RiskScore.model_name.in_(["typing", "typing_rhythm"]),
+        )
+        .order_by(models.RiskScore.timestamp.desc())
+        .limit(50)
+        .all()
+    )
+
+    baseline = (
+        db.query(models.BaselineProfile)
+        .filter(
+            models.BaselineProfile.device_id == device_id,
+            models.BaselineProfile.signal_type == "typing",
+        )
+        .first()
+    )
+
+    return {
+        "device_id": device_id,
+        "baseline": (
+            {
+                "mean": baseline.rolling_mean,
+                "variance": baseline.rolling_variance,
+                "source": baseline.source,
+            }
+            if baseline
+            else None
+        ),
+        "scores": [
+            {
+                "model_name": s.model_name,
+                "score": s.score,
+                "threshold": s.threshold,
+                "flagged": s.flagged,
+                "contributing_factors": s.contributing_factors,
+                "timestamp": s.timestamp.isoformat(),
+            }
+            for s in scores
+        ],
+    }
+
+
 from pydantic import BaseModel
 
 

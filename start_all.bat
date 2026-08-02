@@ -1,4 +1,8 @@
 @echo off
+rem Force development mode for Next.js (a machine/user-level NODE_ENV=production
+rem would otherwise disable dev overlays and break `next dev`).
+set NODE_ENV=development
+
 echo Starting PRISM Backend API...
 start "PRISM API" cmd /k "cd services\api && ..\..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000"
 

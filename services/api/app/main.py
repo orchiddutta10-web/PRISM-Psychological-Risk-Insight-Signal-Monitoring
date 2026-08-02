@@ -5,7 +5,16 @@ import json
 
 from app import models
 from app.database import engine, SessionLocal
-from app.routes import auth, consent, telemetry, audit, voice, companion, physio
+from app.routes import (
+    auth,
+    consent,
+    telemetry,
+    audit,
+    voice,
+    companion,
+    physio,
+    medical,
+)
 from app.config import settings
 from app.utils.observability import setup_structured_logging, APMMiddleware
 
@@ -127,3 +136,4 @@ app.include_router(audit.router)
 app.include_router(voice.router)
 app.include_router(companion.router)
 app.include_router(physio.router)
+app.include_router(medical.router)

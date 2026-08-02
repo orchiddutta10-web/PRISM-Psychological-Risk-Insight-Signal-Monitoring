@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShieldCheck, ArrowLeft, Inbox, ShieldAlert, Cpu, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
-import { API } from '@/lib/api'
+import { API, authFetch } from '@/lib/api'
 
 interface ApiAlert {
   id: string
@@ -38,7 +38,7 @@ export default function AlertsPage() {
   const loadAlerts = useCallback(async (token: string) => {
     try {
       // 1. Fetch guardian's devices
-      const devRes = await fetch(`${API}/auth/devices`, {
+      const devRes = await authFetch(`/auth/devices`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!devRes.ok) throw new Error(`Devices API returned ${devRes.status}`)

@@ -1,9 +1,6 @@
 import json
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from datetime import datetime, timezone
 
 from app.main import app
@@ -11,38 +8,9 @@ from app.database import Base, get_db
 from app import models
 from app.config import settings
 
-# Use in-memory SQLite to avoid file-lock contention between parallel test runs
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    # Use StaticPool to share a single in-memory connection across all threads/tests
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-from app.utils.risk_registry import seed_registry
-
-
-@pytest.fixture(scope="function", autouse=True)
-def setup_db():
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    # Seed testing DB
-    db = TestingSessionLocal()
-    seed_registry(db)
-    db.close()
-    yield
-    Base.metadata.drop_all(bind=engine)
-
-
-def override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
+# Shared in-memory SQLite engine/session (defined once in conftest.py so all
+# test files see the same tables instead of fighting over Base.metadata).
+from app.tests.conftest import engine, TestingSessionLocal, override_get_db  # noqa: F401
 
 app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)

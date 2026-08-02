@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, BarChart3, Bell, ShieldCheck, HeartPulse, Activity, Moon, Smartphone } from 'lucide-react'
-import { API } from '@/lib/api'
+import { API, authFetch } from '@/lib/api'
 
 interface ApiDevice {
   id: string
@@ -35,7 +35,7 @@ export default function SignalsPage() {
 
   const loadSignals = useCallback(async (token: string) => {
     try {
-      const devRes = await fetch(`${API}/auth/devices`, {
+      const devRes = await authFetch(`/auth/devices`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!devRes.ok) throw new Error(`Devices API returned ${devRes.status}`)

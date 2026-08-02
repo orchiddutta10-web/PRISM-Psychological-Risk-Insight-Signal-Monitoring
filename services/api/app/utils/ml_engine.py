@@ -126,6 +126,83 @@ def evaluate_typing_model(
     return risk_score
 
 
+def evaluate_typing_rhythm_model(
+    device_id: str, metadata: dict, db: Session
+) -> models.RiskScore:
+    """
+    Typing Rhythm Model: per-device baseline z-score anomaly detector.
+
+    Unlike the fixed-200ms logistic-regression proxy (evaluate_typing_model),
+    this compares the incoming typing cadence against the device's OWN
+    rolling baseline (BaselineProfile.signal_type='typing') and flags when the
+    deviation crosses |z| > 2.0. Explainability: every score ships a
+    human-readable factor string quoting the z-score and baseline stats.
+    """
+    delay_index = float(metadata.get("delay_index", 1.0))
+    iki_std = float(metadata.get("iki_std", 0.0))
+    burst_length = int(metadata.get("burst_length", 0))
+    correction_var = float(metadata.get("correction_rate_variance", 0.0))
+
+    # Pull this device's personal typing baseline, if one exists
+    baseline = (
+        db.query(models.BaselineProfile)
+        .filter(
+            models.BaselineProfile.device_id == device_id,
+            models.BaselineProfile.signal_type == "typing",
+        )
+        .first()
+    )
+
+    threshold = 2.0  # z-score
+    z_score = 0.0
+    factors = []
+
+    if baseline and baseline.rolling_variance > 0:
+        mean = baseline.rolling_mean
+        sigma = baseline.rolling_variance**0.5
+        z_score = (delay_index - mean) / sigma
+        flagged = abs(z_score) > threshold
+
+        if flagged:
+            factors.append(
+                f"Typing delay z-score of {z_score:+.2f} vs personal baseline "
+                f"(mean {mean:.2f}, σ {sigma:.2f}) — sustained slow cadence."
+            )
+            if iki_std > 0:
+                factors.append(
+                    f"Inter-key interval variability {iki_std:.1f}ms above typical spread."
+                )
+            if burst_length > 30 and correction_var > 0:
+                factors.append(
+                    f"Long typing burst ({burst_length} keys) with elevated "
+                    f"correction rate {correction_var:.2f} — possible hesitation/editing."
+                )
+    else:
+        # No baseline yet → fall back to the absolute threshold from the proxy
+        # model so a brand-new device still gets guarded.
+        flagged = delay_index > 1.4
+        if flagged:
+            factors.append(
+                "Typing delay index above 1.4 (no personal baseline yet)."
+            )
+
+    # Normalize |z| to a 0..1 score for the risk engine
+    score = min(1.0, abs(z_score) / 4.0) if baseline else (0.5 if flagged else 0.0)
+
+    risk_score = models.RiskScore(
+        device_id=device_id,
+        model_name="typing_rhythm",
+        score=score,
+        threshold=threshold,
+        flagged=flagged,
+    )
+    risk_score.contributing_factors = factors
+    db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
+    return risk_score
+
+
 def evaluate_app_usage_model(
     device_id: str, metadata: dict, db: Session
 ) -> models.RiskScore:
@@ -278,6 +355,7 @@ async def run_risk_engine(
         evaluate_mobility_model(device_id, metadata, db)
     elif signal_type == "typing":
         evaluate_typing_model(device_id, metadata, db)
+        evaluate_typing_rhythm_model(device_id, metadata, db)
     elif signal_type == "app_usage":
         if "new_installed_packages" in metadata:
             evaluate_risk_signatures(device_id, metadata, db)
@@ -290,7 +368,7 @@ async def run_risk_engine(
 
 async def aggregate_alerts(device_id: str, db: Session):
     """Aggregates scores and writes any generated alerts to PostgreSQL."""
-    models_list = ["mobility", "typing", "app_usage", "signatures", "pulse"]
+    models_list = ["mobility", "typing", "typing_rhythm", "app_usage", "signatures", "pulse"]
     latest_scores = []
 
     for m in models_list:
@@ -321,6 +399,9 @@ async def aggregate_alerts(device_id: str, db: Session):
     is_signatures_flagged = any(s.model_name == "signatures" for s in flagged_scores)
     is_mobility_flagged = any(s.model_name == "mobility" for s in flagged_scores)
     is_typing_flagged = any(s.model_name == "typing" for s in flagged_scores)
+    is_typing_rhythm_flagged = any(
+        s.model_name == "typing_rhythm" for s in flagged_scores
+    )
     is_pulse_flagged = any(s.model_name == "pulse" for s in flagged_scores)
 
     severity = "sage"
@@ -332,6 +413,8 @@ async def aggregate_alerts(device_id: str, db: Session):
             summary = "Late-night usage spike detected with low mobility."
         elif is_mobility_flagged and is_typing_flagged:
             summary = "Social withdrawal and fatigue patterns co-detected."
+        elif is_typing_rhythm_flagged and is_mobility_flagged:
+            summary = "Sustained slow typing cadence with reduced movement — possible fatigue."
         elif is_signatures_flagged and is_app_usage_flagged:
             summary = "Unsafe anonymous chat installation with overnight usage surge."
         elif is_pulse_flagged and is_mobility_flagged:
@@ -349,6 +432,8 @@ async def aggregate_alerts(device_id: str, db: Session):
                 summary = "Deviation in evening app screen time baseline."
             elif flagged_model == "typing":
                 summary = "Minor variation in typing delay index."
+            elif flagged_model == "typing_rhythm":
+                summary = "Typing cadence deviated from personal baseline."
             elif flagged_model == "mobility":
                 summary = "Reduction in daily active travel patterns."
             elif flagged_model == "signatures":

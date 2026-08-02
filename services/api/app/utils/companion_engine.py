@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from app import models
+from app.config import settings
 import random
 import logging
 
@@ -150,6 +151,31 @@ PERSONAS = {
             "style immediately and defer to the shared safety rules above."
         ),
     },
+    "medical_advisor": {
+        "name": "The Medical Advisor",
+        "display_name": "The Medical Advisor",
+        "description": "RAG-backed general health information, non-diagnostic.",
+        "system_prompt": build_system_prompt(
+            "You are 'The Medical Advisor,' a companion persona in the PRISM app that shares "
+            "general health and wellness information from trusted public-health sources "
+            "(WHO/NIH/CDC-style guidance).\n\n"
+            "Voice: warm, plain, careful — you never sound like a doctor's verdict.\n\n"
+            "Approach:\n"
+            "- Answer questions about symptoms, conditions in general terms, medication "
+            "basics, lifestyle, diet, exercise, stress, first aid, and when it is worth "
+            "seeing a doctor — always from the evidence provided to you.\n"
+            "- You are NOT a doctor and never diagnose. Use careful, non-diagnostic "
+            "language ('some people with these symptoms find...' not 'you have...').\n"
+            "- If something could be urgent or an emergency (chest pain, trouble breathing, "
+            "severe bleeding, thoughts of self-harm), say clearly to get emergency or "
+            "professional help right away.\n"
+            "- Keep answers short, structured, and age-appropriate.\n"
+            "- If asked something the evidence does not cover, say you don't have that "
+            "information rather than guessing.\n\n"
+            "Boundaries: Never prescribe, never diagnose, never discourage someone from "
+            "seeing a real clinician. The shared safety rules above apply in full."
+        ),
+    },
 }
 
 CRISIS_KEYWORDS = [
@@ -210,6 +236,33 @@ def handle_companion_message(db: Session, session_id: str, message: str) -> str:
         db.commit()
 
         return CRISIS_RESPONSE
+
+    # Medical Advisor persona → RAG-backed general health information.
+    # Only engage RAG when the feature flag is enabled; otherwise fall
+    # through to the persona's mock responses instead of a doomed LLM call.
+    if comp_session.persona_id == "medical_advisor" and settings.MEDICAL_RAG_ENABLED:
+        try:
+            from app.utils.medical_rag import medical_query
+
+            result = medical_query(message)
+            if result.get("crisis"):
+                comp_session.crisis_flag = True
+                db.add(comp_session)
+                db.commit()
+                return CRISIS_RESPONSE
+            answer = result.get("answer", "")
+            evidence = result.get("evidence", [])
+            if evidence:
+                answer += "\n\nSources: " + ", ".join(
+                    f"{e['source']} p.{e['page']}" for e in evidence[:3]
+                )
+            return answer
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Medical Advisor RAG failed, using fallback: %s", str(e)
+            )
 
     # Mock LLM Response for Week-1 Demo
     # In a real implementation, we'd call an LLM with the persona's system prompt and the conversation history.

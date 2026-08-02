@@ -227,6 +227,7 @@ export default function ChildProfilePage({ params }: PageProps) {
 
     const wsUrl_ = wsUrl('/events/ws?token=' + activeToken)
     const ws = new WebSocket(wsUrl_)
+    ws.onerror = () => {}
 
     ws.onmessage = (event) => {
       try {

@@ -23,6 +23,12 @@ out/
 *.tsbuildinfo
 **/*.tsbuildinfo
 
+# Playwright (generated test output)
+playwright-report/
+test-results/
+**/playwright-report/
+**/test-results/
+
 # Python cache & testing
 .pytest_cache/
 .coverage
@@ -51,6 +57,10 @@ dmypy.json
 *.sqlite3
 prism.db
 **/*.db
+
+# Chroma vector store (runtime-generated from the medical KB)
+chroma_db/
+**/chroma_db/
 
 # Uploaded files (runtime)
 /uploads/

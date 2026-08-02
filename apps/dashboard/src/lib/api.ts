@@ -15,6 +15,24 @@ const API_BASE =
 export const API = API_BASE
 
 /**
+ * fetch() wrapper that treats 401 as a session-expiry signal: it clears the
+ * stored token and redirects to the login page. Access tokens expire after
+ * ACCESS_TOKEN_EXPIRE_MINUTES (60 min), and without this the dashboard would
+ * silently fall back to demo data once a session expires.
+ */
+export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(`${API}${path}`, init)
+  if (res.status === 401) {
+    localStorage.removeItem('prism_token')
+    localStorage.removeItem('prism_guardian')
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.location.href = '/'
+    }
+  }
+  return res
+}
+
+/**
  * Derive a WebSocket URL from the configured API base.
  * http(s):// → ws(s):// and the API base already includes /api/v1.
  */

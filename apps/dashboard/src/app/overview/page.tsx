@@ -8,7 +8,7 @@ import {
   Database, X, Clock, Smartphone, MapPin, Keyboard,
   AlertTriangle, CheckCircle, Info, BarChart2, Zap, Users
 } from 'lucide-react'
-import { API, wsUrl } from '@/lib/api'
+import { API, wsUrl, authFetch } from '@/lib/api'
 
 /* ─────────────────────────────────────────────────────────────
    DEMO DATA — realistic, non-alarming baseline values
@@ -193,7 +193,7 @@ export default function OverviewPage() {
     // Fetch real guardian devices from the API; fall back to demo data if none.
     const loadDevices = async () => {
       try {
-        const res = await fetch(`${API}/auth/devices`, {
+        const res = await authFetch(`/auth/devices`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) throw new Error(`Devices API returned ${res.status}`)
@@ -241,6 +241,7 @@ export default function OverviewPage() {
       wsRef.current = ws
       ws.onopen  = () => setWsStatus('connected')
       ws.onclose = () => setWsStatus('disconnected')
+      ws.onerror = () => setWsStatus('disconnected')
       ws.onmessage = (ev) => {
         try { const d = JSON.parse(ev.data); if (d.type !== 'chat_message') pushLog(`Live › ${d.signal_type?.toUpperCase() ?? 'EVENT'} — ${String(d.device_id ?? '').slice(0, 8)}`) } catch {}
       }
@@ -320,6 +321,8 @@ export default function OverviewPage() {
           { label: 'Signals', active: false, href: '/signals' },
           { label: 'Companion', active: false, href: '/companion' },
           { label: 'Alerts', active: false, href: '/alerts' },
+          { label: 'Medical AI', active: false, href: '/medical' },
+          { label: 'Typing', active: false, href: '/typing-analytics' },
         ].map(tab => (
           <button type="button" key={tab.label} onClick={() => router.push(tab.href)} style={{
             padding: '6px 14px', marginRight: 4, borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13,
