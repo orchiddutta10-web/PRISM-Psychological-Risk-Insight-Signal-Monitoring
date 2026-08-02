@@ -120,6 +120,51 @@ def test_guardian_auth_and_device_registration():
     assert response.status_code == 401
 
 
+def test_list_guardian_devices_with_risk():
+    # Setup guardian + device
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Sarah Jenkins",
+            "email": "sarah@example.com",
+            "password": "securepassword123",
+        },
+    )
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "sarah@example.com", "password": "securepassword123"},
+    )
+    guardian_token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {guardian_token}"}
+
+    client.post(
+        "/api/v1/auth/device",
+        headers=headers,
+        json={
+            "name": "Tommy's Phone",
+            "platform": "android",
+            "device_token": "token-android-1111",
+        },
+    )
+
+    # List devices — should return the registered device
+    response = client.get("/api/v1/auth/devices", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    dev = data[0]
+    assert dev["name"] == "Tommy's Phone"
+    assert dev["platform"] == "android"
+    assert "risk_score" in dev
+    assert 0 <= dev["risk_score"] <= 100
+    assert "latest_alert" in dev
+    assert "consent_count" in dev
+
+    # Authz: no token → 401
+    assert client.get("/api/v1/auth/devices").status_code == 401
+
+
 def test_consent_management_authz():
     # Setup Guardian and Device
     client.post(

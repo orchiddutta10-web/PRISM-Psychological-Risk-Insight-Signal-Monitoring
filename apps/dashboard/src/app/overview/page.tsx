@@ -12,7 +12,32 @@ import {
 /* ─────────────────────────────────────────────────────────────
    DEMO DATA — realistic, non-alarming baseline values
 ───────────────────────────────────────────────────────────── */
-const DEVICES = [
+interface DeviceSignal {
+  label: string
+  icon: any
+  baseline: number
+  actual: number
+  unit: string
+  delta: number
+  trend: 'up' | 'down' | 'stable'
+}
+
+interface DeviceView {
+  id: string
+  name: string
+  initials: string
+  childAge: number
+  platform: string
+  lastSeen: string
+  riskScore: number
+  riskLabel: string
+  status: 'active' | 'idle' | 'offline'
+  concern: string
+  signals: DeviceSignal[]
+  weeklyData: { day: string; baseline: number; actual: number }[]
+}
+
+const DEVICES: DeviceView[] = [
   {
     id: 'dev-001', name: "Aarav's iPhone", initials: 'AA', childAge: 14,
     platform: 'iOS', lastSeen: '2 min ago', riskScore: 34, riskLabel: 'Normal Range',
@@ -138,6 +163,7 @@ function RiskGauge({ score }: { score: number }) {
 export default function OverviewPage() {
   const router = useRouter()
   const [guardian, setGuardian] = useState({ name: 'Guardian', role: 'guardian' })
+  const [devices, setDevices] = useState<DeviceView[]>(DEVICES)
   const [activeId, setActiveId] = useState(DEVICES[0].id)
   const [alerts, setAlerts] = useState(INITIAL_ALERTS)
   const [alertOpen, setAlertOpen] = useState(false)
@@ -145,9 +171,10 @@ export default function OverviewPage() {
   const [logs, setLogs] = useState<string[]>([])
   const [simRunning, setSim] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const [isLive, setIsLive] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
-  const device = DEVICES.find(d => d.id === activeId) ?? DEVICES[0]
+  const device = devices.find(d => d.id === activeId) ?? devices[0]
   const unread = alerts.filter(a => !a.read).length
 
   const pushLog = useCallback((msg: string) => {
@@ -161,6 +188,52 @@ export default function OverviewPage() {
     try { const g = JSON.parse(gs); setGuardian({ name: g.full_name || 'Guardian', role: g.role || 'guardian' }) } catch {}
     const saved = localStorage.getItem('prism_theme') as any
     if (saved) { setTheme(saved); document.documentElement.setAttribute('data-theme', saved) }
+
+    // Fetch real guardian devices from the API; fall back to demo data if none.
+    const loadDevices = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/v1/auth/devices', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok) throw new Error(`Devices API returned ${res.status}`)
+        const list: any[] = await res.json()
+        if (list.length > 0) {
+          const mapped = list.map((d, i) => {
+            const initials = d.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase() || 'DV'
+            const risk = d.risk_score ?? 0
+            return {
+              id: d.id,
+              name: d.name,
+              initials,
+              childAge: 14,
+              platform: d.platform === 'ios' ? 'iOS' : 'Android',
+              lastSeen: d.last_seen ? new Date(d.last_seen).toLocaleString() : 'Never',
+              riskScore: risk,
+              riskLabel: d.risk_label || 'Normal Range',
+              status: risk >= 55 ? 'idle' as const : 'active' as const,
+              concern: d.latest_alert?.summary || 'Monitoring active',
+              signals: [
+                { label: 'Consent Grants', icon: Shield, baseline: 1, actual: Math.max(1, d.consent_count ?? 1), unit: 'active', delta: 0, trend: 'stable' as const },
+                { label: 'Latest Signal', icon: Activity, baseline: 1, actual: d.latest_alert ? 1 : 0, unit: 'alert', delta: d.latest_alert ? 25 : 0, trend: d.latest_alert ? ('up' as const) : ('stable' as const) },
+              ],
+              weeklyData: [
+                { day: 'Mon', baseline: 100, actual: 100 }, { day: 'Tue', baseline: 100, actual: 100 },
+                { day: 'Wed', baseline: 100, actual: 100 }, { day: 'Thu', baseline: 100, actual: 100 },
+                { day: 'Fri', baseline: 100, actual: 100 }, { day: 'Sat', baseline: 100, actual: 100 },
+                { day: 'Sun', baseline: 100, actual: 100 },
+              ],
+            }
+          })
+          setDevices(mapped)
+          setActiveId(mapped[0].id)
+          setIsLive(true)
+          pushLog(`Fetched ${mapped.length} device${mapped.length > 1 ? 's' : ''} from API`)
+        }
+      } catch {
+        pushLog('Devices API unreachable — showing demo data')
+      }
+    }
+    loadDevices()
 
     try {
       const ws = new WebSocket(`ws://localhost:8000/api/v1/events/ws?token=${token}`)
@@ -260,7 +333,9 @@ export default function OverviewPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* WS indicator */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, background: C.hover, marginRight: 4 }}>
-            {wsStatus === 'connected'
+            {isLive
+              ? <><div style={{ width: 6, height: 6, borderRadius: '50%', background: '#16A34A', animation: 'pulse 2s infinite' }} /><span style={{ fontSize: 12, color: '#16A34A', fontWeight: 700 }}>API DATA</span></>
+              : wsStatus === 'connected'
               ? <><div style={{ width: 6, height: 6, borderRadius: '50%', background: C.text, animation: 'pulse 2s infinite' }} /><span style={{ fontSize: 12, color: C.sub }}>Live</span></>
               : <><WifiOff size={12} color={C.muted} /><span style={{ fontSize: 12, color: C.muted }}>Offline</span></>
             }
@@ -383,7 +458,7 @@ export default function OverviewPage() {
             Paired Devices
           </p>
 
-          {DEVICES.map(d => {
+          {devices.map(d => {
             const active = activeId === d.id
             return (
               <button key={d.id} onClick={() => {

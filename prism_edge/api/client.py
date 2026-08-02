@@ -62,14 +62,18 @@ class ApiClient:
     def start(self) -> None:
         self._running = True
         self._session = requests.Session()
-        self._session.headers.update({
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._jwt}",
-        })
+        self._session.headers.update(
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._jwt}",
+            }
+        )
         # Replay any offline-queued payloads
         self._drain_offline_queue()
 
-        self._thread = threading.Thread(target=self._loop, name="api-writer", daemon=True)
+        self._thread = threading.Thread(
+            target=self._loop, name="api-writer", daemon=True
+        )
         self._thread.start()
         logger.info("API client started → %s%s", self._base_url, self._ingest_endpoint)
 
@@ -114,6 +118,12 @@ class ApiClient:
         data = json.dumps(payload)
         backoff = self._backoff_base
 
+        # Relay ESP32 PRISM PULSE telemetry to the dedicated physio endpoint
+        # (architecture doc §2: ESP32 bridge → ApiClient → /physio/pulse/ingest).
+        pulse = payload.get("value", {}).get("esp32_pulse")
+        if pulse:
+            self._send_pulse(pulse)
+
         for attempt in range(1, self._max_retries + 1):
             try:
                 resp = self._session.post(
@@ -135,25 +145,63 @@ class ApiClient:
                     self._on_failure(payload, permanent=True)
                     return
                 else:
-                    logger.warning("API returned %d (attempt %d/%d)", resp.status_code, attempt, self._max_retries)
+                    logger.warning(
+                        "API returned %d (attempt %d/%d)",
+                        resp.status_code,
+                        attempt,
+                        self._max_retries,
+                    )
             except requests.exceptions.Timeout:
-                logger.warning("API timeout (attempt %d/%d)", attempt, self._max_retries)
+                logger.warning(
+                    "API timeout (attempt %d/%d)", attempt, self._max_retries
+                )
             except requests.exceptions.ConnectionError:
-                logger.warning("API unreachable (attempt %d/%d)", attempt, self._max_retries)
+                logger.warning(
+                    "API unreachable (attempt %d/%d)", attempt, self._max_retries
+                )
             except Exception as e:
-                logger.warning("API send error: %s (attempt %d/%d)", e, attempt, self._max_retries)
+                logger.warning(
+                    "API send error: %s (attempt %d/%d)", e, attempt, self._max_retries
+                )
 
             if attempt < self._max_retries:
                 time.sleep(backoff)
-                backoff = min(backoff * 2.0, 32.0)   # exponential backoff, capped at 32s
+                backoff = min(backoff * 2.0, 32.0)  # exponential backoff, capped at 32s
 
         # All retries exhausted
         self._on_failure(payload, permanent=False)
 
+    def _send_pulse(self, pulse: dict) -> None:
+        """Relay one ESP32 PRISM PULSE reading to the physio endpoint."""
+        try:
+            resp = self._session.post(
+                f"{self._base_url}{self._pulse_endpoint}",
+                json=pulse,
+                timeout=self._timeout,
+            )
+            if resp.status_code in (200, 201):
+                logger.info(
+                    "ESP32 pulse relayed: bpm=%s status=%s",
+                    pulse.get("bpm"),
+                    pulse.get("alert_status"),
+                )
+            elif resp.status_code in (401, 403):
+                logger.error(
+                    "ESP32 pulse relay authz rejected (%d) — check DEVICE_JWT/consent",
+                    resp.status_code,
+                )
+            else:
+                logger.warning("ESP32 pulse relay returned %d", resp.status_code)
+        except Exception as e:
+            logger.warning("ESP32 pulse relay failed: %s", e)
+
     def _on_failure(self, payload: dict, permanent: bool) -> None:
         self._consecutive_failures += 1
         if permanent:
-            logger.warning("Permanent failure — payload discarded (seq=%d)", payload.get("sequence"))
+            logger.warning(
+                "Permanent failure — payload discarded (seq=%d)",
+                payload.get("sequence"),
+            )
         else:
             self._save_offline(payload)
 
@@ -162,7 +210,9 @@ class ApiClient:
         try:
             self._offline_dir.mkdir(parents=True, exist_ok=True)
             ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-            fname = self._offline_dir / f"offline_{ts}_{payload.get('sequence', 0)}.json"
+            fname = (
+                self._offline_dir / f"offline_{ts}_{payload.get('sequence', 0)}.json"
+            )
             with open(fname, "w") as f:
                 json.dump(payload, f)
             logger.debug("Offline queue: saved %s", fname)
@@ -184,7 +234,7 @@ class ApiClient:
                 with open(fpath, "r") as f:
                     payload = json.load(f)
                 self._send(payload)
-                fpath.unlink()   # remove on success
+                fpath.unlink()  # remove on success
             except Exception as e:
                 logger.warning("Failed to replay %s: %s", fpath.name, e)
-                break   # stop if we hit a problem — retry next start
+                break  # stop if we hit a problem — retry next start

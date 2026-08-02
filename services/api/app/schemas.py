@@ -117,6 +117,21 @@ class DeviceRegistrationResponse(BaseModel):
     device_jwt_token: str
 
 
+class DeviceWithRiskResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    guardian_id: str
+    name: str
+    platform: str
+    device_token: str
+    last_seen: datetime
+    risk_score: int = Field(default=0, ge=0, le=100)
+    risk_label: str = "Normal Range"
+    latest_alert: Optional[dict] = None
+    consent_count: int = Field(default=0)
+
+
 # --- Consent ---
 
 
