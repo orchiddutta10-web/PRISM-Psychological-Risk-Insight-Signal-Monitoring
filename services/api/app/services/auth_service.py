@@ -88,10 +88,12 @@ class AuthService:
                 expires_delta=timedelta(minutes=5),
             )
             code = f"{random.randint(100000, 999999)}"
-            MOCK_MFA_STORE[guardian.id] = code
+            _store_mfa(guardian.id, code)
             logger.info(
-                "MFA OTP sent to guardian %s: code=%s", guardian.email, code
+                "MFA challenge issued for guardian %s", guardian.email
             )
+            if settings.ENV.lower() != "production":
+                logger.debug("Mock MFA OTP for %s is %s", guardian.email, code)
 
             audit.log_audit_event(
                 db,
@@ -219,17 +221,19 @@ class AuthService:
         phone = req.phone_number.strip()
         # NOTE: In a production deployment, OTP codes would be generated via
         # a real SMS provider (Twilio, etc.) and stored with TTL. This mock
-        # implementation uses a fixed code for sandbox/demo testing only.
+        # implementation uses a short-lived in-memory OTP store for sandbox/demo use only.
         code = str(random.randint(100000, 999999))
-        MOCK_OTP_STORE[phone] = code
+        _store_otp(phone, code)
 
         audit.log_audit_event(
             db,
             action=f"OTP code sent successfully to phone {phone}",
             ip_address=ip_address,
         )
-        logger.info("OTP code %s sent to phone %s", code, phone)
-        return {"status": "sent", "code": code}
+        logger.info("OTP sent to phone %s", phone)
+        if settings.ENV.lower() != "production":
+            logger.debug("Mock OTP for %s is %s", phone, code)
+        return {"status": "sent"}
 
     @staticmethod
     def verify_otp(
