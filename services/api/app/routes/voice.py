@@ -15,6 +15,16 @@ from app.utils.voice_processor import (
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 
+MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_AUDIO_TYPES = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+}
+ALLOWED_EXTENSIONS = {".wav", ".mp3"}
+
 
 @router.post("/checkin")
 async def voice_checkin(
@@ -45,6 +55,22 @@ async def voice_checkin(
 
     # Read uploaded file content in-memory
     audio_bytes = await audio.read()
+
+    # Enforce a size limit to prevent memory-exhaustion DoS.
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Audio file too large (max 10 MB).",
+        )
+
+    # Allowlist MIME type / extension so only real audio enters the pipeline.
+    content_type = (audio.content_type or "").lower()
+    ext = os.path.splitext(audio.filename or "")[1].lower()
+    if content_type not in ALLOWED_AUDIO_TYPES and ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio type. Use WAV or MP3.",
+        )
 
     # 2. Onboarding Voiceprint Enrollment / Verification Gate
     profile = (
@@ -133,10 +159,12 @@ async def voice_checkin(
 
     persisted = False
     if retention_consent and retention_consent.is_granted:
-        # Persist raw audio file
+        # Persist raw audio file under a server-generated name — NEVER the
+        # client-provided filename (prevents path traversal / overwrite).
         upload_dir = "uploads/voice"
         os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"{session.id}_{audio.filename}")
+        safe_ext = ALLOWED_AUDIO_TYPES.get(content_type, ".wav")
+        file_path = os.path.join(upload_dir, f"{session.id}{safe_ext}")
 
         # Reset read head and save
         await audio.seek(0)

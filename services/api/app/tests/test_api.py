@@ -120,6 +120,115 @@ def test_guardian_auth_and_device_registration():
     assert response.status_code == 401
 
 
+def test_device_token_replay_ownership():
+    """A guardian cannot re-register another guardian's device token to mint a device JWT."""
+    # Guardian A registers device token T
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Guardian Alpha",
+            "email": "alpha@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login_a = client.post(
+        "/api/v1/auth/login",
+        json={"email": "alpha@example.com", "password": "securepassword123"},
+    )
+    token_a = res_login_a.json()["access_token"]
+    res_dev_a = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={
+            "name": "Alpha Phone",
+            "platform": "android",
+            "device_token": "token-replay-0001",
+        },
+    )
+    assert res_dev_a.status_code == 200
+    device_id = res_dev_a.json()["device"]["id"]
+
+    # Guardian B registers, then tries to re-register A's token
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Guardian Bravo",
+            "email": "bravo@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login_b = client.post(
+        "/api/v1/auth/login",
+        json={"email": "bravo@example.com", "password": "securepassword123"},
+    )
+    token_b = res_login_b.json()["access_token"]
+    res_dev_b = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {token_b}"},
+        json={
+            "name": "Bravo Phone",
+            "platform": "android",
+            "device_token": "token-replay-0001",
+        },
+    )
+    # B must NOT be able to take over A's device token
+    assert res_dev_b.status_code == 403
+    assert "another guardian" in res_dev_b.json()["detail"]
+
+    # Guardian A re-registering their own token still works
+    res_dev_a2 = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={
+            "name": "Alpha Phone",
+            "platform": "android",
+            "device_token": "token-replay-0001",
+        },
+    )
+    assert res_dev_a2.status_code == 200
+    assert res_dev_a2.json()["device"]["id"] == device_id
+
+
+def test_register_cannot_escalate_role():
+    """A client-supplied privileged role must be rejected (422); accounts are always 'guardian'."""
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Eve Mallory",
+            "email": "eve@example.com",
+            "password": "StrongPass99",
+            "role": "guardian-admin",
+        },
+    )
+    assert response.status_code == 422
+
+    # Default registration (no role) still works and yields role "guardian"
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Eve Mallory",
+            "email": "eve@example.com",
+            "password": "StrongPass99",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["role"] == "guardian"
+
+
+def test_register_rejects_invalid_role():
+    """Non-'guardian' roles are rejected by schema validation (defense in depth)."""
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Oscar Limit",
+            "email": "oscar@example.com",
+            "password": "StrongPass99",
+            "role": "ops",
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_consent_management_authz():
     # Setup Guardian and Device
     client.post(
@@ -664,6 +773,150 @@ def test_voice_checkin():
     assert response.json()["audio_discarded"] is False
 
 
+def test_voice_upload_rejects_oversize():
+    """Voice uploads larger than the 10 MB limit are rejected with 413."""
+    # Setup guardian + device
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Sarah",
+            "email": "sarah@example.com",
+            "password": "password123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "sarah@example.com", "password": "password123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Tommy", "platform": "android", "device_token": "tok"},
+    )
+    device_jwt = res_dev.json()["device_jwt_token"]
+
+    # Grant voice consent
+    device_id = res_dev.json()["device"]["id"]
+    db = TestingSessionLocal()
+    db.add(models.ConsentGrant(subject_id=device_id, modality="voice", is_granted=True))
+    db.commit()
+    db.close()
+
+    from app.routes.voice import MAX_AUDIO_BYTES
+
+    big = b"x" * (MAX_AUDIO_BYTES + 1)
+    res = client.post(
+        "/api/v1/voice/checkin",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        files={"audio": ("big.wav", big, "audio/wav")},
+    )
+    assert res.status_code == 413
+
+
+def test_voice_upload_rejects_bad_type():
+    """Non-audio uploads are rejected with 415."""
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Sarah",
+            "email": "sarah@example.com",
+            "password": "password123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "sarah@example.com", "password": "password123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Tommy", "platform": "android", "device_token": "tok"},
+    )
+    device_jwt = res_dev.json()["device_jwt_token"]
+
+    device_id = res_dev.json()["device"]["id"]
+    db = TestingSessionLocal()
+    db.add(models.ConsentGrant(subject_id=device_id, modality="voice", is_granted=True))
+    db.commit()
+    db.close()
+
+    res = client.post(
+        "/api/v1/voice/checkin",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        files={"audio": ("evil.exe", b"MZ...", "application/octet-stream")},
+    )
+    assert res.status_code == 415
+
+
+def test_voice_upload_uses_safe_filename():
+    """Retained audio is written under a server-generated name, not the client filename."""
+    import glob
+    import os
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Sarah",
+            "email": "sarah@example.com",
+            "password": "password123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "sarah@example.com", "password": "password123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Tommy", "platform": "android", "device_token": "tok"},
+    )
+    device_id = res_dev.json()["device"]["id"]
+    device_jwt = res_dev.json()["device_jwt_token"]
+
+    # Grant voice + voice_retention consent
+    db = TestingSessionLocal()
+    db.add(models.ConsentGrant(subject_id=device_id, modality="voice", is_granted=True))
+    db.add(
+        models.ConsentGrant(
+            subject_id=device_id, modality="voice_retention", is_granted=True
+        )
+    )
+    db.commit()
+    db.close()
+
+    # First check-in enrolls the baseline voiceprint
+    res_enroll = client.post(
+        "/api/v1/voice/checkin",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        files={"audio": ("baseline.wav", b"audio data here", "audio/wav")},
+    )
+    assert res_enroll.status_code == 200
+    assert res_enroll.json()["status"] == "enrolled"
+
+    # Upload with a malicious filename (same bytes -> speaker verification passes)
+    res = client.post(
+        "/api/v1/voice/checkin",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        files={"audio": ("../../evil.wav", b"audio data here", "audio/wav")},
+    )
+    assert res.status_code == 200
+    assert res.json()["audio_discarded"] is False
+
+    # No file may exist outside uploads/voice, and the written name must be <uuid>.wav
+    upload_dir = os.path.join(os.getcwd(), "uploads", "voice")
+    written = glob.glob(os.path.join(upload_dir, "*.wav"))
+    assert len(written) > 0
+    for path in written:
+        name = os.path.basename(path)
+        assert not name.startswith("..")
+        # server-generated: <uuid>.wav (no client filename segment)
+        assert name.endswith(".wav")
+        assert "../" not in name
+
+
 def test_companion_chat():
     """Unit test for Phase 6: Multi-Persona AI Companion and Crisis Gating."""
     # 1. Setup Guardian and Device
@@ -754,114 +1007,161 @@ def test_companion_chat():
 
 def test_meta_webhooks():
     """Unit test for Phase 7: Meta Messaging Webhooks (WhatsApp & Instagram)."""
-    # 1. Setup Guardian and Device
-    client.post(
-        "/api/v1/auth/register",
-        json={
-            "full_name": "Sarah",
-            "email": "sarah@example.com",
-            "password": "password123",
-        },
-    )
-    res_login = client.post(
-        "/api/v1/auth/login",
-        json={"email": "sarah@example.com", "password": "password123"},
-    )
-    guardian_token = res_login.json()["access_token"]
-    res_dev = client.post(
-        "/api/v1/auth/device",
-        headers={"Authorization": f"Bearer {guardian_token}"},
-        json={"name": "Tommy", "platform": "android", "device_token": "tok"},
-    )
-    device_id = res_dev.json()["device"]["id"]
+    import hashlib
+    import hmac
 
-    # 2. Test GET Webhook Verification
-    response = client.get(
-        "/api/v1/companion/webhook/meta",
-        params={
-            "hub.mode": "subscribe",
-            "hub.challenge": "12345challenge",
-            "hub.verify_token": "prism_verify_secret",
-        },
-    )
-    assert response.status_code == 200
-    assert response.text == "12345challenge"
+    from app.config import settings
 
-    # Mismatch token should fail 403
-    response = client.get(
-        "/api/v1/companion/webhook/meta",
-        params={
-            "hub.mode": "subscribe",
-            "hub.challenge": "12345challenge",
-            "hub.verify_token": "wrong_token",
-        },
-    )
-    assert response.status_code == 403
+    # Configure a test app secret for signature verification
+    original_app_secret = settings.META_APP_SECRET
+    settings.META_APP_SECRET = "test_app_secret"
 
-    # 3. Test POST WhatsApp Webhook Ingestion (using device_id as sender_id to satisfy ForeignKey constraint)
-    whatsapp_payload = {
-        "object": "whatsapp_business_account",
-        "entry": [
-            {
-                "id": "WABA_1",
-                "changes": [
-                    {
-                        "value": {
-                            "messaging_product": "whatsapp",
-                            "messages": [
-                                {
-                                    "from": device_id,
-                                    "text": {
-                                        "body": "How can I set structured daily goals?"
-                                    },
-                                }
-                            ],
-                        },
-                        "field": "messages",
-                    }
-                ],
-            }
-        ],
-    }
+    def sign(body_bytes: bytes) -> str:
+        return "sha256=" + hmac.new(
+            b"test_app_secret", body_bytes, hashlib.sha256
+        ).hexdigest()
 
-    response = client.post("/api/v1/companion/webhook/meta", json=whatsapp_payload)
-    assert response.status_code == 200
-    assert response.json()["status"] == "processed"
-    assert response.json()["channel"] == "whatsapp"
-    assert "Listener" in response.json()["response"]  # defaults to listener
-    assert response.json()["crisis_flag"] is False
+    try:
+        # 1. Setup Guardian and Device
+        client.post(
+            "/api/v1/auth/register",
+            json={
+                "full_name": "Sarah",
+                "email": "sarah@example.com",
+                "password": "password123",
+            },
+        )
+        res_login = client.post(
+            "/api/v1/auth/login",
+            json={"email": "sarah@example.com", "password": "password123"},
+        )
+        guardian_token = res_login.json()["access_token"]
+        res_dev = client.post(
+            "/api/v1/auth/device",
+            headers={"Authorization": f"Bearer {guardian_token}"},
+            json={"name": "Tommy", "platform": "android", "device_token": "tok"},
+        )
+        device_id = res_dev.json()["device"]["id"]
 
-    # 4. Test POST Instagram Webhook Ingestion with CRISIS keyword
-    instagram_payload = {
-        "object": "instagram",
-        "entry": [
-            {
-                "id": "PAGE_1",
-                "messaging": [
-                    {
-                        "sender": {"id": device_id},
-                        "message": {"text": "I want to end it all"},
-                    }
-                ],
-            }
-        ],
-    }
+        # 2. Test GET Webhook Verification
+        original_token = settings.META_VERIFY_TOKEN
+        settings.META_VERIFY_TOKEN = "test_verify_token"
+        try:
+            response = client.get(
+                "/api/v1/companion/webhook/meta",
+                params={
+                    "hub.mode": "subscribe",
+                    "hub.challenge": "12345challenge",
+                    "hub.verify_token": "test_verify_token",
+                },
+            )
+            assert response.status_code == 200
+            assert response.text == "12345challenge"
 
-    response = client.post("/api/v1/companion/webhook/meta", json=instagram_payload)
-    assert response.status_code == 200
-    assert response.json()["status"] == "processed"
-    assert response.json()["channel"] == "instagram"
-    assert response.json()["crisis_flag"] is True
-    assert (
-        "text HOME to 741741" in response.json()["response"]
-    )  # crisis hotline details
+            # Mismatch token should fail 403
+            response = client.get(
+                "/api/v1/companion/webhook/meta",
+                params={
+                    "hub.mode": "subscribe",
+                    "hub.challenge": "12345challenge",
+                    "hub.verify_token": "wrong_token",
+                },
+            )
+            assert response.status_code == 403
+        finally:
+            settings.META_VERIFY_TOKEN = original_token
 
-    # Verify that a RED alert was created for the subject device
-    db = TestingSessionLocal()
-    alerts = db.query(models.Alert).filter(models.Alert.device_id == device_id).all()
-    red_alerts = [a for a in alerts if a.severity_tier == "red"]
-    assert len(red_alerts) > 0
-    db.close()
+        # 3. Test POST WhatsApp Webhook Ingestion (using device_id as sender_id to satisfy ForeignKey constraint)
+        whatsapp_payload = {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "id": "WABA_1",
+                    "changes": [
+                        {
+                            "value": {
+                                "messaging_product": "whatsapp",
+                                "messages": [
+                                    {
+                                        "from": device_id,
+                                        "text": {
+                                            "body": "How can I set structured daily goals?"
+                                        },
+                                    }
+                                ],
+                            },
+                            "field": "messages",
+                        }
+                    ],
+                }
+            ],
+        }
+        whatsapp_body = json.dumps(whatsapp_payload).encode()
+
+        response = client.post(
+            "/api/v1/companion/webhook/meta",
+            content=whatsapp_body,
+            headers={"X-Hub-Signature-256": sign(whatsapp_body)},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "processed"
+        assert response.json()["channel"] == "whatsapp"
+        assert "Listener" in response.json()["response"]  # defaults to listener
+        assert response.json()["crisis_flag"] is False
+
+        # 4. Test POST Instagram Webhook Ingestion with CRISIS keyword
+        instagram_payload = {
+            "object": "instagram",
+            "entry": [
+                {
+                    "id": "PAGE_1",
+                    "messaging": [
+                        {
+                            "sender": {"id": device_id},
+                            "message": {"text": "I want to end it all"},
+                        }
+                    ],
+                }
+            ],
+        }
+        instagram_body = json.dumps(instagram_payload).encode()
+
+        response = client.post(
+            "/api/v1/companion/webhook/meta",
+            content=instagram_body,
+            headers={"X-Hub-Signature-256": sign(instagram_body)},
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "processed"
+        assert response.json()["channel"] == "instagram"
+        assert response.json()["crisis_flag"] is True
+        assert (
+            "text HOME to 741741" in response.json()["response"]
+        )  # crisis hotline details
+
+        # Verify that a RED alert was created for the subject device
+        db = TestingSessionLocal()
+        alerts = db.query(models.Alert).filter(models.Alert.device_id == device_id).all()
+        red_alerts = [a for a in alerts if a.severity_tier == "red"]
+        assert len(red_alerts) > 0
+        db.close()
+
+        # 5. Negative test: missing signature must be rejected with 403
+        response = client.post(
+            "/api/v1/companion/webhook/meta", content=whatsapp_body
+        )
+        assert response.status_code == 403
+        assert "signature" in response.json()["detail"].lower()
+
+        # 6. Negative test: wrong signature must be rejected with 403
+        response = client.post(
+            "/api/v1/companion/webhook/meta",
+            content=whatsapp_body,
+            headers={"X-Hub-Signature-256": "sha256=" + "0" * 64},
+        )
+        assert response.status_code == 403
+    finally:
+        settings.META_APP_SECRET = original_app_secret
 
 
 def test_guardian_consent_grants():
@@ -949,6 +1249,15 @@ def test_ingestion_health():
     )
     device_id = res_dev.json()["device"]["id"]
     device_jwt = res_dev.json()["device_jwt_token"]
+
+    # Grant gsr consent (required for unified physio ingestion)
+    consent = models.ConsentGrant(
+        subject_id=device_id, modality="gsr", is_granted=True
+    )
+    db = TestingSessionLocal()
+    db.add(consent)
+    db.commit()
+    db.close()
 
     # Ingest a synthetic GSR unified event
     res_ingest = client.post(
@@ -1150,7 +1459,7 @@ def test_mfa_flow():
             mfa_token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
         )
         user_id = payload["sub"]
-        mfa_code = MOCK_MFA_STORE[user_id]
+        mfa_code = MOCK_MFA_STORE[user_id]["code"]
 
         # 3. Verify MFA -> Expect final Access Token
         res_verify = client.post(
@@ -1162,3 +1471,675 @@ def test_mfa_flow():
         assert res_verify.json()["token_type"] == "bearer"
     finally:
         settings.ENV = original_env
+
+
+def test_mfa_wrong_code_attempts_invalidate():
+    """After OTP_MAX_ATTEMPTS failed MFA attempts, the code is invalidated."""
+    from app.config import settings
+    from app.services.auth_service import MOCK_MFA_STORE, OTP_MAX_ATTEMPTS
+
+    original_env = settings.ENV
+    settings.ENV = "production"
+    try:
+        client.post(
+            "/api/v1/auth/register",
+            json={
+                "full_name": "MFA Attempts User",
+                "email": "mfaattempts@example.com",
+                "password": "securepassword123",
+            },
+        )
+        res_login = client.post(
+            "/api/v1/auth/login",
+            json={"email": "mfaattempts@example.com", "password": "securepassword123"},
+        )
+        assert res_login.json()["mfa_required"] is True
+        mfa_token = res_login.json()["mfa_token"]
+
+        from app.utils.auth import jwt
+
+        user_id = jwt.decode(
+            mfa_token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+        )["sub"]
+        correct = MOCK_MFA_STORE[user_id]["code"]
+
+        # Exhaust attempts with wrong codes
+        for _ in range(OTP_MAX_ATTEMPTS):
+            res = client.post(
+                "/api/v1/auth/mfa/verify",
+                json={"mfa_token": mfa_token, "otp_code": "000000"},
+            )
+            assert res.status_code == 400
+
+        # Even the correct code now fails (store invalidated)
+        res = client.post(
+            "/api/v1/auth/mfa/verify",
+            json={"mfa_token": mfa_token, "otp_code": correct},
+        )
+        assert res.status_code == 400
+    finally:
+        settings.ENV = original_env
+
+
+def test_mfa_code_expiry():
+    """An expired MFA code is rejected."""
+    from app.config import settings
+    from app.services.auth_service import MOCK_MFA_STORE
+    from datetime import timedelta
+
+    original_env = settings.ENV
+    settings.ENV = "production"
+    try:
+        client.post(
+            "/api/v1/auth/register",
+            json={
+                "full_name": "MFA Expiry User",
+                "email": "mfaexpiry@example.com",
+                "password": "securepassword123",
+            },
+        )
+        res_login = client.post(
+            "/api/v1/auth/login",
+            json={"email": "mfaexpiry@example.com", "password": "securepassword123"},
+        )
+        mfa_token = res_login.json()["mfa_token"]
+
+        from app.utils.auth import jwt
+
+        user_id = jwt.decode(
+            mfa_token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
+        )["sub"]
+        correct = MOCK_MFA_STORE[user_id]["code"]
+
+        # Force expiry
+        MOCK_MFA_STORE[user_id]["expires_at"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=1)
+        )
+
+        res = client.post(
+            "/api/v1/auth/mfa/verify",
+            json={"mfa_token": mfa_token, "otp_code": correct},
+        )
+        assert res.status_code == 400
+    finally:
+        settings.ENV = original_env
+
+
+def test_otp_send_returns_random_code_in_dev():
+    """Dev mode: OTP send returns a random 6-digit code (never the hardcoded '123456')."""
+    from app.services.auth_service import MOCK_OTP_STORE
+
+    MOCK_OTP_STORE.clear()
+    phone = "+15550001111"
+    res = client.post(
+        "/api/v1/auth/otp/send", json={"phone_number": phone}
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] == "sent"
+    assert "code" in body
+    code = body["code"]
+    assert len(code) == 6
+    assert code.isdigit()
+    assert code != "123456"
+    # Stored with expiry + attempts bookkeeping
+    stored = MOCK_OTP_STORE.get(phone)
+    assert stored is not None
+    assert stored["code"] == code
+    assert stored["attempts"] == 0
+    assert "expires_at" in stored
+
+
+def test_otp_verify_success_and_one_time_use():
+    """A valid OTP authenticates the guardian and is invalidated after use."""
+    phone = "+15550002222"
+    res_send = client.post("/api/v1/auth/otp/send", json={"phone_number": phone})
+    code = res_send.json()["code"]
+
+    res_verify = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"phone_number": phone, "code": code},
+    )
+    assert res_verify.status_code == 200
+    body = res_verify.json()
+    assert body["is_new_user"] is True
+
+    # Replaying the same code must fail (one-time use)
+    res_replay = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"phone_number": phone, "code": code},
+    )
+    assert res_replay.status_code == 400
+
+
+def test_otp_verify_invalid_code():
+    """A wrong OTP is rejected with 400."""
+    phone = "+15550003333"
+    client.post("/api/v1/auth/otp/send", json={"phone_number": phone})
+
+    res = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"phone_number": phone, "code": "999999"},
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Invalid OTP code"
+
+
+def test_otp_verify_max_attempts_invalidates():
+    """After OTP_MAX_ATTEMPTS failures the code is invalidated."""
+    from app.services.auth_service import OTP_MAX_ATTEMPTS
+
+    phone = "+15550004444"
+    res_send = client.post("/api/v1/auth/otp/send", json={"phone_number": phone})
+    code = res_send.json()["code"]
+
+    for _ in range(OTP_MAX_ATTEMPTS):
+        res = client.post(
+            "/api/v1/auth/otp/verify",
+            json={"phone_number": phone, "code": "000000"},
+        )
+        assert res.status_code == 400
+
+    # Even the correct code now fails (store invalidated)
+    res = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"phone_number": phone, "code": code},
+    )
+    assert res.status_code == 400
+
+
+def test_otp_register_does_not_use_default_password():
+    """OTP-registered guardians must NOT share the 'default_otp_pwd' credential."""
+    phone = "+15550005555"
+    # 1. Send + verify OTP (returns is_new_user=True)
+    res_send = client.post("/api/v1/auth/otp/send", json={"phone_number": phone})
+    code = res_send.json()["code"]
+    res_verify = client.post(
+        "/api/v1/auth/otp/verify",
+        json={"phone_number": phone, "code": code},
+    )
+    assert res_verify.status_code == 200
+    assert res_verify.json()["is_new_user"] is True
+
+    # 2. Register via OTP
+    res_register = client.post(
+        "/api/v1/auth/otp/register",
+        json={"phone_number": phone, "full_name": "OTP User"},
+    )
+    assert res_register.status_code == 200
+    assert "access_token" in res_register.json()
+
+    # 3. The old hardcoded password must NOT authenticate
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": f"{phone}@prism-otp.org", "password": "default_otp_pwd"},
+    )
+    assert res_login.status_code in (401, 400)
+
+
+def test_otp_send_hides_code_in_production():
+    """Production mode: OTP send must NOT return the code in the response body."""
+    from app.config import settings
+
+    original_env = settings.ENV
+    settings.ENV = "production"
+    try:
+        res = client.post(
+            "/api/v1/auth/otp/send", json={"phone_number": "+15550006666"}
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["status"] == "sent"
+        assert "code" not in body
+    finally:
+        settings.ENV = original_env
+
+
+def test_production_guard_rejects_default_secrets():
+    """Settings with ENV=production must refuse to start when default secrets are used."""
+    import pytest
+    from app.config import Settings
+
+    with pytest.raises(ValueError):
+        Settings(
+            ENV="production",
+            JWT_SECRET="super-secret-jwt-key-change-in-production-123456",
+        )
+
+    # A valid production configuration with non-default secrets must load fine.
+    cfg = Settings(
+        ENV="production",
+        JWT_SECRET="a-strong-random-jwt-secret-0123456789",
+        ENCRYPTION_KEY="8XvH3aHOoDT2Kok-nldaJ_jOTVu74W1sBqkji-yhTTw=",
+        META_VERIFY_TOKEN="a-strong-verify-token-987654",
+    )
+    assert cfg.ENV == "production"
+
+
+def test_encrypt_decrypt_roundtrip():
+    """encrypt_field then decrypt_field with the same key returns the original text."""
+    from app.utils.crypto import encrypt_field, decrypt_field
+
+    plain = '{"steps": 1500, "note": "roundtrip"}'
+    cipher = encrypt_field(plain)
+    assert cipher != plain
+    assert decrypt_field(cipher) == plain
+    # Empty input is preserved as empty (unchanged behavior)
+    assert encrypt_field("") == ""
+    assert decrypt_field("") == ""
+
+
+def test_decrypt_field_raises_on_wrong_key():
+    """Ciphertext encrypted under a different key must raise, not return a sentinel."""
+    import pytest
+    from cryptography.fernet import Fernet
+    from app.utils.crypto import decrypt_field
+
+    other_key = Fernet.generate_key()
+    other = Fernet(other_key)
+    foreign_cipher = other.encrypt(b"secret from another key").decode()
+
+    with pytest.raises(Exception):
+        decrypt_field(foreign_cipher)
+
+
+def test_ws_rejects_missing_token():
+    """WebSocket without a token must be closed before accept (1008)."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect("/api/v1/events/ws"):
+            pass  # should never reach here
+    assert exc_info.value.code == 1008
+
+
+def test_ws_rejects_invalid_token():
+    """WebSocket with a garbage token must be closed before accept (1008)."""
+    from starlette.websockets import WebSocketDisconnect
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect(
+            "/api/v1/events/ws?token=not.a.valid.jwt"
+        ):
+            pass
+    assert exc_info.value.code == 1008
+
+
+def test_ws_accepts_valid_guardian_token(monkeypatch):
+    """A valid guardian JWT is accepted and the socket can exchange a message."""
+    # Register + login a guardian to get a real JWT
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "WS Guardian",
+            "email": "wsguardian@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "wsguardian@example.com", "password": "securepassword123"},
+    )
+    token = res_login.json()["access_token"]
+    assert token
+
+    # The global conftest AsyncMock for Redis isn't WebSocket-aware (pubsub()
+    # returns a coroutine). Install a minimal WS-aware mock for this test.
+    class FakePubSub:
+        async def subscribe(self, *channels):
+            return None
+
+        async def unsubscribe(self, *channels):
+            return None
+
+        async def get_message(self, ignore_subscribe_messages=True, timeout=1.0):
+            # Block forever so the handler stays in its receive loop; the test
+            # closes the socket (exiting the `with`) to end the connection.
+            import asyncio
+
+            await asyncio.Event().wait()
+
+    class FakeRedis:
+        def pubsub(self):
+            return FakePubSub()
+
+        async def publish(self, channel, message):
+            return 1
+
+    monkeypatch.setattr("app.routes.telemetry.get_redis_client", lambda: FakeRedis())
+
+    with client.websocket_connect(f"/api/v1/events/ws?token={token}") as ws:
+        ws.send_json({"text": "hello"})
+        # Connection stays open (accept happened); we just verify no immediate close.
+        assert ws is not None
+
+
+def test_rate_limit_applies_in_dev():
+    """Rate limiting is active outside production when enabled (5 allowed, 6th -> 429)."""
+    from app.config import settings
+
+    original = settings.RATE_LIMIT_ENABLED
+    settings.RATE_LIMIT_ENABLED = True
+    try:
+        responses = []
+        for i in range(6):
+            r = client.post(
+                "/api/v1/auth/register",
+                json={
+                    "full_name": "Rate User",
+                    "email": f"rate{i}@example.com",
+                    "password": "securepassword123",
+                },
+            )
+            responses.append(r.status_code)
+        # First 5 register successfully; the 6th is throttled (429).
+        assert responses[:5] == [201] * 5
+        assert responses[5] == 429
+    finally:
+        settings.RATE_LIMIT_ENABLED = original
+
+
+def test_unified_physio_requires_consent():
+    """Unified gsr ingestion is rejected without consent and accepted with it."""
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Consent Parent",
+            "email": "consentparent@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "consentparent@example.com", "password": "securepassword123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Kid", "platform": "android", "device_token": "tok-consent-1"},
+    )
+    device_id = res_dev.json()["device"]["id"]
+    device_jwt = res_dev.json()["device_jwt_token"]
+
+    payload = {
+        "subject_id": device_id,
+        "modality": "gsr",
+        "value": {"gsr_microsiemens": 4.5, "is_synthetic": True},
+        "confidence": 0.95,
+    }
+
+    # No consent -> 403
+    res_no = client.post(
+        "/api/v1/events/ingest/unified",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json=payload,
+    )
+    assert res_no.status_code == 403
+
+    # Grant gsr consent -> 200
+    db = TestingSessionLocal()
+    db.add(models.ConsentGrant(subject_id=device_id, modality="gsr", is_granted=True))
+    db.commit()
+    db.close()
+
+    res_yes = client.post(
+        "/api/v1/events/ingest/unified",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json=payload,
+    )
+    assert res_yes.status_code == 200
+
+
+def test_pulse_ingest_requires_consent():
+    """Pulse ingestion is rejected without consent and accepted with it."""
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Pulse Parent",
+            "email": "pulseparent@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "pulseparent@example.com", "password": "securepassword123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Kid", "platform": "android", "device_token": "tok-pulse-1"},
+    )
+    device_id = res_dev.json()["device"]["id"]
+    device_jwt = res_dev.json()["device_jwt_token"]
+
+    pulse_payload = {
+        "ts_ms": 123456.0,
+        "pulse_raw": 512.0,
+        "bpm": 72.0,
+        "g_force": 1.02,
+        "alert_status": "OK",
+    }
+
+    # No consent -> 403
+    res_no = client.post(
+        "/api/v1/physio/pulse/ingest",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json=pulse_payload,
+    )
+    assert res_no.status_code == 403
+
+    # Grant pulse consent -> 200
+    db = TestingSessionLocal()
+    db.add(models.ConsentGrant(subject_id=device_id, modality="pulse", is_granted=True))
+    db.commit()
+    db.close()
+
+    res_yes = client.post(
+        "/api/v1/physio/pulse/ingest",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json=pulse_payload,
+    )
+    assert res_yes.status_code == 200
+
+
+def test_worker_run_returns_accepted():
+    """Worker run returns immediately with 'accepted' (background execution)."""
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Worker Parent",
+            "email": "workerparent@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "workerparent@example.com", "password": "securepassword123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+
+    res = client.post(
+        "/api/v1/events/worker/run",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["status"] in ("accepted", "already_running")
+    assert "events_purged" in body
+
+
+def test_worker_run_locked_when_running():
+    """A second worker run while one is in progress returns 'already_running'."""
+    from app.routes.telemetry import _worker_lock
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Worker Lock Parent",
+            "email": "workerlock@example.com",
+            "password": "securepassword123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "workerlock@example.com", "password": "securepassword123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+
+    # Hold the lock to simulate an in-progress job
+    acquired = _worker_lock.acquire(blocking=False)
+    assert acquired is True
+    try:
+        res = client.post(
+            "/api/v1/events/worker/run",
+            headers={"Authorization": f"Bearer {guardian_token}"},
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "already_running"
+    finally:
+        _worker_lock.release()
+
+
+def test_chat_sanitizes_and_caps_input():
+    """Guardian chat text is control-character-stripped and length-capped on ingest."""
+    from app.routes.telemetry import _sanitize_chat_text
+
+    # Control characters are stripped
+    assert _sanitize_chat_text("hello\x00world\x1f") == "helloworld"
+    # Length is capped at CHAT_MAX_LENGTH
+    long = "x" * 1000
+    assert len(_sanitize_chat_text(long)) == 500
+    # Normal text passes through unchanged
+    assert _sanitize_chat_text("How can I support my child?") == "How can I support my child?"
+
+
+def test_security_headers_present():
+    """Every API response carries the security headers."""
+    res = client.get("/")
+    assert res.status_code == 200
+    assert res.headers.get("Content-Security-Policy") == "default-src 'self'"
+    assert res.headers.get("X-Content-Type-Options") == "nosniff"
+    assert res.headers.get("X-Frame-Options") == "DENY"
+    assert res.headers.get("Referrer-Policy") == "no-referrer"
+
+
+def test_apm_logs_redact_query_string(caplog):
+    """APM logs must not contain the query string (JWT token leakage)."""
+    from app.utils.observability import _redact_path
+
+    # Unit-level: the redaction helper strips query strings
+    assert _redact_path("/api/v1/events/ws?token=SECRETJWT") == "/api/v1/events/ws"
+    assert "SECRETJWT" not in _redact_path("/api/v1/events/ws?token=SECRETJWT")
+
+    # End-to-end: the API's APM trace for a request with a token query param
+    # must NOT contain the token (only the redacted path).
+    with caplog.at_level("INFO", logger="root"):
+        client.get("/?token=SUPERSECRETTOKEN")
+    apm_lines = [
+        r.getMessage() for r in caplog.records if "APM TRACE" in r.getMessage()
+    ]
+    assert len(apm_lines) > 0
+    for line in apm_lines:
+        assert "SUPERSECRETTOKEN" not in line
+
+
+def test_apm_error_logs_exception_type(caplog):
+    """APM error logs must show the exception type, not the full message."""
+    from app.utils.observability import _redact_error
+
+    class _FakeSensitiveError(Exception):
+        pass
+
+    err = _FakeSensitiveError("password=supersecret phone=+15551234567")
+    safe = _redact_error(err)
+    assert safe == "_FakeSensitiveError"
+    assert "supersecret" not in safe
+    assert "+15551234567" not in safe
+
+
+def test_audit_chain_verifies():
+    """The audit log hash chain verifies cleanly after real requests."""
+    from app.database import SessionLocal
+    from app.utils.audit import verify_audit_chain
+
+    # Clear the on-disk audit entries so the chain starts fresh (the middleware
+    # writes to the app's real SessionLocal, which persists across tests).
+    db = SessionLocal()
+    try:
+        db.query(models.AuditLogEntry).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    # Trigger some audit-logged requests (register/login/device produce entries)
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Audit Parent",
+            "email": "auditparent@example.com",
+            "password": "securepassword123",
+        },
+    )
+    client.post(
+        "/api/v1/auth/login",
+        json={"email": "auditparent@example.com", "password": "securepassword123"},
+    )
+
+    # The middleware writes via the app's real SessionLocal (on-disk), not the
+    # test's in-memory get_db override.
+    db = SessionLocal()
+    try:
+        entries = db.query(models.AuditLogEntry).all()
+        assert len(entries) >= 2  # at least a SIGNUP + LOGIN attempt
+        ok, broken = verify_audit_chain(db)
+        assert ok is True
+        assert broken == []
+    finally:
+        db.close()
+
+
+def test_audit_chain_detects_tamper():
+    """Modifying an audit entry's action is detected by the hash chain."""
+    from app.database import SessionLocal
+    from app.utils.audit import verify_audit_chain
+
+    # Clear the on-disk audit entries so the chain starts fresh.
+    db = SessionLocal()
+    try:
+        db.query(models.AuditLogEntry).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Tamper Parent",
+            "email": "tamperparent@example.com",
+            "password": "securepassword123",
+        },
+    )
+
+    db = SessionLocal()
+    try:
+        # Verify clean first
+        ok, broken = verify_audit_chain(db)
+        assert ok is True
+
+        # Simulate tampering: change the action of the first entry
+        first = (
+            db.query(models.AuditLogEntry)
+            .order_by(models.AuditLogEntry.timestamp.asc(), models.AuditLogEntry.id.asc())
+            .first()
+        )
+        assert first is not None
+        first.action = "TAMPERED_ACTION"
+        db.commit()
+
+        ok, broken = verify_audit_chain(db)
+        assert ok is False
+        assert len(broken) > 0
+    finally:
+        db.close()

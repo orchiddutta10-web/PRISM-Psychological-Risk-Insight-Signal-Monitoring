@@ -1,4 +1,5 @@
 import json
+import threading
 from fastapi import (
     APIRouter,
     Depends,
@@ -22,6 +23,17 @@ from app.utils.ml_engine import run_risk_engine
 from app.utils.risk_registry import check_event_for_risks
 
 router = APIRouter(prefix="/api/v1/events", tags=["telemetry"])
+
+# Guards the background worker job so only one runs at a time.
+_worker_lock = threading.Lock()
+
+CHAT_MAX_LENGTH = 500
+
+
+def _sanitize_chat_text(text: str) -> str:
+    """Strip control characters and cap length for stored chat text."""
+    cleaned = "".join(ch for ch in text if ch >= " " or ch in "\t\n\r")
+    return cleaned[:CHAT_MAX_LENGTH]
 
 
 @router.post("/ingest", response_model=schemas.TelemetryResponse)
@@ -162,12 +174,10 @@ async def ingest_unified(
             .first()
         )
         if not old_consent or old_consent.revoked_at is not None:
-            # Just a warning for demo purposes instead of blocking completely,
-            # or we can block it. Let's block it unless it's a physio signal in dev.
-            if payload.modality not in ["gsr", "ppg"]:
-                raise HTTPException(
-                    status_code=403, detail="Active consent not granted."
-                )
+            # Consent is required for ALL modalities (including gsr/ppg).
+            raise HTTPException(
+                status_code=403, detail="Active consent not granted."
+            )
 
     event = models.UnifiedEvent(
         subject_id=current_device.id,
@@ -309,28 +319,50 @@ def trigger_worker_jobs(
 ):
     """
     Manually trigger baseline-aggregation and event-purging.
-    Accessible only to authorized guardians.
+    Runs in a background thread so the request returns immediately; only one
+    worker run executes at a time.
     """
-    run_baseline_aggregation(db)
-    infer_sleep_windows(db)
-    purged = purge_raw_events(db, days=30)
+    if not _worker_lock.acquire(blocking=False):
+        return {"status": "already_running", "events_purged": 0}
 
     audit.log_audit_event(
         db,
-        action=f"Worker run triggered: Baseline profiles updated, sleep windows estimated, {purged} old events purged.",
+        action="Worker run triggered (background): baseline aggregation + sleep estimation + purge started.",
         guardian_id=str(current_guardian.id),
     )
 
-    return {"status": "completed", "events_purged": purged}
+    def _run_job():
+        try:
+            job_db = SessionLocal()
+            try:
+                run_baseline_aggregation(job_db)
+                infer_sleep_windows(job_db)
+                purge_raw_events(job_db, days=30)
+                job_db.commit()
+            finally:
+                job_db.close()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("Background worker job failed")
+        finally:
+            _worker_lock.release()
+
+    threading.Thread(target=_run_job, daemon=True).start()
+
+    return {"status": "accepted", "events_purged": 0}
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
+async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for guardians to receive live updates and chat with Aria.
     Connection URL: ws://localhost:8000/api/v1/events/ws?token=<jwt_token>
+    The JWT is validated BEFORE the socket is accepted; invalid tokens are
+    rejected with close code 1008.
     """
-    await websocket.accept()
+    token = websocket.query_params.get("token")
+
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -351,6 +383,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    await websocket.accept()
+
     redis_conn = get_redis_client()
     pubsub = redis_conn.pubsub()
 
@@ -370,6 +404,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
                     parsed = json.loads(data)
                     text = parsed.get("text")
                     if text and token_type == "guardian":
+                        text = _sanitize_chat_text(text)
                         db = SessionLocal()
                         # 1. Save guardian message
                         msg = models.ChatMessage(

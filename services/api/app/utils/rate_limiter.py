@@ -26,11 +26,12 @@ async def rate_limit(request: Request, limit: int = 5, period: int = 60):
     """
     Asynchronous rate limiter dependency.
     Integrates with Redis if available; falls back to sliding-window in-memory tracking.
-    Bypassed in non-production environments to avoid test suite lockout.
+    Enabled by default in ALL environments via settings.RATE_LIMIT_ENABLED (the test
+    suite sets this flag to False to avoid self-lockout).
     """
     from app.config import settings
 
-    if settings.ENV.lower() != "production":
+    if not settings.RATE_LIMIT_ENABLED:
         return
 
     client_ip = request.client.host if request.client else "127.0.0.1"

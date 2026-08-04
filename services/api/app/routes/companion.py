@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from datetime import datetime
+import json
+import hashlib
+import hmac
 
 from app import models
 from app.database import get_db
@@ -15,13 +18,25 @@ from app.utils.companion_engine import (
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
 
 
+def _verify_meta_signature(app_secret: str, raw_body: bytes, signature: str) -> bool:
+    """Meta signs the raw request body with HMAC-SHA256 using the app secret.
+
+    The X-Hub-Signature-256 header has the form "sha256=<hexdigest>". We compare
+    in constant time to avoid timing attacks.
+    """
+    expected = "sha256=" + hmac.new(
+        app_secret.encode(), raw_body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
 class CompanionSessionCreate(BaseModel):
     persona_id: str
     channel: str = "in-app"
 
 
 class CompanionMessageRequest(BaseModel):
-    message: str
+    message: str = Field(..., max_length=500)
 
 
 @router.get("/personas")
@@ -118,7 +133,11 @@ def send_message(
             status_code=404, detail="Session not found or belongs to another device."
         )
 
-    response_text = handle_companion_message(db, session.id, req.message)
+    # Strip control characters before processing (length is capped by the schema).
+    message_text = "".join(
+        ch for ch in req.message if ch >= " " or ch in "\t\n\r"
+    )
+    response_text = handle_companion_message(db, session.id, message_text)
 
     return {
         "status": "processed",
@@ -147,11 +166,33 @@ def verify_meta_webhook(
 
 
 @router.post("/webhook/meta")
-async def meta_webhook(payload: dict, db: Session = Depends(get_db)):
+async def meta_webhook(request: Request, db: Session = Depends(get_db)):
     """
     Meta Inbound Webhook (WhatsApp & Instagram).
-    Parses sender, text, and channels, then routes to AI + Crisis classifier.
+    Verifies the X-Hub-Signature-256 header (HMAC-SHA256 of the raw body using
+    META_APP_SECRET) before parsing, then routes to AI + Crisis classifier.
     """
+    from app.config import settings
+
+    raw_body = await request.body()
+    signature = request.headers.get("X-Hub-Signature-256", "")
+
+    if not settings.META_APP_SECRET or not _verify_meta_signature(
+        settings.META_APP_SECRET, raw_body, signature
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing webhook signature.",
+        )
+
+    try:
+        payload = json.loads(raw_body)
+    except (json.JSONDecodeError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload.",
+        )
+
     channel = None
     sender_id = None
     message_text = None

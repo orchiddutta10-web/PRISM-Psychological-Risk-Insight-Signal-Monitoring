@@ -2,6 +2,13 @@ import pytest
 import warnings
 from unittest.mock import AsyncMock
 
+from app.config import settings
+
+# The test suite makes many rapid calls to the same auth endpoints from one
+# testclient IP; disable rate limiting to avoid self-lockout. Rate limiting is
+# enabled by default in all environments (see app/utils/rate_limiter.py).
+settings.RATE_LIMIT_ENABLED = False
+
 # Suppress upstream Starlette deprecation warning about httpx vs httpx2
 warnings.filterwarnings(
     "ignore", message=".*httpx.*testclient.*deprecated.*", module="starlette.testclient"

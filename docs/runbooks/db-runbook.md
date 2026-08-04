@@ -27,7 +27,7 @@ cat backup.sql | docker exec -i prism-db psql -U prism_user -d prism_wellbeing
 ```
 
 Health Checks
-- Connection: `psql postgresql://prism_user:prism_secure_password123@localhost:5432/prism_wellbeing`
+- Connection: `psql "postgresql://prism_user:${POSTGRES_PASSWORD}@localhost:5432/prism_wellbeing"` (set `POSTGRES_PASSWORD` from your secrets store; never hardcode it here)
 - Use `pg_isready -h localhost -p 5432` to check readiness.
 
 Maintenance

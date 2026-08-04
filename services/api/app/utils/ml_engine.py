@@ -80,8 +80,6 @@ def evaluate_mobility_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
-    db.commit()
-    db.refresh(risk_score)
     return risk_score
 
 
@@ -121,8 +119,6 @@ def evaluate_typing_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
-    db.commit()
-    db.refresh(risk_score)
     return risk_score
 
 
@@ -161,9 +157,28 @@ def evaluate_app_usage_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
-    db.commit()
-    db.refresh(risk_score)
     return risk_score
+
+
+_risk_registry_cache = None
+
+
+def _get_risk_registry(db: Session) -> list:
+    """Loads the RiskRegistry once per process (seeded only at startup)."""
+    global _risk_registry_cache
+    if _risk_registry_cache is None:
+        _risk_registry_cache = (
+            db.query(models.RiskRegistry)
+            .filter(models.RiskRegistry.match_type == "package_name")
+            .all()
+        )
+    return _risk_registry_cache
+
+
+def refresh_risk_registry_cache():
+    """Invalidates the cached registry (call after admin updates to the table)."""
+    global _risk_registry_cache
+    _risk_registry_cache = None
 
 
 def evaluate_risk_signatures(
@@ -175,11 +190,7 @@ def evaluate_risk_signatures(
     """
     installed_apps = metadata.get("new_installed_packages", [])
 
-    registry = (
-        db.query(models.RiskRegistry)
-        .filter(models.RiskRegistry.match_type == "package_name")
-        .all()
-    )
+    registry = _get_risk_registry(db)
 
     found_risky = []
     for app_pkg in installed_apps:
@@ -214,8 +225,6 @@ def evaluate_risk_signatures(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
-    db.commit()
-    db.refresh(risk_score)
     return risk_score
 
 
@@ -232,7 +241,11 @@ async def run_risk_engine(
             evaluate_risk_signatures(device_id, metadata, db)
         evaluate_app_usage_model(device_id, metadata, db)
 
+    # Make the just-added RiskScores visible to the aggregation query, then
+    # persist everything (scores + alerts) in a single transaction.
+    db.flush()
     await aggregate_alerts(device_id, db)
+    db.commit()
 
 
 async def aggregate_alerts(device_id: str, db: Session):
@@ -240,18 +253,44 @@ async def aggregate_alerts(device_id: str, db: Session):
     models_list = ["mobility", "typing", "app_usage", "signatures"]
     latest_scores = []
 
-    for m in models_list:
-        score_rec = (
+    # Fetch the latest score per model in ONE query (ordered by model + timestamp desc,
+    # deduped to the first-seen = newest per model). Avoids the previous N+1.
+    latest_rows = (
+        db.query(
+            models.RiskScore.model_name,
+            models.RiskScore.timestamp,
+        )
+        .filter(models.RiskScore.device_id == device_id)
+        .order_by(
+            models.RiskScore.model_name,
+            models.RiskScore.timestamp.desc(),
+        )
+        .all()
+    )
+    newest_ts_per_model = {}
+    for model_name, ts in latest_rows:
+        if model_name not in newest_ts_per_model:
+            newest_ts_per_model[model_name] = ts
+
+    if newest_ts_per_model:
+        score_recs = (
             db.query(models.RiskScore)
             .filter(
                 models.RiskScore.device_id == device_id,
-                models.RiskScore.model_name == m,
+                models.RiskScore.model_name.in_(list(newest_ts_per_model.keys())),
             )
-            .order_by(models.RiskScore.timestamp.desc())
-            .first()
+            .all()
         )
-        if score_rec:
-            latest_scores.append(score_rec)
+        by_model_ts = {}
+        for s in score_recs:
+            key = (s.model_name, s.timestamp)
+            by_model_ts[key] = s
+        for model_name in models_list:
+            ts = newest_ts_per_model.get(model_name)
+            if ts is not None:
+                rec = by_model_ts.get((model_name, ts))
+                if rec is not None:
+                    latest_scores.append(rec)
 
     flagged_scores = [s for s in latest_scores if s.flagged]
 
@@ -305,8 +344,9 @@ async def aggregate_alerts(device_id: str, db: Session):
     )
     alert.contributing_factors = factors
     db.add(alert)
-    db.commit()
-    db.refresh(alert)
+    # Flush so the default timestamp is populated for the payload without
+    # committing (the single commit happens in run_risk_engine).
+    db.flush()
 
     alert_payload = {
         "id": alert.id,

@@ -229,9 +229,22 @@ async def ingest_pulse(
 ):
     """
     Ingest a single multi-factor reading from the ESP32 PRISM PULSE node.
-    Stores pulse raw value, BPM, g-force, and alert_status.
-    Triggers risk engine when alert_status indicates a warning or trigger.
+    Requires active consent for the 'pulse' modality.
     """
+    consent = (
+        db.query(models.ConsentGrant)
+        .filter(
+            models.ConsentGrant.subject_id == current_device.id,
+            models.ConsentGrant.modality == "pulse",
+        )
+        .first()
+    )
+    if not consent or consent.is_granted is not True:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Active consent for pulse telemetry not granted.",
+        )
+
     reading = models.PulseMultiFactorReading(
         subject_id=current_device.id,
         ts_ms=payload.ts_ms,

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Literal
 from datetime import datetime, timezone
 import re
 
@@ -14,7 +14,7 @@ class GuardianCreate(BaseModel):
     password: str = Field(
         ..., min_length=8, max_length=128, description="Minimum 8 characters password"
     )
-    role: Optional[str] = "guardian"
+    role: Literal["guardian"] = "guardian"
 
     @field_validator("full_name")
     @classmethod
@@ -60,7 +60,7 @@ class VerifyOTPResponse(BaseModel):
 class RegisterOTPRequest(BaseModel):
     phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{1,14}$")
     full_name: str = Field(..., min_length=2, max_length=100)
-    role: Optional[str] = "guardian"
+    role: Literal["guardian"] = "guardian"
 
     @field_validator("full_name")
     @classmethod

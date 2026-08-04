@@ -6,10 +6,12 @@ services:
     container_name: prism-db
     environment:
       POSTGRES_USER: prism_user
-      POSTGRES_PASSWORD: prism_secure_password123
+      # Production secrets must be supplied via a .env file. The API container's
+      # config.py guard refuses to start if defaults remain active.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME}
       POSTGRES_DB: prism_wellbeing
-    ports:
-      - "5432:5432"
+    # NOT published to the host by default (internal-only). For local dev you can
+    # re-expose with a docker-compose.override.yml:  ports: ["5432:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,21 +23,25 @@ services:
   redis:
     image: redis:7-alpine
     container_name: prism-redis
-    ports:
-      - "6379:6379"
+    # NOT published to the host by default (internal-only). For local dev you can
+    # re-expose with a docker-compose.override.yml:  ports: ["6379:6379"]
 
   api:
     build:
       context: ../
       dockerfile: infra/Dockerfile.api
     container_name: prism-api
+    # Bind to loopback only: public traffic enters via the TLS reverse proxy.
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      - DATABASE_URL=postgresql://prism_user:prism_secure_password123@db:5432/prism_wellbeing
+      - ENV=production
+      # sslmode=prefer encrypts the API->DB hop when the server has TLS; use
+      # sslmode=require once the DB is deployed with a TLS certificate.
+      - DATABASE_URL=postgresql://prism_user:${POSTGRES_PASSWORD:-CHANGE_ME}@db:5432/prism_wellbeing?sslmode=prefer
       - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET=super-secret-jwt-key-change-in-production-123456
-      - ENCRYPTION_KEY=U1RyT05nX0VOQ1JZUFRJT05fS0VZX0ZPUl9QUklTTV9URVNUMTIzNDU=
+      - JWT_SECRET=${JWT_SECRET:-CHANGE_ME_JWT_SECRET}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-CHANGE_ME_ENCRYPTION_KEY}
     depends_on:
       db:
         condition: service_healthy
@@ -47,12 +53,30 @@ services:
       context: ../
       dockerfile: apps/dashboard/Dockerfile
     container_name: prism-dashboard
-    ports:
-      - "3000:3000"
+    # Served via the TLS reverse proxy; not published directly.
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN:-localhost}
     depends_on:
       - api
 
+  proxy:
+    image: caddy:2-alpine
+    container_name: prism-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - EMAIL=${LETSENCRYPT_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - dashboard
+
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

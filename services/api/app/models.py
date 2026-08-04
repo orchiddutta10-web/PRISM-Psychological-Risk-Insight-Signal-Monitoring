@@ -1,6 +1,16 @@
 import uuid
 import json
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Table, Text, Float
+from sqlalchemy import (
+    Column,
+    String,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Table,
+    Text,
+    Float,
+    Index,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -61,6 +71,9 @@ class ChildDevice(Base):
 
 class ConsentRecord(Base):
     __tablename__ = "consent_records"
+    __table_args__ = (
+        Index("ix_consent_records_device_signal", "device_id", "signal_type"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -77,6 +90,9 @@ class ConsentRecord(Base):
 
 class RawSignalEvent(Base):
     __tablename__ = "raw_signal_events"
+    __table_args__ = (
+        Index("ix_raw_signal_device_type_ts", "device_id", "signal_type", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -138,6 +154,9 @@ class BaselineProfile(Base):
 
 class RiskScore(Base):
     __tablename__ = "risk_scores"
+    __table_args__ = (
+        Index("ix_risk_scores_device_model_ts", "device_id", "model_name", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -172,6 +191,9 @@ class RiskScore(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_device_ts", "device_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -203,6 +225,10 @@ class Alert(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_guardian_ts", "guardian_id", "timestamp"),
+        Index("ix_audit_device_ts", "device_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     guardian_id = Column(String, ForeignKey("guardians.id"), nullable=True, index=True)
@@ -230,6 +256,9 @@ class AuditLogEntry(Base):
     audit_detail_json = Column(
         Text, nullable=False
     )  # Immutable audit metadata (not user content)
+    # Tamper-evident hash chain: each entry links to the previous entry's hash.
+    prev_hash = Column(String, nullable=True)  # None for the first entry
+    entry_hash = Column(String, nullable=False)
 
     @property
     def context(self) -> dict:
@@ -267,6 +296,9 @@ class PhysiologicalBaseline(Base):
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        Index("ix_chat_guardian_ts", "guardian_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     guardian_id = Column(String, ForeignKey("guardians.id"), nullable=False, index=True)
@@ -287,6 +319,9 @@ class UnifiedEvent(Base):
     """
 
     __tablename__ = "unified_events"
+    __table_args__ = (
+        Index("ix_unified_subject_modality_ts", "subject_id", "modality", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -316,6 +351,9 @@ class UnifiedEvent(Base):
 
 class PhysioReading(Base):
     __tablename__ = "physio_readings"
+    __table_args__ = (
+        Index("ix_physio_subject_ts", "subject_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -360,6 +398,9 @@ class VoiceSession(Base):
 
 class SleepWindow(Base):
     __tablename__ = "sleep_windows"
+    __table_args__ = (
+        Index("ix_sleep_subject_start", "subject_id", "estimated_start"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -408,6 +449,9 @@ class RiskRegistryHit(Base):
 
 class CompanionSession(Base):
     __tablename__ = "companion_sessions"
+    __table_args__ = (
+        Index("ix_companion_subject_channel", "subject_id", "channel"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -425,6 +469,9 @@ class ConsentGrant(Base):
     """Granular consent per modality, superseding/complementing ConsentRecord."""
 
     __tablename__ = "consent_grants"
+    __table_args__ = (
+        Index("ix_consent_grants_subject_modality", "subject_id", "modality"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -469,6 +516,9 @@ class PulseMultiFactorReading(Base):
     """ESP32 PRISM PULSE: Multi-factor pulse sensor + accelerometer fused reading."""
 
     __tablename__ = "pulse_readings"
+    __table_args__ = (
+        Index("ix_pulse_subject_ts", "subject_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(

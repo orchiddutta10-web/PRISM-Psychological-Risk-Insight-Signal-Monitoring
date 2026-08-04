@@ -21,6 +21,16 @@ from app.utils.risk_registry import seed_registry
 seed_registry(SessionLocal())
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
+
 class AuditLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -69,17 +79,45 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         if action:
             db = SessionLocal()
             try:
-                entry = models.AuditLogEntry(
-                    actor_id=actor_id, action=action, resource=f"{method} {path}"
+                from datetime import datetime, timezone
+
+                from app.utils.audit import compute_entry_hash
+
+                # Chain onto the most recent entry's hash (None for the first entry).
+                last = (
+                    db.query(models.AuditLogEntry)
+                    .order_by(
+                        models.AuditLogEntry.timestamp.desc(),
+                        models.AuditLogEntry.id.desc(),
+                    )
+                    .first()
                 )
-                entry.context = {
+                prev_hash = last.entry_hash if last else None
+
+                now = datetime.now(timezone.utc)
+                entry = models.AuditLogEntry(
+                    actor_id=actor_id,
+                    action=action,
+                    resource=f"{method} {path}",
+                    timestamp=now,
+                    prev_hash=prev_hash,
+                )
+                ctx = {
                     "ip": request.client.host if request.client else None,
                     "status_code": response.status_code,
                 }
+                entry.context = ctx
+                entry.entry_hash = compute_entry_hash(
+                    prev_hash, actor_id, action, entry.resource, now, ctx
+                )
                 db.add(entry)
                 db.commit()
             except Exception as e:
-                print(f"Failed to log audit event: {e}")
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "Failed to log audit event: %s", type(e).__name__
+                )
             finally:
                 db.close()
 
@@ -106,6 +144,9 @@ app.add_middleware(APMMiddleware)
 
 # Enable Immutable Audit Logging Middleware
 app.add_middleware(AuditLoggingMiddleware)
+
+# Enable security headers on every response
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # Root endpoint
