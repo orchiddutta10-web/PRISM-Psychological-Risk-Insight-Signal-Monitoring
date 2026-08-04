@@ -1,29 +1,22 @@
-# PRISM IoT End-to-End Audit Prompt
+# Improved Prompt — Project Prism Hardware & Dashboard Integration Audit
 
-## Mission
+## Role
 
-Perform a fully automated, evidence-based end-to-end audit of the PRISM IoT pipeline running on the Raspberry Pi 4 Model B. Treat the **Raspberry Pi camera subsystem as a first-class component**, not a peripheral. The audit must verify sensor telemetry **and** the complete video pipeline from hardware through to the live dashboard.
+You are a senior Embedded Systems Engineer, IoT Systems Engineer, Raspberry Pi Engineer, ESP32 Firmware Engineer, Backend Engineer, Frontend Engineer, DevOps Engineer, and Software Quality Auditor.
 
-## Non-negotiable constraints
+Your objective is to perform a comprehensive audit of the entire **Project Prism** codebase and deployment running on my Raspberry Pi 4 and ESP32.
 
-- No message content, screenshots, video frames, or raw media are captured or stored.
-- Only metadata, telemetry, and configuration may be collected.
-- Every finding must include the exact command used, the actual output, and a recommended minimal fix.
-- Do not invent hardware models. Use the exact model numbers listed below, or mark as `UNKNOWN` if a model cannot be determined.
+Your priority is **correctness, reliability, traceability, and minimal changes**.
 
-## IoT component models
+Never assume a component is working simply because code exists.
 
-| Component | Model |
-|---|---|
-| Host SBC | Raspberry Pi 4 Model B |
-| ESP32 board | `<fill in exact model>` |
-| Pulse sensor | `<fill in exact model>` |
-| LCD module | `<fill in exact model>` |
-| Audio module | `<fill in exact model>` |
-| Camera | `<fill in exact model>` |
-| Power supply | `<fill in exact model>` |
+Every conclusion must be supported by evidence from the codebase, configuration, logs, build output, or runtime behavior.
 
-## Primary goal pipeline
+---
+
+## Primary Goal
+
+Verify the complete hardware/software pipeline, treating the **Raspberry Pi camera subsystem as a first-class component** alongside the pulse-sensor telemetry pipeline:
 
 ```text
 Pulse Sensor
@@ -31,8 +24,8 @@ Pulse Sensor
 ESP32 Firmware
       ↓
 Wireless Communication
-      ↓
-Raspberry Pi 4 Backend
+      
+Raspberry Pi Backend
       ↓
 API / MQTT / WebSocket
       ↓
@@ -53,132 +46,347 @@ Frontend Dashboard
 Live Camera Feed
 ```
 
-## Phase 1 — Inventory and hardware baseline
+Identify every failure point.
 
-Locate every hardware component in the IoT chain and record:
+For every issue:
 
-- exact model and revision
-- serial number or unique identifier (if available, metadata only)
-- firmware/bootloader version
-- connection interface (USB/UART/I2C/SPI/CSI/Wi-Fi/Bluetooth)
-- power source and measured voltage/current (if possible)
+1. Identify it.
+2. Explain the root cause.
+3. Propose the smallest safe fix.
+4. Implement the fix.
+5. Verify the result.
+6. Report any remaining risks.
 
-Verify the camera is physically present and connected.
+Do **not** rewrite working code simply because a different implementation is possible.
 
-## Phase 2 — ESP32 firmware audit
+Preserve the current architecture whenever feasible.
 
-For the ESP32 pulse-sensor firmware:
+---
 
-- Verify build compiles without warnings.
-- Check pin mapping matches the documented hardware.
-- Confirm non-blocking loop architecture.
-- Validate BPM calculation and peak detection.
-- Confirm LCD updates do not block telemetry.
-- Verify audio alert trigger behavior.
-- Confirm serial output format matches the Raspberry Pi bridge parser.
+## Audit Methodology
 
-## Phase 3 — Wireless communication audit
+Proceed sequentially.
 
-- Confirm ESP32 connects to the configured Wi-Fi network.
-- Verify data reaches the Raspberry Pi bridge.
-- Check packet format, frequency, and ordering.
-- Verify reconnect and retry logic.
-- Confirm no hardcoded credentials in source or logs.
+Do not skip steps.
 
-## Phase 4 — Raspberry Pi backend audit
+If information is missing, stop and request only the specific information required instead of making assumptions.
 
-- Verify `prism_edge` service starts on boot.
-- Check Python environment and dependency versions.
-- Verify bridge parses ESP32 telemetry correctly.
-- Confirm data is forwarded to the API with valid JWT.
-- Check offline queue behavior.
-- Verify health and status endpoints.
+Whenever you modify code:
 
-## Phase 4A — Raspberry Pi camera audit
+* explain why
+* keep changes minimal
+* preserve compatibility
+* avoid regressions
+* verify behavior after modification
 
-Treat the camera as a first-class pipeline. Locate and verify the complete Raspberry Pi camera subsystem.
+---
 
-### Determine automatically
+# Phase 1 — Repository Discovery
 
-- camera model
-- CSI or USB interface
-- driver in use
-- libcamera configuration
-- V4L2 compatibility
-- device permissions
-- kernel modules
-- startup configuration
+Search the entire workspace.
 
-### Hardware verification
+Identify all relevant components including:
 
-- camera detected
-- cable orientation
-- interface enabled
-- supported resolutions
-- supported frame rates
-- autofocus (if supported)
-- image quality
-- thermal stability
+### ESP32
 
-### Raspberry Pi configuration
+* Arduino projects
+* PlatformIO projects
+* firmware
+* libraries
+* hardware abstraction
 
-- camera interface enabled
-- firmware compatibility
-- GPU memory allocation (if required)
-- device tree configuration
-- boot configuration
-- permissions
+### Raspberry Pi
 
-### Camera pipeline
+* Python
+* Flask
+* FastAPI
+* Django
+* Node.js
+* Express
+* Go
+* Rust
+* C/C++
+
+### Communication
+
+* MQTT
+* WebSocket
+* HTTP
+* REST
+* TCP
+* UDP
+* BLE
+* Serial
+* I2C
+* SPI
+
+### Frontend
+
+* React
+* Vue
+* Angular
+* HTML
+* JavaScript
+* TypeScript
+* Chart libraries
+
+### Configuration
+
+* .env
+* YAML
+* JSON
+* TOML
+* systemd
+* Docker
+* docker-compose
+* nginx
+* startup scripts
+
+### Database
+
+* SQLite
+* PostgreSQL
+* MySQL
+* MariaDB
+* MongoDB
+
+### Documentation
+
+* README
+* setup guides
+* hardware notes
+
+Produce an architecture summary including:
+
+* project structure
+* detected technologies
+* dependencies
+* communication flow
+* startup sequence
+* hardware interfaces
+
+---
+
+# Phase 2 — ESP32 Firmware Audit
+
+Locate the firmware.
+
+Verify:
+
+## Build
+
+* compiles successfully
+* libraries installed
+* warnings
+* errors
+* SDK compatibility
+
+## Initialization
+
+Verify:
+
+* setup()
+* peripheral initialization
+* watchdog configuration
+* memory allocation
+* error handling
+
+## Runtime
+
+Check:
+
+* loop()
+* blocking code
+* delays
+* timing
+* task scheduling
+* reconnect logic
+* heap fragmentation
+* memory leaks
+
+## Pulse Sensor
+
+Verify:
+
+* ADC pin
+* ADC attenuation
+* sampling frequency
+* filtering
+* BPM algorithm
+* calibration
+* noise rejection
+* invalid signal detection
+
+Confirm readings are stable.
+
+## LCD
+
+Verify:
+
+* interface
+* I2C address
+* initialization
+* update frequency
+* refresh logic
+* formatting
+* error recovery
+
+## Buzzer
+
+Verify:
+
+* GPIO assignment
+* PWM/tone generation
+* alarm thresholds
+* non-blocking behavior
+* timing accuracy
+
+---
+
+# Phase 3 — Communication Layer
+
+Determine automatically whether communication uses:
+
+* MQTT
+* HTTP
+* WebSocket
+* TCP
+* UDP
+* BLE
+* another protocol
+
+Audit:
+
+* connection establishment
+* reconnection
+* retry logic
+* packet format
+* serialization
+* latency
+* duplicate packets
+* packet loss
+* timeout handling
+* heartbeat mechanism
+
+Validate payload structure.
+
+If communication is unreliable, improve reliability while preserving the existing architecture whenever possible.
+
+---
+
+# Phase 4 — Raspberry Pi Backend
+
+Locate backend services.
+
+Verify:
+
+* startup
+* routing
+* APIs
+* WebSocket
+* MQTT
+* logging
+* configuration
+* exception handling
+* graceful shutdown
+
+Validate:
+
+* incoming JSON
+* malformed packets
+* invalid sensor values
+* timestamp handling
+* database writes (if applicable)
+
+---
+
+# Phase 4A — Raspberry Pi Camera Audit
+
+Treat the Raspberry Pi camera as a first-class component in the end-to-end audit.
+
+Locate and verify the complete camera subsystem.
+
+## Determine automatically
+
+* camera model
+* CSI or USB interface
+* driver in use
+* libcamera configuration
+* V4L2 compatibility
+* device permissions
+* kernel modules
+* startup configuration
+
+## Hardware verification
+
+* camera detected
+* cable orientation
+* interface enabled
+* supported resolutions
+* supported frame rates
+* autofocus (if supported)
+* image quality
+* thermal stability
+
+## Raspberry Pi configuration
+
+* camera interface enabled
+* firmware compatibility
+* GPU memory allocation (if required)
+* device tree configuration
+* boot configuration
+* permissions
+
+## Camera pipeline
 
 Determine automatically whether the project uses:
 
-- libcamera
-- Picamera2
-- OpenCV
-- FFmpeg
-- GStreamer
-- Motion
-- MJPEG Streamer
-- custom implementation
+* libcamera
+* Picamera2
+* OpenCV
+* FFmpeg
+* GStreamer
+* Motion
+* MJPEG Streamer
+* custom implementation
 
-### Audit the pipeline for
+Audit:
 
-- initialization
-- frame acquisition
-- buffering
-- latency
-- dropped frames
-- reconnect logic
-- error handling
-- memory usage
-- CPU utilization
+* initialization
+* frame acquisition
+* buffering
+* latency
+* dropped frames
+* reconnect logic
+* error handling
+* memory usage
+* CPU utilization
 
-### Backend integration
+## Backend integration
 
-- camera service startup
-- stream availability
-- API endpoints
-- authentication
-- MJPEG/WebRTC/WebSocket/RTSP implementation
-- timeout handling
-- graceful recovery
+* camera service startup
+* stream availability
+* API endpoints
+* authentication
+* MJPEG/WebRTC/WebSocket/RTSP implementation
+* timeout handling
+* graceful recovery
 
-### Frontend integration
+## Frontend integration
 
-- live video rendering
-- refresh latency
-- browser compatibility
-- reconnect behavior
-- loading states
-- stream interruption handling
-- synchronization with sensor telemetry
+* live video rendering
+* refresh latency
+* browser compatibility
+* reconnect behavior
+* loading states
+* stream interruption handling
+* synchronization with sensor telemetry
 
-### End-to-end camera validation
+## End-to-end camera validation
 
 ```text
 Camera
-      
+      ↓
 Driver
       ↓
 Frame Capture
@@ -196,35 +404,55 @@ Live Camera Feed
 
 For each stage document:
 
-- expected input
-- actual input
-- expected output
-- actual output
-- validation method
-- identified issues
-- recommended minimal fix
+* expected input
+* actual input
+* expected output
+* actual output
+* validation method
+* identified issues
+* recommended minimal fix
 
-## Phase 5 — API / MQTT / WebSocket audit
+---
 
-- Verify telemetry ingestion endpoints accept and store pulse data.
-- Confirm JWT auth is required and valid.
-- Check schema validation for incoming events.
-- Verify WebSocket/MQTT topics for real-time updates.
-- Confirm camera stream endpoints are reachable and authenticated.
-- Check rate limiting and timeout handling.
+# Phase 5 — Frontend Dashboard
 
-## Phase 6 — End-to-end validation
+Locate the frontend.
+
+Verify:
+
+* successful build
+* page loads
+* live updates
+* charts
+* widgets
+* timestamps
+* reconnect logic
+* responsiveness
+* browser console
+* network requests
+
+Trace live data flow from backend to UI.
+
+---
+
+# Phase 6 — End-to-End Validation
+
+Verify the entire data pipeline:
 
 ```text
 Pulse Sensor
       ↓
 ADC
-      
+      ↓
 ESP32
       ↓
 Wireless
       ↓
 Backend
+      ↓
+API / MQTT / WebSocket
+      ↓
+Frontend
       ↓
 Dashboard
 
@@ -239,109 +467,283 @@ Streaming Service
 Dashboard
 ```
 
+For each stage:
+
+* expected input
+* actual input
+* expected output
+* actual output
+* validation method
+* identified issues
+
 Verify that:
 
-- sensor updates continue while video is streaming
-- camera streaming does not block telemetry
-- dashboard displays synchronized sensor and camera data
-- CPU, RAM, and network utilization remain within acceptable limits
-- latency stays acceptable under simultaneous telemetry and video streaming
+* sensor updates continue while video is streaming
+* camera streaming does not block telemetry
+* dashboard displays synchronized sensor and camera data
+* CPU, RAM, and network utilization remain within acceptable limits
+* latency stays acceptable under simultaneous telemetry and video streaming
 
-## Phase 7 — Frontend dashboard audit
+---
 
-- Verify sensor telemetry renders on the dashboard.
-- Verify live camera feed renders.
-- Check refresh intervals and reconnection behavior.
-- Confirm mobile and desktop compatibility.
-- Verify role-based access control.
+# Phase 7 — Fault Tolerance
 
-## Phase 8 — Performance audit
+Test recovery from:
 
-- ESP32 loop timing and CPU usage
-- Raspberry Pi CPU/RAM/network usage under load
-- API response times
-- Database query performance
-- Dashboard build and runtime performance
-- Camera frame rate consistency
-- Frame drops
-- Video latency
-- Encoder efficiency
-- Bandwidth usage
-- CPU usage during streaming
-- GPU usage (if applicable)
-- Synchronization between video and telemetry
-- Thermal throttling during prolonged operation
+## ESP32
 
-## Phase 9 — Security review
+* Wi-Fi loss
+* sensor failure
+* LCD failure
+* invalid ADC values
+* reboot
 
-- No hardcoded secrets in firmware or source.
-- JWT authentication on all protected routes.
-- RBAC enforced on guardian dashboard routes.
-- TLS in transit.
-- Sensitive fields encrypted at rest.
-- Immutable audit logging for every data access.
-- Unauthorized camera access prevention.
-- Exposed video endpoints checked.
-- Stream authentication verified.
-- HTTPS/TLS support confirmed where applicable.
-- RTSP/WebSocket security reviewed.
-- Camera permission configuration verified.
+## Backend
 
-## Deliverables
+* malformed packets
+* server restart
+* network interruption
+* database failure
 
-Produce a single markdown report with:
+## Dashboard
 
-### 1. Executive summary
+* backend unavailable
+* reconnect
+* invalid payload
+* stale data
 
-- overall status
-- critical issues count
-- warnings count
-- pass/fail per phase
+## Camera
 
-### 2. Hardware inventory
+* camera disconnected
+* driver failure
+* stream interruption
+* backend restart during streaming
 
-| Component | Model | Interface | Status |
-|---|---|---|---|
-| `<exact model>` | ... | ... | PASS/FAIL |
+Verify automatic recovery where intended.
 
-### 3. Telemetry system assessment
+---
 
-- pulse sensor status
-- ESP32 status
-- wireless status
-- backend ingestion status
-- dashboard rendering status
+# Phase 8 — Performance Audit
 
-### 4. Camera system assessment
+Inspect for:
 
-- detected camera hardware
-- interface (CSI/USB)
-- driver
-- streaming framework
-- supported resolutions
-- supported frame rates
-- measured latency
-- CPU usage
-- memory usage
-- frame loss
-- detected issues
-- fixes applied
-- remaining risks
+* blocking operations
+* unnecessary polling
+* inefficient loops
+* high CPU usage
+* excessive RAM usage
+* heap fragmentation
+* unnecessary copies
+* redundant processing
+* camera frame rate consistency
+* frame drops
+* video latency
+* encoder efficiency
+* bandwidth usage
+* CPU usage during streaming
+* GPU usage (if applicable)
+* synchronization between video and telemetry
+* thermal throttling during prolonged operation
 
-### 5. Issue log
+Only optimize where measurable benefits outweigh risk.
 
-| # | Severity | Phase | Finding | Command / Evidence | Fix |
-|---|---|---|---|---|---|
+---
 
-### 6. Recommendations
+# Phase 9 — Security Review
 
-List minimal, prioritized next steps.
+Verify:
 
-## Evidence rules
+* secrets not hard-coded
+* configurable Wi-Fi credentials
+* environment variables
+* API key protection
+* authentication (if present)
+* input validation
+* injection risks
+* exposed endpoints
+* dependency vulnerabilities (where practical)
+* unauthorized camera access
+* exposed video endpoints
+* stream authentication
+* HTTPS/TLS support (where applicable)
+* RTSP/WebSocket security
+* camera permission configuration
 
-For every PASS or FAIL, include:
+---
 
-- the exact command or test performed
-- the actual output or observed behavior
-- the expected output or behavior
-- the minimal fix or validation
+# Phase 10 — Code Quality
+
+Identify:
+
+* duplicate logic
+* dead code
+* unused files
+* unused libraries
+* inconsistent naming
+* magic numbers
+* missing comments
+* weak error handling
+
+Recommend improvements without changing behavior.
+
+---
+
+# Phase 11 — Testing
+
+Create or improve tests where practical.
+
+Include:
+
+### Firmware
+
+* sensor logic
+* packet generation
+* reconnect behavior
+
+### Backend
+
+* API tests
+* communication tests
+* malformed payload tests
+
+### Frontend
+
+* live update tests
+* rendering
+* reconnect behavior
+
+### Camera
+
+* frame acquisition
+* stream availability
+* reconnect behavior
+* latency bounds
+
+Document any areas that cannot be tested automatically.
+
+---
+
+# Phase 12 — Final System Validation
+
+Verify the complete workflow:
+
+```text
+ESP32 boots
+      ↓
+Hardware initializes
+      ↓
+Wi-Fi connects
+      ↓
+Backend connection established
+      ↓
+Pulse sensor sampled
+      ↓
+LCD updated
+      
+Alarm logic evaluated
+      ↓
+Buzzer activated when required
+      ↓
+Camera initialized
+      ↓
+Frame stream started
+      ↓
+Live data transmitted
+      ↓
+Backend receives data
+      ↓
+Dashboard updates
+      ↓
+System remains stable
+      ↓
+Automatic recovery after failures
+```
+
+---
+
+# Deliverables
+
+Produce a final report containing:
+
+## 1. Architecture Overview
+
+* Hardware topology
+* Software architecture
+* Communication flow
+
+## 2. Detected Components
+
+* Hardware
+* Firmware
+* Services
+* Libraries
+* Frameworks
+* Databases
+
+## 3. Issues Found
+
+For each issue include:
+
+* Severity (Critical, High, Medium, Low)
+* Description
+* Evidence
+* Root cause
+* Impact
+
+## 4. Fixes Applied
+
+For every modification include:
+
+* File(s) changed
+* Minimal diff summary
+* Reason for change
+* Compatibility considerations
+
+## 5. Verification
+
+Show how each fix was validated.
+
+If a fix cannot be fully verified due to missing hardware, logs, or environment access, clearly state what evidence is missing.
+
+## 6. Camera System Assessment
+
+* detected camera hardware
+* interface (CSI/USB)
+* driver
+* streaming framework
+* supported resolutions
+* supported frame rates
+* measured latency
+* CPU usage
+* memory usage
+* frame loss
+* detected issues
+* fixes applied
+* remaining risks
+
+## 7. Remaining Risks
+
+List unresolved issues and their impact.
+
+## 8. Future Improvements
+
+Recommend enhancements prioritized by:
+
+* Reliability
+* Performance
+* Security
+* Maintainability
+* Scalability
+
+---
+
+# Operating Rules
+
+* Never assume missing information.
+* Prefer evidence over inference.
+* Keep architecture intact unless a redesign is justified.
+* Minimize code changes.
+* Preserve backward compatibility.
+* Validate every modification before moving on.
+* Clearly distinguish **verified findings**, **reasonable inferences**, and **unknowns requiring user input**.
+* If execution, hardware access, or runtime verification is not possible in the current environment, explicitly state that limitation and specify exactly what commands, logs, or hardware observations are needed to complete verification.
