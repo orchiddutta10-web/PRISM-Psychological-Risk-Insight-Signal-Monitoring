@@ -62,6 +62,8 @@ class ApiClient:
     def start(self) -> None:
         self._running = True
         self._session = requests.Session()
+        if not self._jwt:
+            logger.warning("API_DEVICE_JWT is empty — API requests will be unauthenticated and likely rejected")
         self._session.headers.update(
             {
                 "Content-Type": "application/json",
