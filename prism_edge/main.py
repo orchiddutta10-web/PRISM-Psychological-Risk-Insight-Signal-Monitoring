@@ -57,12 +57,7 @@ def main() -> None:
     # ── Import-heavy modules (lazy) ────────────────────────────────
     global cv2
 
-    # ── 1. Start ESP32 Bridge (lightweight Flask HTTP server) ──────
-    from prism_edge.bridge.esp32_bridge import start_bridge
-    bridge_thread = start_bridge(shared_state, state_lock)
-    _pipelines["bridge"] = bridge_thread
-
-    # ── 2. Start Camera + Vision Pipelines ─────────────────────────
+    # ── 1. Initialize Camera (before bridge so stream can be exposed) ─────
     try:
         import cv2 as _cv2
         cv2 = _cv2
@@ -98,7 +93,20 @@ def main() -> None:
         _pipelines["pose"] = pose_extractor
         _pipelines["motion"] = motion_extractor
 
-        # Start vision processing thread
+    else:
+        # Camera disabled — set empty features
+        with state_lock:
+            shared_state["face"] = {"present": False, "confidence": 0.0}
+            shared_state["pose"] = {"present": False, "confidence": 0.0}
+            shared_state["motion"] = {"motion_magnitude": 0.0, "is_idle": True}
+
+    # ── 2. Start ESP32 Bridge (lightweight Flask HTTP server) ──────
+    from prism_edge.bridge.esp32_bridge import start_bridge
+    bridge_thread = start_bridge(shared_state, state_lock, camera=camera)
+    _pipelines["bridge"] = bridge_thread
+
+    # ── 3. Start Vision Pipeline ────────────────────────────────────
+    if camera is not None:
         vision_thread = threading.Thread(
             target=vision_loop,
             args=(camera, face_extractor, pose_extractor, motion_extractor, shutdown_event),
@@ -107,26 +115,20 @@ def main() -> None:
         )
         vision_thread.start()
         _pipelines["vision_thread"] = vision_thread
-    else:
-        # Camera disabled — set empty features
-        with state_lock:
-            shared_state["face"] = {"present": False, "confidence": 0.0}
-            shared_state["pose"] = {"present": False, "confidence": 0.0}
-            shared_state["motion"] = {"motion_magnitude": 0.0, "is_idle": True}
 
-    # ── 3. Start Audio Pipeline ────────────────────────────────────
+    # ── 4. Start Audio Pipeline ────────────────────────────────────
     from prism_edge.audio.voice_features import VoiceFeatureExtractor
     voice_extractor = VoiceFeatureExtractor()
     voice_extractor.start()
     _pipelines["voice"] = voice_extractor
 
-    # ── 4. Start Feature Packer ────────────────────────────────────
+    # ── 5. Start Feature Packer ────────────────────────────────────
     from prism_edge.packer.feature_packer import FeaturePacker
     packer = FeaturePacker(shared_state, state_lock, tx_queue)
     packer.start()
     _pipelines["packer"] = packer
 
-    # ── 5. Start API Client (Writer) ───────────────────────────────
+    # ── 6. Start API Client (Writer) ───────────────────────────────
     from prism_edge.api.client import ApiClient
     api_client = ApiClient(tx_queue)
     api_client.start()
@@ -134,7 +136,7 @@ def main() -> None:
 
     logger.info("All pipelines started — running")
 
-    # ── 6. Health Monitor + Audio State Sync Loop ──────────────────
+    # ── 7. Health Monitor + Audio State Sync Loop ──────────────────
     last_health_log = 0.0
     while not shutdown_event.is_set():
         time.sleep(1.0)

@@ -4,12 +4,14 @@ from the ESP32 PULSE node and relays it to the PRISM API Server.
 
 The ESP32 posts to this bridge (on the RPi's LAN IP, port 8081),
 and the bridge adds the payload to the shared state for the feature packer.
+
+Also exposes a low-latency MJPEG camera stream at /camera/stream so the
+dashboard can display live video without accessing the vision pipeline.
 """
 
-import json
 import logging
 import threading
-from typing import Dict, Any
+from typing import Any, Dict, Optional
 
 from prism_edge import config
 
@@ -18,10 +20,13 @@ logger = logging.getLogger(__name__)
 shared_state: Dict[str, Any] = {}
 state_lock: threading.Lock = threading.Lock()
 
+# Optional camera reference, populated via start_bridge(..., camera=...)
+_camera_instance: Any = None
+
 
 def _create_app():
     """Lazy Flask app factory — defers import until bridge is started."""
-    from flask import Flask, request, jsonify
+    from flask import Flask, request, jsonify, Response
 
     app = Flask(__name__)
 
@@ -61,6 +66,39 @@ def _create_app():
         if data is None:
             return jsonify({"status": "waiting", "message": "No data received from ESP32 yet"})
         return jsonify({"status": "ok", "data": data})
+
+    @app.route("/camera/stream", methods=["GET"])
+    def camera_stream():
+        """MJPEG stream from the shared camera instance."""
+        if _camera_instance is None:
+            return jsonify({"status": "error", "message": "Camera not available"}), 503
+
+        try:
+            import cv2
+        except ImportError:
+            return jsonify({"status": "error", "message": "OpenCV not available"}), 503
+
+        def generate():
+            while True:
+                frame, _ = _camera_instance.read()
+                if frame is None:
+                    continue
+                ret, buf = cv2.imencode(".jpg", frame)
+                if not ret:
+                    continue
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n" + buf.tobytes() + b"\r\n"
+                )
+
+        return Response(
+            generate(),
+            mimetype="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+            },
+        )
 
     @app.route("/", methods=["GET"])
     def dashboard():
@@ -131,11 +169,16 @@ setInterval(fetchData, 2000);
     return app
 
 
-def start_bridge(state_ref: Dict[str, Any], lock: threading.Lock) -> threading.Thread:
+def start_bridge(
+    state_ref: Dict[str, Any],
+    lock: threading.Lock,
+    camera: Optional[Any] = None,
+) -> threading.Thread:
     """Start the ESP32 bridge HTTP server in a background thread."""
-    global shared_state, state_lock
+    global shared_state, state_lock, _camera_instance
     shared_state = state_ref
     state_lock = lock
+    _camera_instance = camera
 
     app = _create_app()
     host = config.ESP32_BRIDGE_HOST
