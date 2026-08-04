@@ -101,6 +101,34 @@ app = FastAPI(
     version="1.0.0",
 )
 
+
+@app.on_event("startup")
+def _prewarm_medical_rag():
+    """
+    Pre-warm the medical RAG stack so the first chatbot query doesn't pay the
+    cold-start cost (embedding-model load, vector-store build). Runs in a
+    background thread so startup isn't blocked.
+    """
+    import threading
+
+    def _warm():
+        try:
+            from app.utils import medical_rag
+
+            medical_rag.load_medical_documents()
+            medical_rag.build_or_get_vectorstore()
+            from app.utils.llm_provider import get_embeddings
+
+            get_embeddings()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Medical RAG pre-warm failed: %s", str(e)
+            )
+
+    threading.Thread(target=_warm, daemon=True).start()
+
 # Enable CORS
 app.add_middleware(
     CORSMiddleware,

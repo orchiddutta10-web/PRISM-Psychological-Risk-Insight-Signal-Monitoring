@@ -26,6 +26,23 @@ interface TypingInsights {
   scores: TypingScore[]
 }
 
+interface BehaviorDim {
+  name: string
+  score: number | null
+  flagged: boolean
+  contributing_factors: string[]
+  timestamp: string | null
+  feature_importance?: { feature: string; label: string; importance: number }[]
+  shap_values?: { feature: string; label: string; contribution: number }[]
+  reasoning?: string[]
+}
+
+interface BehavioralInsights {
+  device_id: string
+  dimensions: BehaviorDim[]
+  disclaimer: string
+}
+
 interface DeviceCard {
   id: string
   name: string
@@ -34,6 +51,8 @@ interface DeviceCard {
   baselineMean: number | null
   baselineSigma: number | null
   zScore: number | null
+  behavioral: BehaviorDim[] | null
+  disclaimer: string | null
 }
 
 const statusColor = (s: string) => s === 'Normal' ? '#16A34A' : s === 'Needs review' ? '#F59E0B' : '#EF4444'
@@ -63,6 +82,22 @@ export default function TypingAnalyticsPage() {
           const data: TypingInsights = await res.json()
           const latest = data.scores[0] || null
           const sigma = data.baseline ? Math.sqrt(data.baseline.variance) : null
+
+          // Module 4: behavioral screening explainability (stress, cognitive
+          // load, fatigue, stability + feature importance / SHAP / reasoning).
+          let behavioral: BehaviorDim[] | null = null
+          let disclaimer: string | null = null
+          try {
+            const bres = await fetch(`${API}/events/typing/behavioral/${d.id}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+            if (bres.ok) {
+              const bdata: BehavioralInsights = await bres.json()
+              behavioral = bdata.dimensions
+              disclaimer = bdata.disclaimer
+            }
+          } catch {}
+
           built.push({
             id: d.id,
             name: d.name,
@@ -71,6 +106,8 @@ export default function TypingAnalyticsPage() {
             baselineMean: data.baseline?.mean ?? null,
             baselineSigma: sigma,
             zScore: latest && sigma ? (latest.score * 4) / sigma : null,
+            behavioral,
+            disclaimer,
           })
         } catch {}
       }
@@ -205,6 +242,72 @@ export default function TypingAnalyticsPage() {
                           <li key={i} style={{ fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{f}</li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+
+                  {card.behavioral && card.behavioral.length > 0 && (
+                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 4 }}>
+                      <p style={{ margin: '0 0 12px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <ShieldCheck size={12} color="#0B70D1" /> Behavioral screening (explainable)
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        {card.behavioral.map(dim => {
+                          const dimColor = dim.flagged ? (dim.score && dim.score >= 0.7 ? '#EF4444' : '#F59E0B') : '#16A34A'
+                          return (
+                            <div key={dim.name} style={{
+                              background: 'rgba(0,0,0,0.02)', border: `1px solid ${dim.flagged ? `${dimColor}44` : 'var(--border)'}`,
+                              borderRadius: 12, padding: '12px 14px',
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>
+                                  {dim.name.replace(/_/g, ' ')}
+                                </span>
+                                <span style={{ fontSize: 13, fontWeight: 800, color: dimColor }}>
+                                  {dim.score !== null ? `${(dim.score * 100).toFixed(0)}%` : '—'}
+                                </span>
+                              </div>
+                              {dim.reasoning && dim.reasoning.length > 0 && (
+                                <p style={{ margin: '0 0 8px', fontSize: 12.5, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{dim.reasoning[0]}</p>
+                              )}
+                              {dim.shap_values && dim.shap_values.length > 0 && (
+                                <div style={{ marginBottom: 8 }}>
+                                  <p style={{ margin: '0 0 4px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Top contributing signals</p>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    {dim.shap_values.slice(0, 3).map((s, i) => (
+                                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{s.label}</span>
+                                        <span style={{ fontSize: 11, fontWeight: 700, color: s.contribution > 0 ? '#F59E0B' : '#16A34A' }}>
+                                          {s.contribution > 0 ? '+' : ''}{Math.round(s.contribution * 100)}%
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {dim.feature_importance && dim.feature_importance.length > 0 && (
+                                <div>
+                                  <p style={{ margin: '0 0 4px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)' }}>Most influential features</p>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    {dim.feature_importance.slice(0, 3).map((f, i) => (
+                                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 110, flexShrink: 0, fontSize: 11, color: 'var(--text-secondary)' }}>{f.label}</span>
+                                        <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'rgba(0,0,0,0.06)' }}>
+                                          <div style={{ width: `${f.importance * 100}%`, height: '100%', borderRadius: 3, background: '#0B70D1' }} />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {card.disclaimer && (
+                        <p style={{ margin: '10px 0 0', fontSize: 11, lineHeight: 1.5, color: 'var(--text-muted)' }}>
+                          ⚠️ {card.disclaimer}
+                        </p>
+                      )}
                     </div>
                   )}
 

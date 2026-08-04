@@ -40,7 +40,6 @@ from sklearn.ensemble import (
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score,
-    classification_report,
     roc_auc_score,
 )
 
@@ -56,6 +55,18 @@ RNG = np.random.default_rng(42)
 
 # Feature indices (must match SIGNAL_FEATURES order in behavioral_ai.py)
 FEAT = {name: i for i, name in enumerate(SIGNAL_FEATURES)}
+
+
+def _top_feature_names(model, n: int = 3, trend: bool = False):
+    """Returns the top-n feature names by model feature_importances_."""
+    names = [f"{dim}_{stat}"
+             for dim in ("stress", "cognitive_load", "typing_fatigue", "typing_stability")
+             for stat in ("mean", "std", "slope")] if trend else SIGNAL_FEATURES
+    imp = getattr(model, "feature_importances_", None)
+    if imp is None:
+        return "n/a"
+    order = np.argsort(-np.asarray(imp))[:n]
+    return ", ".join(names[i] for i in order)
 
 
 # ─── Synthetic corpus generation ───────────────────────────────────────────
@@ -187,7 +198,8 @@ def train_and_save():
         report.append(f"### {label}")
         report.append(f"- Model: RandomForest (200 trees, depth 8)")
         report.append(f"- Accuracy: {acc:.3f} | ROC-AUC: {auc:.3f}")
-        report.append(f"- Positive rate (flagged): {y_te.mean():.3f}\n")
+        report.append(f"- Positive rate (flagged): {y_te.mean():.3f}")
+        report.append(f"- Top features: {_top_feature_names(clf, n=3)}\n")
 
     # ── Typing stability (IsolationForest) ──
     stable_idx = (y_stress == 0) & (y_load == 0) & (y_fatigue == 0)
@@ -196,11 +208,15 @@ def train_and_save():
     iso.fit(X_stable)
     # Calibrate: store the median score_samples of the healthy distribution so
     # inference can map raw scores to a 0..1 risk (raw == median → risk 0.5).
-    iso.median_score_ = float(np.median(iso.score_samples(X_stable)))
+    # Set dynamically — the runtime reads it via getattr(model, "median_score_").
+    setattr(iso, "median_score_", float(np.median(iso.score_samples(X_stable))))
     joblib.dump(iso, os.path.join(MODELS_DIR, "typing_stability_if.joblib"))
     anomaly_score = -iso.score_samples(X)
     report.append("### Typing Stability (IsolationForest)")
-    report.append(f"- Median score_samples (healthy): {iso.median_score_:.4f} (used for calibration)")
+    report.append(
+        f"- Median score_samples (healthy): "
+        f"{getattr(iso, 'median_score_', -0.46):.4f} (used for calibration)"
+    )
     report.append(f"- Anomaly rate: {(anomaly_score > np.percentile(anomaly_score, 90)).mean():.3f}\n")
 
     # ── Trend models ──
@@ -222,7 +238,8 @@ def train_and_save():
         auc = roc_auc_score(y_te, proba) if len(set(y_te)) > 1 else 0.0
         report.append(f"### {label}")
         report.append(f"- Model: HistGradientBoosting (150 iterations)")
-        report.append(f"- Accuracy: {acc:.3f} | ROC-AUC: {auc:.3f}\n")
+        report.append(f"- Accuracy: {acc:.3f} | ROC-AUC: {auc:.3f}")
+        report.append(f"- Top features: {_top_feature_names(clf, n=3, trend=True)}\n")
 
     # ── Mental risk ensemble ──
     report.append("## 3. Mental Risk Score (weighted ensemble)\n")
@@ -252,6 +269,20 @@ def train_and_save():
     os.makedirs(docs_dir, exist_ok=True)
     with open(os.path.join(docs_dir, "MODEL_EVAL_BEHAVIORAL.md"), "w") as f:
         f.write("\n".join(report))
+
+    # Module 4: persist global feature importances so the runtime can surface
+    # them without re-reading the .joblib blobs. Written as a plain JSON map.
+    import json as _json
+
+    fi = {}
+    for key, (_, filename, _) in classifiers.items():
+        clf = joblib.load(os.path.join(MODELS_DIR, filename))
+        fi[key] = {
+            SIGNAL_FEATURES[i]: round(float(v), 4)
+            for i, v in enumerate(clf.feature_importances_)
+        }
+    with open(os.path.join(MODELS_DIR, "feature_importance.json"), "w") as f:
+        _json.dump(fi, f, indent=2)
 
     print(f"Artifacts written to {MODELS_DIR}")
     print(f"Evaluation report -> docs/MODEL_EVAL_BEHAVIORAL.md")

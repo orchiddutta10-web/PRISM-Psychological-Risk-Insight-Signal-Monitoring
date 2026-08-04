@@ -2,6 +2,7 @@ import time
 import json
 import logging
 import sys
+from typing import Optional
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
@@ -92,7 +93,7 @@ class APMMiddleware(BaseHTTPMiddleware):
 
 
 # 3. Structured Critical Alerting System
-def trigger_critical_alert(error_msg: str, context: dict = None):
+def trigger_critical_alert(error_msg: str, context: Optional[dict] = None):
     """
     Dispatches automated alerts for critical operational failures.
     Outputs highly visible JSON payloads to alerting integrations (PagerDuty/Slack/OpsGenie).

@@ -100,3 +100,38 @@ class RiskRegistryProvider(ABC):
         Synchronizes local cache with the latest crowdsourced feed.
         """
         pass
+
+
+# --- 4. Module 10: Multimodal Wellbeing Fusion Contract (future AI) ---
+class MultimodalWellbeingFusion(ABC):
+    """
+    Module 10: Future AI should combine typing + vitals + speech emotion +
+    face emotion + questionnaire into a single explainable wellness signal.
+
+    This is the forward contract for the "fusion engine" that combines RAG
+    context, symptom descriptions, typing metadata, and (later) wearable
+    sensor data into a wellness risk indicator with confidence — never a
+    diagnosis (per the paper's conclusions).
+    """
+
+    @abstractmethod
+    def fuse_signals(
+        self,
+        typing_features: Dict[str, float],
+        vitals: Dict[str, float],
+        speech_emotion: Optional[Dict[str, float]],
+        face_emotion: Optional[Dict[str, float]],
+        questionnaire: Optional[Dict[str, float]],
+    ) -> Dict[str, Any]:
+        """
+        Fuses all available signal modalities into a single screening output.
+        Returns:
+            {
+                "wellness_risk": float (0.0 to 1.0),
+                "confidence": float (0.0 to 1.0),
+                "contributing_modalities": List[str],
+                "factors": List[str],       # human-readable, non-diagnostic
+                "recommendation": str       # e.g. "consider a validated questionnaire"
+            }
+        """
+        pass

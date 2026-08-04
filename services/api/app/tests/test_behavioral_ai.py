@@ -231,3 +231,81 @@ def test_behavioral_insights_returns_dimensions():
     assert mental["score"] == 0.72
     assert mental["flagged"] is True
     assert "not a diagnosis" in body["disclaimer"]
+
+
+# ─── Module 4: Explainable AI ───────────────────────────────────────────────
+
+
+def test_feature_importance_shape():
+    """Global feature importance returns all 9 features, sorted descending, summing to 1."""
+    from app.utils.behavioral_ai import feature_importance
+
+    imp = feature_importance("stress")
+    assert len(imp) == 9
+    # Sorted descending by importance.
+    assert all(imp[i]["importance"] >= imp[i + 1]["importance"] for i in range(len(imp) - 1))
+    assert abs(sum(x["importance"] for x in imp) - 1.0) < 1e-3
+    assert all(x["feature"] in {"delay_index", "iki_mean", "iki_std", "correction_rate_variance",
+                                "burst_length", "typing_speed", "error_rate", "session_duration",
+                                "hour_of_day"} for x in imp)
+
+
+def test_local_attribution_signed_and_sorted():
+    """Local SHAP-style attribution is signed, sorted, and has the expected shape."""
+    from app.utils.behavioral_ai import local_attribution
+
+    attr = local_attribution(STRESSED_SIGNAL, "stress")
+    assert len(attr) == 9
+    assert all("feature" in a and "label" in a and "contribution" in a for a in attr)
+    assert all(
+        abs(attr[i]["contribution"]) >= abs(attr[i + 1]["contribution"])
+        for i in range(len(attr) - 1)
+    )
+    # Stressed signal: risk-raising features should be positive contributors.
+    assert attr[0]["contribution"] > 0
+    # A calm signal sits at the reference, so its top contribution is near zero.
+    calm = local_attribution(CALM_SIGNAL, "stress")
+    assert abs(calm[0]["contribution"]) < 0.15
+
+
+def test_explain_signal_reasoning():
+    """explain_signal returns per-dimension reasoning with the Module 4 framing."""
+    from app.utils.behavioral_ai import explain_signal
+
+    out = explain_signal(STRESSED_SIGNAL)
+    assert set(out.keys()) == {"stress", "cognitive_load", "typing_fatigue", "typing_stability"}
+    stress = out["stress"]
+    assert stress["score"] > 0.6
+    assert stress["flagged"] is True
+    assert stress["feature_importance"]
+    assert stress["shap_values"]
+    assert stress["reasoning"]
+    assert "Risk score increased because" in stress["reasoning"][0]
+
+    calm = explain_signal(CALM_SIGNAL)
+    assert calm["stress"]["flagged"] is False
+    assert "within baseline" in calm["stress"]["reasoning"][0]
+
+
+def test_explain_trend_reasoning_and_top_features():
+    """explain_trend attaches reasoning + top trend features to the trend result."""
+    from app.utils.behavioral_ai import explain_trend
+
+    window = [{"stress": 0.85, "cognitive_load": 0.7, "typing_fatigue": 0.3,
+               "typing_stability": 0.4}] * 8
+    out = explain_trend(window)
+    assert out["flagged"] is True
+    assert out["mental_risk_score"] > 0.6
+    assert any("not a diagnosis" in r for r in out["reasoning"])
+    assert out["top_features"]
+    assert all(f["feature"].startswith(("stress", "cognitive_load", "typing_fatigue", "typing_stability")) for f in out["top_features"])
+
+
+def test_explain_trend_empty_window():
+    """Empty window degrades gracefully."""
+    from app.utils.behavioral_ai import explain_trend
+
+    out = explain_trend([])
+    assert out["mental_risk_score"] == 0.0
+    assert out["top_features"] == []
+    assert "No recent typing sessions" in out["reasoning"][0]

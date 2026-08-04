@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     MEDICAL_KB_DIR: str = os.getenv("MEDICAL_KB_DIR", "./medical_kb")
     CHAT_HISTORY_LIMIT: int = 10
 
+    # ── Module 10: Future IoT Integration (MQTT bridge) ──────────────
+    MQTT_BROKER_URL: str = os.getenv("MQTT_BROKER_URL", "mqtt://localhost:1883")
+    MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "prism/vitals")
+
     def __init__(self, **values):
         super().__init__(**values)
         # Enforce enterprise secret validation: fail start if default keys are found in production

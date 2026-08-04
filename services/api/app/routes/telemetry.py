@@ -308,20 +308,36 @@ def trigger_worker_jobs(
     current_guardian: models.Guardian = Depends(auth.get_current_user),
 ):
     """
-    Manually trigger baseline-aggregation and event-purging.
-    Accessible only to authorized guardians.
+    Manually trigger baseline-aggregation, long-term trend snapshots, and
+    event-purging. Accessible only to authorized guardians.
     """
     run_baseline_aggregation(db)
     infer_sleep_windows(db)
+
+    # Module 6: long-term behaviour tracking snapshots for all devices.
+    from app.utils import tracking
+
+    snapshot_count = 0
+    for device in db.query(models.ChildDevice).all():
+        snapshot_count += tracking.compute_snapshots(db, device.id)
+
     purged = purge_raw_events(db, days=30)
 
     audit.log_audit_event(
         db,
-        action=f"Worker run triggered: Baseline profiles updated, sleep windows estimated, {purged} old events purged.",
+        action=(
+            f"Worker run triggered: Baseline profiles updated, sleep windows "
+            f"estimated, {snapshot_count} trend snapshots upserted, "
+            f"{purged} old events purged."
+        ),
         guardian_id=str(current_guardian.id),
     )
 
-    return {"status": "completed", "events_purged": purged}
+    return {
+        "status": "completed",
+        "events_purged": purged,
+        "trend_snapshots": snapshot_count,
+    }
 
 
 @router.websocket("/ws")
@@ -611,6 +627,34 @@ def get_behavioral_insights(
         if dim not in latest_by_dim:
             latest_by_dim[dim] = s
 
+    from app.utils import behavioral_ai
+
+    # Module 4: explainable AI — feature importance, SHAP-style attribution and
+    # human-readable reasoning for the most recent typing event.
+    latest_signal = (
+        db.query(models.RawSignalEvent)
+        .filter(
+            models.RawSignalEvent.device_id == device_id,
+            models.RawSignalEvent.signal_type == "typing",
+        )
+        .order_by(models.RawSignalEvent.timestamp.desc())
+        .first()
+    )
+    if latest_signal:
+        try:
+            metadata = json.loads(latest_signal.metadata_json)
+        except Exception:
+            metadata = {}
+        explain = behavioral_ai.explain_signal(metadata)
+    else:
+        explain = {
+            dim: {
+                "score": 0.0, "flagged": False, "threshold": 0.6,
+                "feature_importance": [], "shap_values": [], "reasoning": [],
+            }
+            for dim in ["stress", "cognitive_load", "typing_fatigue", "typing_stability"]
+        }
+
     return {
         "device_id": device_id,
         "dimensions": [
@@ -626,6 +670,15 @@ def get_behavioral_insights(
                     if dim in latest_by_dim
                     else None
                 ),
+                **(
+                    {
+                        "feature_importance": explain[dim]["feature_importance"],
+                        "shap_values": explain[dim]["shap_values"],
+                        "reasoning": explain[dim]["reasoning"],
+                    }
+                    if dim in explain
+                    else {}
+                ),
             }
             for dim in dims
         ],
@@ -634,6 +687,38 @@ def get_behavioral_insights(
             "that warrant attention."
         ),
     }
+
+
+@router.get("/trends/{device_id}")
+def get_trend_snapshots(
+    device_id: str,
+    granularity: str = "daily",
+    days: int = 90,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    Module 6: long-term behaviour tracking.
+
+    Returns daily/weekly/monthly behavioral trend snapshots (stress, fatigue,
+    mental-wellness composite) for the dashboard charts, plus a `trend` delta
+    for the risk meter. Authz: guardian must own the device.
+    """
+    auth.verify_guardian_device_access(current_guardian, device_id, db)
+    audit.log_audit_event(
+        db,
+        action="READ_TREND_SNAPSHOTS",
+        guardian_id=str(current_guardian.id),
+        device_id=device_id,
+    )
+
+    from app.utils import tracking
+
+    try:
+        result = tracking.get_trends(db, device_id, granularity=granularity, days=days)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return result
 
 
 @router.post("/demo-trigger")

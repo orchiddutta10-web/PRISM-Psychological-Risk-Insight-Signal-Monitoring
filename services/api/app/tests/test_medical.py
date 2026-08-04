@@ -101,6 +101,77 @@ def test_medical_chat_returns_answer_evidence_disclaimer():
     assert 0 <= body["confidence"] <= 1
     assert "not a substitute for professional medical advice" in body["disclaimer"]
     assert body["crisis"] is False
+    assert body["context"] == {}  # no device → no fused context
+
+
+# ─── Module 5: RAG Context Fusion ───────────────────────────────────────────
+
+
+def test_medical_chat_fuses_behavioral_context():
+    """device_id + history → medical_query receives fused context (patch verifies pass-through)."""
+    token, device_id, _ = _register_guardian_and_device("med9@example.com")
+
+    with patch(
+        "app.routes.medical.medical_query",
+        return_value={**CANONICAL_ANSWER, "context": {"behavioral": {"stress": {"score": 0.85}}}},
+    ) as mock_query:
+        r = client.post(
+            "/api/v1/medical/chat",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "prompt": "My child feels tired",
+                "device_id": device_id,
+                "history": [{"role": "user", "utterance": "My child feels tired"}],
+            },
+        )
+    assert r.status_code == 200
+    # medical_query was called with the device_id + history (context fusion inputs).
+    assert mock_query.call_args.kwargs["device_id"] == device_id
+    assert mock_query.call_args.kwargs["history"] == [
+        {"role": "user", "utterance": "My child feels tired"}
+    ]
+    assert mock_query.call_args.kwargs["db"] is not None
+    # The response carries the fused context back to the dashboard.
+    assert r.json()["context"]["behavioral"]["stress"]["score"] == 0.85
+
+
+def test_medical_chat_fusion_cross_guardian_403():
+    """Guardian B cannot fuse guardian A's device context (403)."""
+    _, dev_a, _ = _register_guardian_and_device("med9a@example.com")
+    token_b, _, _ = _register_guardian_and_device("med9b@example.com")
+    r = client.post(
+        "/api/v1/medical/chat",
+        headers={"Authorization": f"Bearer {token_b}"},
+        json={"prompt": "How is my child?", "device_id": dev_a},
+    )
+    assert r.status_code == 403
+
+
+# ─── Module 9: AI pipeline — session persistence ────────────────────────────
+
+
+def test_medical_chat_stores_session_turns():
+    """The chat route persists guardian + assistant turns to chat_messages."""
+    token, _, _ = _register_guardian_and_device("med12@example.com")
+    with patch("app.routes.medical.medical_query", return_value=CANONICAL_ANSWER):
+        r = client.post(
+            "/api/v1/medical/chat",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"prompt": "What is a fever?"},
+        )
+    assert r.status_code == 200
+
+    db = TestingSessionLocal()
+    turns = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.sender.in_(["guardian", "aria"]))
+        .all()
+    )
+    db.close()
+    senders = {t.sender for t in turns}
+    assert senders == {"guardian", "aria"}
+    guardian_turn = next(t for t in turns if t.sender == "guardian")
+    assert "fever" in guardian_turn.aria_utterance.lower()
 
 
 def test_medical_chat_empty_prompt_400():
@@ -113,30 +184,35 @@ def test_medical_chat_empty_prompt_400():
     assert r.status_code == 400
 
 
-def test_medical_chat_disabled_flag_graceful():
-    """MEDICAL_RAG_ENABLED=false → graceful 'not enabled' answer, no RAG call."""
+def test_medical_chat_disabled_flag_still_answers():
+    """Even with MEDICAL_RAG_ENABLED=false the chatbot answers via the
+    retrieval-based fallback engine (no LLM required) — it never refuses."""
     token, _, _ = _register_guardian_and_device("med2b@example.com")
     original = settings.MEDICAL_RAG_ENABLED
     settings.MEDICAL_RAG_ENABLED = False
     try:
         with patch(
             "app.routes.medical.medical_query",
-            side_effect=AssertionError("RAG must not run when disabled"),
+            return_value={
+                **CANONICAL_ANSWER,
+                "answer": "Here's what the medical library says about fever.",
+            },
         ) as mock_query:
             r = client.post(
                 "/api/v1/medical/chat",
                 headers={"Authorization": f"Bearer {token}"},
                 json={"prompt": "What is a fever?"},
             )
-        mock_query.assert_not_called()
+        # The route now always calls medical_query (the fallback engine runs
+        # inside it), so this is called regardless of the RAG flag.
+        mock_query.assert_called_once()
     finally:
         settings.MEDICAL_RAG_ENABLED = original
     assert r.status_code == 200
     body = r.json()
     assert body["crisis"] is False
-    assert "not currently enabled" in body["answer"]
-    assert body["evidence"] == []
-    assert body["confidence"] == 0.0
+    assert "medical library" in body["answer"]
+    assert len(body["evidence"]) >= 1
 
 
 def test_medical_chat_crisis_gate():
@@ -263,3 +339,114 @@ def test_typing_insights_returns_scores_and_baseline():
     assert body["scores"][0]["model_name"] == "typing_rhythm"
     assert body["scores"][0]["flagged"] is True
     assert "z-score" in body["scores"][0]["contributing_factors"][0]
+
+
+# ─── Module 8: Multi-format knowledge base ──────────────────────────────────
+
+
+def test_markdown_extractor_cleans_links_and_headers():
+    """Markdown extraction strips links/fences and keeps clean section text."""
+    import os
+    import tempfile
+    from app.utils.medical_rag import _extract_markdown
+
+    fd, path = tempfile.mkstemp(suffix=".md")
+    os.close(fd)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("# Headache Management\n\n## Red flags\n\n[Read more](https://example.com) about migraine.\n\n- Sudden severe pain\n")
+    try:
+        pages = _extract_markdown(path)
+        assert len(pages) == 1
+        text = pages[0][0]
+        assert "Headache Management" in text
+        assert "Read more" in text  # link text preserved, URL stripped
+        assert "https://example.com" not in text
+        assert "migraine" in text
+    finally:
+        os.remove(path)
+
+
+def test_docx_extractor_reads_paragraphs():
+    """DOCX extraction reads paragraph text via stdlib zipfile."""
+    import os
+    import tempfile
+    import zipfile
+    from xml.sax.saxutils import escape
+    from app.utils.medical_rag import _extract_docx
+
+    fd, path = tempfile.mkstemp(suffix=".docx")
+    os.close(fd)
+    doc_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        "<w:body>"
+        + "".join(
+            f'<w:p><w:r><w:t>{escape(f"Paragraph {i} about fever management.")}</w:t></w:r></w:p>'
+            for i in range(30)
+        )
+        + "</w:body></w:document>"
+    )
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("word/document.xml", doc_xml)
+    try:
+        pages = _extract_docx(path)
+        assert len(pages) >= 1
+        assert pages[0][1].endswith(".docx")
+        assert "Paragraph 0" in pages[0][0]
+        assert "Paragraph 5" in pages[0][0]  # multiple paragraphs grouped
+    finally:
+        os.remove(path)
+
+
+def test_kb_upload_rejects_unsupported_format():
+    """Uploading a .exe returns 400; PDF/DOCX/MD/TXT are accepted."""
+    token, _, _ = _register_guardian_and_device("med10@example.com", role="guardian-admin")
+    with patch("app.routes.medical.rebuild_kb", return_value={"docs": 1, "chunks": 5, "vector_ready": True}):
+        r = client.post(
+            "/api/v1/medical/kb/upload",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("malware.exe", b"MZ...", "application/octet-stream")},
+        )
+    assert r.status_code == 400
+    assert "Unsupported format" in r.json()["detail"]
+
+
+def test_kb_upload_accepts_markdown():
+    """A .md file uploads and triggers a rebuild."""
+    token, _, _ = _register_guardian_and_device("med11@example.com", role="guardian-admin")
+    with patch("app.routes.medical.rebuild_kb", return_value={"docs": 1, "chunks": 5, "vector_ready": True}) as mock:
+        r = client.post(
+            "/api/v1/medical/kb/upload",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("guideline.md", b"# Guideline\n\nContent", "text/markdown")},
+        )
+    assert r.status_code == 200
+    mock.assert_called_once()
+
+
+# ─── Intent detection + relevance gate ──────────────────────────────────────
+
+
+def test_greeting_gets_conversational_reply():
+    """'hi' returns a conversational reply, not a KB dump."""
+    from app.utils.medical_rag import _is_greeting, _GREETING_REPLY
+
+    assert _is_greeting("hi")
+    assert _is_greeting("hello there")
+    assert _is_greeting("How are you?")
+    assert not _is_greeting("What should I do for a fever?")
+    assert "medical assistant" in _GREETING_REPLY
+
+
+def test_off_topic_query_blocked():
+    """Non-medical queries do not dump irrelevant library chunks."""
+    from app.utils.medical_rag import _is_relevant
+
+    # A stub retrieval whose chunks share only stopwords with the query.
+    stub = [
+        {"chunk": "The document covers general guidance and care instructions.", "source": "x", "page": 1}
+    ]
+    assert _is_relevant("what is the capital of france", stub) is False
+    assert _is_relevant("tell me a joke", stub) is False
+    # A real health term that appears in the chunk passes.
+    assert _is_relevant("fever management", [{"chunk": "fever is managed with rest", "source": "x", "page": 1}]) is True

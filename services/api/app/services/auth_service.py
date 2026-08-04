@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, status
+from typing import Optional
 import random
 from jose import jwt, JWTError
 
@@ -16,7 +17,7 @@ MOCK_MFA_STORE = {}
 class AuthService:
     @staticmethod
     def register_guardian(
-        guardian_in: schemas.GuardianCreate, db: Session, ip_address: str = None
+        guardian_in: schemas.GuardianCreate, db: Session, ip_address: Optional[str] = None
     ) -> models.Guardian:
         existing_guardian = (
             db.query(models.Guardian)
@@ -49,14 +50,14 @@ class AuthService:
         audit.log_audit_event(
             db,
             action=f"Guardian registered successfully (ID: {guardian.id})",
-            guardian_id=guardian.id,
+            guardian_id=str(guardian.id),
             ip_address=ip_address,
         )
         return guardian
 
     @staticmethod
     def login_guardian(
-        login_data: schemas.LoginRequest, db: Session, ip_address: str = None
+        login_data: schemas.LoginRequest, db: Session, ip_address: Optional[str] = None
     ) -> dict:
         guardian = (
             db.query(models.Guardian)
@@ -64,7 +65,7 @@ class AuthService:
             .first()
         )
         if not guardian or not auth.verify_password(
-            login_data.password, guardian.password_hash
+            login_data.password, str(guardian.password_hash)
         ):
             audit.log_audit_event(
                 db,
@@ -92,7 +93,7 @@ class AuthService:
             audit.log_audit_event(
                 db,
                 action=f"Guardian login MFA challenged (ID: {guardian.id})",
-                guardian_id=guardian.id,
+                guardian_id=str(guardian.id),
                 ip_address=ip_address,
             )
             return {
@@ -109,7 +110,7 @@ class AuthService:
         audit.log_audit_event(
             db,
             action=f"Guardian login successful (ID: {guardian.id})",
-            guardian_id=guardian.id,
+            guardian_id=str(guardian.id),
             ip_address=ip_address,
         )
         return {
@@ -122,7 +123,7 @@ class AuthService:
 
     @staticmethod
     def verify_mfa(
-        payload: schemas.VerifyMFARequest, db: Session, ip_address: str = None
+        payload: schemas.VerifyMFARequest, db: Session, ip_address: Optional[str] = None
     ) -> dict:
         try:
             data = jwt.decode(
@@ -160,7 +161,7 @@ class AuthService:
         audit.log_audit_event(
             db,
             action=f"MFA verified successfully. Login complete (ID: {guardian.id})",
-            guardian_id=guardian.id,
+            guardian_id=str(guardian.id),
             ip_address=ip_address,
         )
         return {"access_token": token, "token_type": "bearer", "user": guardian}
@@ -170,7 +171,7 @@ class AuthService:
         device_in: schemas.ChildDeviceCreate,
         guardian_id: str,
         db: Session,
-        ip_address: str = None,
+        ip_address: Optional[str] = None,
     ) -> dict:
         existing_device = (
             db.query(models.ChildDevice)
@@ -178,12 +179,12 @@ class AuthService:
             .first()
         )
         if existing_device:
-            existing_device.last_seen = datetime.now(timezone.utc)
+            existing_device.last_seen = datetime.now(timezone.utc)  # type: ignore[attr-defined]
             db.commit()
             db.refresh(existing_device)
 
             device_jwt = auth.create_access_token(
-                data={"sub": existing_device.id, "type": "device"}
+                data={"sub": str(existing_device.id), "type": "device"}
             )
             return {"device": existing_device, "device_jwt_token": device_jwt}
 
@@ -197,20 +198,20 @@ class AuthService:
         db.commit()
         db.refresh(device)
 
-        device_jwt = auth.create_access_token(data={"sub": device.id, "type": "device"})
+        device_jwt = auth.create_access_token(data={"sub": str(device.id), "type": "device"})
 
         audit.log_audit_event(
             db,
             action=f"Device registered: {device.platform} (ID: {device.id}, Name: {device.name})",
             guardian_id=guardian_id,
-            device_id=device.id,
+            device_id=str(device.id),
             ip_address=ip_address,
         )
         return {"device": device, "device_jwt_token": device_jwt}
 
     @staticmethod
     def send_otp(
-        req: schemas.SendOTPRequest, db: Session, ip_address: str = None
+        req: schemas.SendOTPRequest, db: Session, ip_address: Optional[str] = None
     ) -> dict:
         phone = req.phone_number.strip()
         code = "123456"
@@ -226,7 +227,7 @@ class AuthService:
 
     @staticmethod
     def verify_otp(
-        req: schemas.VerifyOTPRequest, db: Session, ip_address: str = None
+        req: schemas.VerifyOTPRequest, db: Session, ip_address: Optional[str] = None
     ) -> dict:
         phone = req.phone_number.strip()
         code = req.code.strip()
@@ -253,7 +254,7 @@ class AuthService:
             audit.log_audit_event(
                 db,
                 action=f"OTP verified successfully. Guardian authenticated (ID: {guardian.id})",
-                guardian_id=guardian.id,
+                guardian_id=str(guardian.id),
                 ip_address=ip_address,
             )
             return {
@@ -272,7 +273,7 @@ class AuthService:
 
     @staticmethod
     def register_otp_guardian(
-        req: schemas.RegisterOTPRequest, db: Session, ip_address: str = None
+        req: schemas.RegisterOTPRequest, db: Session, ip_address: Optional[str] = None
     ) -> dict:
         phone = req.phone_number.strip()
         name = req.full_name.strip()
@@ -297,11 +298,11 @@ class AuthService:
         db.commit()
         db.refresh(guardian)
 
-        token = auth.create_access_token(data={"sub": guardian.id, "type": "guardian"})
+        token = auth.create_access_token(data={"sub": str(guardian.id), "type": "guardian"})
         audit.log_audit_event(
             db,
             action=f"Guardian registered via OTP successfully (ID: {guardian.id})",
-            guardian_id=guardian.id,
+            guardian_id=str(guardian.id),
             ip_address=ip_address,
         )
         return {"access_token": token, "token_type": "bearer", "user": guardian}

@@ -73,6 +73,43 @@ SIGNAL_FEATURES = [
     "hour_of_day",
 ]
 
+# Human-readable names for the signal features, used by the Module 4
+# explainability layer when building "top features / reasoning" strings.
+FEATURE_LABELS = {
+    "delay_index": "Keystroke delay index",
+    "iki_mean": "Inter-key interval mean",
+    "iki_std": "Inter-key interval variability",
+    "correction_rate_variance": "Correction/hesitation rate",
+    "burst_length": "Typing burst length",
+    "typing_speed": "Typing speed",
+    "error_rate": "Error rate",
+    "session_duration": "Session duration",
+    "hour_of_day": "Hour of day",
+}
+
+# Trend features: for each signal dimension d in [stress, cognitive_load,
+# typing_fatigue, typing_stability] we derive mean(d), std(d), slope(d).
+TREND_FEATURES = [
+    f"{dim}_{stat}"
+    for dim in ("stress", "cognitive_load", "typing_fatigue", "typing_stability")
+    for stat in ("mean", "std", "slope")
+]
+
+TREND_FEATURE_LABELS = {
+    "stress_mean": "Avg stress level",
+    "stress_std": "Stress variability",
+    "stress_slope": "Stress trend",
+    "cognitive_load_mean": "Avg cognitive load",
+    "cognitive_load_std": "Cognitive load variability",
+    "cognitive_load_slope": "Cognitive load trend",
+    "typing_fatigue_mean": "Avg typing fatigue",
+    "typing_fatigue_std": "Fatigue variability",
+    "typing_fatigue_slope": "Fatigue trend",
+    "typing_stability_mean": "Avg typing stability",
+    "typing_stability_std": "Stability variability",
+    "typing_stability_slope": "Stability trend",
+}
+
 # Names of models shipped with the repo (trained by scripts/train_behavioral_ai.py).
 _MODEL_FILES = {
     "stress": "stress_rf.joblib",
@@ -394,3 +431,287 @@ def _primary_driver(metadata: dict, dim: str) -> str:
     if burst_length > 30:
         return "long typing bursts with pauses suggesting fatigue"
     return "deviation in typing dynamics vs. personal baseline"
+
+
+# ─── Module 4: Explainable AI ───────────────────────────────────────────────
+#
+# Every score the pipeline emits ships a structured, human-readable
+# explanation (AGENTS.md: "no black-box outputs"). We provide three layers:
+#
+#   1. Global feature importance — from the trained tree models' built-in
+#      `feature_importances_` (mean decrease in impurity), or a transparent
+#      heuristic weight vector when artifacts are absent.
+#
+#   2. Local (SHAP-style) attribution — per-feature contribution to the
+#      score for a single event. Without a `shap` dependency, tree models
+#      expose enough to approximate: for classifiers we use the model's own
+#      feature_importances_ combined with how far the sample's features sit
+#      from the healthy reference, normalized to a signed contribution that
+#      sums to (roughly) the score.
+#
+#   3. Top features + reasoning — the highest-contribution features rendered
+#      as the "why" strings (e.g. "Typing speed decreased", "Long pauses
+#      detected") that the dashboard displays under each score.
+# ---------------------------------------------------------------------------
+
+
+def _heuristic_feature_importance() -> dict:
+    """
+    Fallback global importances when trained artifacts are absent. Mirrors the
+    fallback scoring logic: delay/correction/error/IKI variance dominate.
+    """
+    return {
+        "delay_index": 0.25,
+        "iki_mean": 0.05,
+        "iki_std": 0.2,
+        "correction_rate_variance": 0.2,
+        "burst_length": 0.08,
+        "typing_speed": 0.07,
+        "error_rate": 0.12,
+        "session_duration": 0.02,
+        "hour_of_day": 0.01,
+    }
+
+
+def _model_feature_importance(model_key: str) -> dict:
+    """Global feature importances from a trained model, or heuristic fallback."""
+    # Prefer the persisted feature-importance metadata written at training time.
+    try:
+        meta_path = os.path.join(MODELS_DIR, "feature_importance.json")
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                stored = json.load(f)
+            if model_key in stored and stored[model_key]:
+                return {k: float(v) for k, v in stored[model_key].items()}
+    except Exception as e:
+        logger.warning("Feature-importance metadata load failed: %s", str(e))
+
+    model = _models.get(model_key)
+    if model is not None and hasattr(model, "feature_importances_"):
+        try:
+            values = np.asarray(model.feature_importances_, dtype=float).ravel()
+            if values.shape[0] == len(SIGNAL_FEATURES):
+                total = float(values.sum()) or 1.0
+                return {
+                    name: round(float(v) / total, 4)
+                    for name, v in zip(SIGNAL_FEATURES, values)
+                }
+        except Exception as e:
+            logger.warning("Feature importance for %s failed: %s", model_key, str(e))
+    return _heuristic_feature_importance()
+
+
+def _feature_reference(metadata: dict) -> np.ndarray:
+    """Healthy/reference feature vector used to sign local contributions."""
+    # Typing dynamics near a calm baseline.
+    reference = np.array(
+        [
+            1.0,       # delay_index
+            250.0,     # iki_mean (ms)
+            45.0,      # iki_std (ms)
+            0.04,      # correction_rate_variance
+            14.0,      # burst_length
+            55.0,      # typing_speed (wpm)
+            0.03,      # error_rate
+            90.0,      # session_duration (s)
+            14.0,      # hour_of_day
+        ]
+    )
+    observed = extract_signal_features(metadata).ravel()
+    # Normalize each feature by its reference scale so contributions are
+    # comparable across features with different units.
+    scale = np.maximum(np.abs(reference), 1e-6)
+    return reference, observed, scale
+
+
+def local_attribution(metadata: dict, dimension: str) -> list[dict]:
+    """
+    SHAP-style local attribution for a single typing event.
+
+    Returns a list of {feature, contribution} dicts sorted by absolute
+    contribution (largest first). Contribution is signed: positive values push
+    the dimension's risk score up, negative values pull it down. The list is
+    normalized so contributions sum to (approximately) the current score.
+    """
+    reference, observed, scale = _feature_reference(metadata)
+    # How far this sample sits from the calm reference, in reference units.
+    deviation = (observed - reference) / scale
+    importance = _model_feature_importance(dimension)
+
+    # Signed raw contribution: importance weight × directional deviation.
+    # Higher delay, more corrections, more errors → positive (risk-raising).
+    raw = np.array([importance[f] * deviation[i] for i, f in enumerate(SIGNAL_FEATURES)])
+    # Normalize to a signed set that sums to 1 (then scaled by caller).
+    total = float(np.abs(raw).sum()) or 1.0
+    normalized = raw / total
+
+    out = []
+    for i, feature in enumerate(SIGNAL_FEATURES):
+        out.append({
+            "feature": feature,
+            "label": FEATURE_LABELS.get(feature, feature),
+            "contribution": round(float(normalized[i]), 4),
+        })
+    out.sort(key=lambda c: abs(c["contribution"]), reverse=True)
+    return out
+
+
+def feature_importance(dimension: str) -> list[dict]:
+    """
+    Global feature importance for a dimension.
+
+    Returns [{feature, label, importance}] sorted descending. Importance
+    values are 0..1 and sum to 1.
+    """
+    imp = _model_feature_importance(dimension)
+    out = [
+        {"feature": f, "label": FEATURE_LABELS.get(f, f), "importance": imp[f]}
+        for f in SIGNAL_FEATURES
+    ]
+    out.sort(key=lambda x: x["importance"], reverse=True)
+    return out
+
+
+def _attribution_reasoning(metadata: dict, dimension: str, score: float, flagged: bool) -> list[str]:
+    """
+    Renders the local attribution as human-readable "why" strings.
+
+    This produces exactly the Module 4 example framing:
+      "Risk score increased because … typing speed decreased, delete rate
+      increased, long pauses detected, large variation in typing rhythm."
+    """
+    if not flagged:
+        return [f"{DIMENSION_LABELS.get(dimension, dimension)} is within baseline range."]
+
+    attribution = local_attribution(metadata, dimension)
+    # Top contributing features (risk-raising = positive contribution).
+    top = [a for a in attribution if a["contribution"] > 0][:3]
+    if not top:
+        return [f"Risk score increased because of a combination of typing-dynamics features."]
+
+    reasons = []
+    for a in top:
+        f = a["feature"]
+        label = a["label"].lower()
+        if f == "typing_speed":
+            reasons.append("typing speed decreased")
+        elif f == "correction_rate_variance":
+            reasons.append("delete/hesitation rate increased")
+        elif f == "error_rate":
+            reasons.append("error rate increased")
+        elif f == "iki_std":
+            reasons.append("large variation in typing rhythm")
+        elif f in ("delay_index", "iki_mean"):
+            reasons.append("long pauses detected between keystrokes")
+        elif f == "burst_length":
+            reasons.append("long typing bursts with pauses")
+        elif f == "session_duration":
+            reasons.append("unusually long typing session")
+        elif f == "hour_of_day":
+            reasons.append("atypical time-of-day typing pattern")
+        else:
+            reasons.append(f"elevated {label}")
+    return [f"Risk score increased because {', '.join(reasons)}."]
+
+
+def explain_signal(metadata: dict) -> dict:
+    """
+    Module 4 explainability for a single typing event.
+
+    Returns a dict keyed by dimension (stress, cognitive_load, typing_fatigue,
+    typing_stability) with:
+      - score, flagged, threshold
+      - feature_importance (global, top 5)
+      - shap_values (local attribution, top 5)
+      - reasoning (human-readable "why" strings)
+    """
+    results = evaluate_signal(metadata)
+    out = {}
+    for dim, res in results.items():
+        out[dim] = {
+            "score": res["score"],
+            "flagged": res["flagged"],
+            "threshold": res["threshold"],
+            "feature_importance": feature_importance(dim)[:5],
+            "shap_values": local_attribution(metadata, dim)[:5],
+            "reasoning": _attribution_reasoning(metadata, dim, res["score"], res["flagged"]),
+        }
+    return out
+
+
+def explain_trend(recent_scores: list[dict]) -> dict:
+    """
+    Module 4 explainability for the trend/mental-risk layer.
+
+    Returns the trend result plus a per-dimension reasoning breakdown and the
+    top contributing trend features (mean/std/slope of each signal dimension).
+    """
+    trend = evaluate_trend(recent_scores)
+    if not recent_scores:
+        trend["reasoning"] = ["No recent typing sessions available for trend analysis."]
+        trend["top_features"] = []
+        return trend
+
+    arr = np.array(
+        [
+            [s.get("stress", 0.0), s.get("cognitive_load", 0.0),
+             s.get("typing_fatigue", 0.0), s.get("typing_stability", 0.0)]
+            for s in recent_scores
+        ]
+    )
+    if len(arr) == 1:
+        arr = np.vstack([arr, arr])
+    means = arr.mean(axis=0)
+    stds = arr.std(axis=0)
+    x = np.arange(len(arr), dtype=float)
+    slopes = np.array([
+        np.polyfit(x, arr[:, i], 1)[0] if np.std(arr[:, i]) > 0 else 0.0
+        for i in range(arr.shape[1])
+    ])
+    # Weighted, signed feature values for the 12 trend features.
+    dims = ["stress", "cognitive_load", "typing_fatigue", "typing_stability"]
+    vals = np.concatenate([means, stds, slopes])
+    weights = np.array([
+        0.30, 0.25, 0.20, 0.25,   # means
+        0.05, 0.05, 0.05, 0.05,   # stds
+        0.10, 0.05, 0.05, 0.10,   # slopes
+    ])
+    signed = vals * weights
+    order = np.argsort(-np.abs(signed))
+    top = [
+        {
+            "feature": TREND_FEATURES[i],
+            "label": TREND_FEATURE_LABELS.get(TREND_FEATURES[i], TREND_FEATURES[i]),
+            "value": round(float(vals[i]), 4),
+            "importance": round(float(abs(signed[i])), 4),
+        }
+        for i in order[:5]
+    ]
+
+    reasoning = []
+    if trend.get("flagged"):
+        if trend["anxiety_trend"] >= 0.6:
+            reasoning.append(
+                f"Possible anxiety trend detected: stress and cognitive load are "
+                f"elevated and trending upward across {len(recent_scores)} sessions."
+            )
+        if trend["depression_trend"] >= 0.6:
+            reasoning.append(
+                f"Possible depression trend detected: typing fatigue is elevated "
+                f"and stability is declining across {len(recent_scores)} sessions."
+            )
+        if not reasoning:
+            reasoning.append(
+                f"Mental risk score {trend['mental_risk_score']:.0%} — sustained "
+                f"behavioral pattern across {len(recent_scores)} sessions warrants attention."
+            )
+        reasoning.append(SCREENING_DISCLAIMER)
+    else:
+        reasoning.append(
+            "Behavioral signals are within the device's baseline range across "
+            f"{len(recent_scores)} recent sessions."
+        )
+
+    trend["reasoning"] = reasoning
+    trend["top_features"] = top
+    return trend

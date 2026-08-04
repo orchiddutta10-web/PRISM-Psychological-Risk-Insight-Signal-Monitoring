@@ -6,13 +6,50 @@ import {
   Bell, LogOut, Moon, Sun, Eye, Shield, TrendingUp, TrendingDown,
   Activity, ChevronRight, Radio, Wifi, WifiOff, Play,
   Database, X, Clock, Smartphone, MapPin, Keyboard,
-  AlertTriangle, CheckCircle, Info, BarChart2, Zap, Users
+  AlertTriangle, CheckCircle, Info, BarChart2, Zap, Users, HeartPulse
 } from 'lucide-react'
 import { API, wsUrl, authFetch } from '@/lib/api'
 
 /* ─────────────────────────────────────────────────────────────
-   DEMO DATA — realistic, non-alarming baseline values
+   TYPES — real API shapes
 ───────────────────────────────────────────────────────────── */
+interface ApiDevice {
+  id: string
+  name: string
+  platform: string
+  last_seen: string | null
+  risk_score: number
+  risk_label: string
+  latest_alert: { severity_tier: string; summary: string } | null
+  consent_count: number
+}
+
+interface ApiAlert {
+  id: string
+  device_id: string
+  severity_tier: string
+  plain_language_summary: string
+  contributing_factors: string[]
+  is_viewed: boolean
+  timestamp: string
+}
+
+interface ApiRiskScore {
+  id: string
+  device_id: string
+  model_name: string
+  score: number
+  threshold: number
+  flagged: boolean
+  contributing_factors: string[]
+  timestamp: string
+}
+
+interface ApiBaseline {
+  mean: number
+  variance: number
+}
+
 interface DeviceSignal {
   label: string
   icon: any
@@ -37,6 +74,11 @@ interface DeviceView {
   signals: DeviceSignal[]
   weeklyData: { day: string; baseline: number; actual: number }[]
 }
+
+/* ─────────────────────────────────────────────────────────────
+   DEMO DATA — realistic, non-alarming baseline values
+   (used ONLY as a fallback when the API is unreachable)
+───────────────────────────────────────────────────────────── */
 
 const DEVICES: DeviceView[] = [
   {
@@ -75,24 +117,24 @@ const DEVICES: DeviceView[] = [
   },
 ]
 
-const INITIAL_ALERTS = [
+const INITIAL_ALERTS: ApiAlert[] = [
   {
-    id: 'a1', severity: 'medium' as const, title: 'Late-Night Screen Activity',
-    summary: "Priya's device showed 2.5h of usage between 11 PM–1:30 AM — later than her usual 10:30 PM bedtime.",
-    factors: ['Screen time 93% above 7-day baseline', 'Bedtime shifted by +2 hours', 'Movement entropy dropped sharply'],
-    device: "Priya's Android", time: '2h ago', read: false,
+    id: 'a1', device_id: 'dev-002', severity_tier: 'amber',
+    plain_language_summary: "Priya's device showed 2.5h of usage between 11 PM–1:30 AM — later than her usual 10:30 PM bedtime.",
+    contributing_factors: ['Screen time 93% above 7-day baseline', 'Bedtime shifted by +2 hours', 'Movement entropy dropped sharply'],
+    is_viewed: false, timestamp: new Date(Date.now() - 2 * 3600e3).toISOString(),
   },
   {
-    id: 'a2', severity: 'low' as const, title: 'Reduced Daily Movement',
-    summary: "Priya's step count (3,100) was 56% below her usual 7,000-step daily average over 3 consecutive days.",
-    factors: ['Steps 56% below rolling baseline', 'Home location stationary for 9+ hours'],
-    device: "Priya's Android", time: '5h ago', read: true,
+    id: 'a2', device_id: 'dev-002', severity_tier: 'sage',
+    plain_language_summary: "Priya's step count (3,100) was 56% below her usual 7,000-step daily average over 3 consecutive days.",
+    contributing_factors: ['Steps 56% below rolling baseline', 'Home location stationary for 9+ hours'],
+    is_viewed: true, timestamp: new Date(Date.now() - 5 * 3600e3).toISOString(),
   },
   {
-    id: 'a3', severity: 'low' as const, title: 'Screen Time Slightly Elevated',
-    summary: "Aarav's daily screen time is ~30 min above baseline. Within expected weekend variance.",
-    factors: ['Screen time +17% above baseline', 'Usage primarily social & educational apps'],
-    device: "Aarav's iPhone", time: 'Yesterday', read: true,
+    id: 'a3', device_id: 'dev-001', severity_tier: 'sage',
+    plain_language_summary: "Aarav's daily screen time is ~30 min above baseline. Within expected weekend variance.",
+    contributing_factors: ['Screen time +17% above baseline', 'Usage primarily social & educational apps'],
+    is_viewed: true, timestamp: new Date(Date.now() - 26 * 3600e3).toISOString(),
   },
 ]
 
@@ -166,7 +208,7 @@ export default function OverviewPage() {
   const [guardian, setGuardian] = useState({ name: 'Guardian', role: 'guardian' })
   const [devices, setDevices] = useState<DeviceView[]>(DEVICES)
   const [activeId, setActiveId] = useState(DEVICES[0].id)
-  const [alerts, setAlerts] = useState(INITIAL_ALERTS)
+  const [alerts, setAlerts] = useState<ApiAlert[]>([])
   const [alertOpen, setAlertOpen] = useState(false)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [logs, setLogs] = useState<string[]>([])
@@ -176,7 +218,7 @@ export default function OverviewPage() {
   const wsRef = useRef<WebSocket | null>(null)
 
   const device = devices.find(d => d.id === activeId) ?? devices[0]
-  const unread = alerts.filter(a => !a.read).length
+  const unread = alerts.filter(a => !a.is_viewed).length
 
   const pushLog = useCallback((msg: string) => {
     setLogs(p => [`${new Date().toLocaleTimeString()} — ${msg}`, ...p].slice(0, 30))
@@ -190,47 +232,111 @@ export default function OverviewPage() {
     const saved = localStorage.getItem('prism_theme') as any
     if (saved) { setTheme(saved); document.documentElement.setAttribute('data-theme', saved) }
 
-    // Fetch real guardian devices from the API; fall back to demo data if none.
+    // Fetch real guardian devices + per-device alerts/scores/baselines.
+    // Falls back to demo data only when the API is unreachable.
     const loadDevices = async () => {
       try {
         const res = await authFetch(`/auth/devices`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         if (!res.ok) throw new Error(`Devices API returned ${res.status}`)
-        const list: any[] = await res.json()
-        if (list.length > 0) {
-          const mapped = list.map((d, i) => {
-            const initials = d.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase() || 'DV'
-            const risk = d.risk_score ?? 0
-            return {
-              id: d.id,
-              name: d.name,
-              initials,
-              childAge: 14,
-              platform: d.platform === 'ios' ? 'iOS' : 'Android',
-              lastSeen: d.last_seen ? new Date(d.last_seen).toLocaleString() : 'Never',
-              riskScore: risk,
-              riskLabel: d.risk_label || 'Normal Range',
-              status: risk >= 55 ? 'idle' as const : 'active' as const,
-              concern: d.latest_alert?.summary || 'Monitoring active',
-              signals: [
-                { label: 'Consent Grants', icon: Shield, baseline: 1, actual: Math.max(1, d.consent_count ?? 1), unit: 'active', delta: 0, trend: 'stable' as const },
-                { label: 'Latest Signal', icon: Activity, baseline: 1, actual: d.latest_alert ? 1 : 0, unit: 'alert', delta: d.latest_alert ? 25 : 0, trend: d.latest_alert ? ('up' as const) : ('stable' as const) },
-              ],
-              weeklyData: [
-                { day: 'Mon', baseline: 100, actual: 100 }, { day: 'Tue', baseline: 100, actual: 100 },
-                { day: 'Wed', baseline: 100, actual: 100 }, { day: 'Thu', baseline: 100, actual: 100 },
-                { day: 'Fri', baseline: 100, actual: 100 }, { day: 'Sat', baseline: 100, actual: 100 },
-                { day: 'Sun', baseline: 100, actual: 100 },
-              ],
+        const list: ApiDevice[] = await res.json()
+        if (list.length === 0) return
+
+        const allAlerts: ApiAlert[] = []
+        const allScores: Record<string, ApiRiskScore[]> = {}
+        const allBaselines: Record<string, Record<string, ApiBaseline>> = {}
+        const allPulse: Record<string, { bpm: number; g: number; at: string } | null> = {}
+
+        await Promise.all(list.map(async d => {
+          const headers = { Authorization: `Bearer ${token}` }
+          const [alertRes, scoreRes, baseRes, pulseRes] = await Promise.all([
+            fetch(`${API}/events/alerts/${d.id}`, { headers }),
+            fetch(`${API}/events/scores/${d.id}`, { headers }),
+            fetch(`${API}/events/baselines/${d.id}`, { headers }),
+            fetch(`${API}/physio/pulse/readings/${d.id}?limit=1`, { headers }),
+          ])
+          if (alertRes.ok) {
+            const data = await alertRes.json()
+            if (Array.isArray(data)) allAlerts.push(...data)
+          }
+          if (scoreRes.ok) {
+            const data = await scoreRes.json()
+            if (Array.isArray(data)) allScores[d.id] = data
+          }
+          if (baseRes.ok) {
+            const data = await baseRes.json()
+            if (data && typeof data === 'object') allBaselines[d.id] = data
+          }
+          if (pulseRes.ok) {
+            const data = await pulseRes.json()
+            if (Array.isArray(data) && data.length > 0) {
+              allPulse[d.id] = { bpm: data[0].bpm, g: data[0].g_force, at: data[0].timestamp }
             }
+          }
+        }))
+        allAlerts.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        setAlerts(allAlerts)
+
+        const mapped: DeviceView[] = list.map((d, i) => {
+          const initials = d.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase() || 'DV'
+          const scores = allScores[d.id] ?? []
+          const latest = scores[0]
+          const baselines = allBaselines[d.id] ?? {}
+          const pulse = allPulse[d.id] ?? null
+          const risk = latest?.flagged ? Math.min(100, Math.round(latest.score * 100)) : (d.risk_score ?? 0)
+          const signalCount = scores.length
+          const flaggedCount = scores.filter(s => s.flagged).length
+
+          const sig = (label: string, icon: any, raw: number, unit: string, delta: number, trend: 'up' | 'down' | 'stable'): DeviceSignal => ({
+            label, icon, baseline: Math.round(raw), actual: Math.round(raw * (1 + delta / 100)), unit, delta, trend,
           })
-          setDevices(mapped)
-          setActiveId(mapped[0].id)
-          setIsLive(true)
-          pushLog(`Fetched ${mapped.length} device${mapped.length > 1 ? 's' : ''} from API`)
-        }
+
+          const signals: DeviceSignal[] = [
+            sig('Risk Flags', BarChart2, Math.max(1, signalCount), 'models', flaggedCount, flaggedCount > 0 ? 'up' : 'stable'),
+            sig('Consent Grants', Shield, Math.max(1, d.consent_count ?? 1), 'active', 0, 'stable'),
+            sig('Heart Rate', HeartPulse, pulse?.bpm ?? Math.round(baselines['ppg']?.mean ?? 72), 'bpm',
+              pulse?.bpm && pulse.bpm > 110 ? 25 : 0, pulse?.bpm && pulse.bpm > 110 ? 'up' : 'stable'),
+            sig('Movement', Activity, (pulse?.g ?? baselines['movement']?.mean ?? 1.0), 'g',
+              pulse?.g && pulse.g < 1.2 ? -10 : 0, pulse?.g && pulse.g < 1.2 ? 'down' : 'stable'),
+          ]
+
+          // 7-day trend from the last 7 risk scores (or alerts) — default to neutral flats when empty.
+          const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+          const weeklySource = scores.length >= 2 ? scores : (d.latest_alert ? [] : [])
+          const weeklyData = weeklySource.length >= 2
+            ? weeklySource.slice(0, 7).reverse().map((s, idx) => ({
+                day: days[(new Date().getDay() - (weeklySource.length - 1 - idx) + 14) % 7],
+                baseline: Math.max(1, Math.round((s.threshold ?? 0.5) * 100)),
+                actual: Math.max(1, Math.round(s.score * 100)),
+              }))
+            : Array.from({ length: 7 }, (_, idx) => ({
+                day: days[(new Date().getDay() - (6 - idx) + 14) % 7],
+                baseline: 100, actual: 100,
+              }))
+
+          return {
+            id: d.id,
+            name: d.name,
+            initials,
+            childAge: 14,
+            platform: d.platform === 'ios' ? 'iOS' : 'Android',
+            lastSeen: d.last_seen ? new Date(d.last_seen).toLocaleString() : 'Never',
+            riskScore: risk,
+            riskLabel: latest?.flagged ? 'Deviation Detected' : (d.risk_label || 'Normal Range'),
+            status: risk >= 55 ? 'idle' as const : 'active' as const,
+            concern: d.latest_alert?.summary || (flaggedCount > 0 ? `${flaggedCount} signal(s) flagged` : 'Monitoring active'),
+            signals,
+            weeklyData,
+          }
+        })
+
+        setDevices(mapped)
+        setActiveId(mapped[0].id)
+        setIsLive(true)
+        pushLog(`Fetched ${mapped.length} device${mapped.length > 1 ? 's' : ''} + ${allAlerts.length} alert(s) from API`)
       } catch {
+        setAlerts(INITIAL_ALERTS)
         pushLog('Devices API unreachable — showing demo data')
       }
     }
@@ -262,20 +368,22 @@ export default function OverviewPage() {
       C: ['[SIM-C] New app detected: com.anon.chat', '[SIM-C] App usage 3.0h overnight', '[SIM-C] Category scored high-risk', '[SIM-C] Alert generated — severity: high'],
     }
     for (const m of steps[s]) { await new Promise(r => setTimeout(r, 650)); pushLog(m) }
-    const newAlert = {
+    const newAlert: ApiAlert = {
       id: `sim-${Date.now()}`,
-      severity: (s === 'C' ? 'high' : s === 'A' ? 'medium' : 'low') as any,
-      title: s === 'C' ? 'New High-Risk App Detected' : s === 'A' ? 'Late-Night Screen Spike' : 'Social Withdrawal Signal',
-      summary: s === 'C' ? 'An unrecognised anonymous chat app appeared in overnight app-usage metadata.' : s === 'A' ? 'Screen usage spiked to 3.5h between 11 PM–2:30 AM, well beyond baseline.' : 'Step count and movement entropy dropped simultaneously — correlated withdrawal signal.',
-      factors: steps[s].slice(0, 2),
-      device: "Priya's Android", time: 'Just now', read: false,
+      device_id: activeId,
+      severity_tier: s === 'C' ? 'red' : s === 'A' ? 'amber' : 'sage',
+      plain_language_summary: s === 'C' ? 'An unrecognised anonymous chat app appeared in overnight app-usage metadata.' : s === 'A' ? 'Screen usage spiked to 3.5h between 11 PM–2:30 AM, well beyond baseline.' : 'Step count and movement entropy dropped simultaneously — correlated withdrawal signal.',
+      contributing_factors: steps[s].slice(0, 2),
+      is_viewed: false,
+      timestamp: new Date().toISOString(),
     }
     setAlerts(p => [newAlert, ...p])
     setAlertOpen(true)
     setSim(false)
   }
 
-  const sevBorder = (s: string) => s === 'high' ? '#2C2C2E' : s === 'medium' ? '#636366' : '#AEAEB2'
+  const sevColor = (s: string) => s === 'red' ? '#EF4444' : s === 'amber' ? '#F59E0B' : '#10B981'
+  const sevLabel = (s: string) => s === 'red' ? 'High' : s === 'amber' ? 'Moderate' : 'Low'
 
   /* ── Dark mode palette overrides ───────────────────────── */
   const dk = theme === 'dark'
@@ -321,8 +429,9 @@ export default function OverviewPage() {
           { label: 'Signals', active: false, href: '/signals' },
           { label: 'Companion', active: false, href: '/companion' },
           { label: 'Alerts', active: false, href: '/alerts' },
-          { label: 'Medical AI', active: false, href: '/medical' },
+          { label: 'Health Coach', active: false, href: '/medical' },
           { label: 'Typing', active: false, href: '/typing-analytics' },
+          { label: 'Analytics', active: false, href: '/analytics' },
         ].map(tab => (
           <button type="button" key={tab.label} onClick={() => router.push(tab.href)} style={{
             padding: '6px 14px', marginRight: 4, borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13,
@@ -411,41 +520,44 @@ export default function OverviewPage() {
             </button>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {alerts.map((a, i) => (
-              <div key={a.id} onClick={() => setAlerts(p => p.map(x => x.id === a.id ? { ...x, read: true } : x))}
-                style={{
-                  padding: '16px 24px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer',
-                  background: !a.read ? (dk ? '#1A1A1A' : '#FAFAF9') : 'transparent',
-                  transition: 'background 0.15s', animation: `fadeUp 0.3s ${i * 0.05}s both`,
-                }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                  <div style={{ marginTop: 3, flexShrink: 0 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: '50%', background: a.read ? C.muted : C.text, border: `2px solid ${a.read ? C.border : C.text}` }} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{a.title}</span>
-                      <span style={{ fontSize: 11, color: C.muted, flexShrink: 0, marginLeft: 12 }}>{a.time}</span>
+            {alerts.map((a, i) => {
+              const sev = sevColor(a.severity_tier)
+              const devName = devices.find(d => d.id === a.device_id)?.name || a.device_id.slice(0, 8)
+              return (
+                <div key={a.id} onClick={() => setAlerts(p => p.map(x => x.id === a.id ? { ...x, is_viewed: true } : x))}
+                  style={{
+                    padding: '16px 24px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer',
+                    background: !a.is_viewed ? (dk ? '#1A1A1A' : '#FAFAF9') : 'transparent',
+                    transition: 'background 0.15s', animation: `fadeUp 0.3s ${i * 0.05}s both`,
+                  }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <div style={{ marginTop: 3, flexShrink: 0 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: '50%', background: a.is_viewed ? C.muted : sev, border: `2px solid ${a.is_viewed ? C.border : sev}` }} />
                     </div>
-                    <p style={{ fontSize: 12, color: C.sub, lineHeight: 1.65, marginBottom: 10 }}>{a.summary}</p>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                      <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sevBorder(a.severity)}`, color: sevBorder(a.severity), fontWeight: 700 }}>
-                        {(a.severity as string) === 'high' ? '● High' : (a.severity as string) === 'medium' ? '● Moderate' : '● Low'}
-                      </span>
-                      <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, border: `1px solid ${C.border}`, color: C.sub }}>
-                        {a.device}
-                      </span>
-                    </div>
-                    {a.factors.map((f, fi) => (
-                      <div key={fi} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-                        <div style={{ width: 3, height: 3, borderRadius: '50%', background: C.muted, flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, color: C.muted }}>{f}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{a.plain_language_summary}</span>
+                        <span style={{ fontSize: 11, color: C.muted, flexShrink: 0, marginLeft: 12 }}>{new Date(a.timestamp).toLocaleString()}</span>
                       </div>
-                    ))}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                        <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sev}`, color: sev, fontWeight: 700 }}>
+                          ● {sevLabel(a.severity_tier)}
+                        </span>
+                        <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, border: `1px solid ${C.border}`, color: C.sub }}>
+                          {devName}
+                        </span>
+                      </div>
+                      {(a.contributing_factors || []).slice(0, 3).map((f, fi) => (
+                        <div key={fi} style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                          <div style={{ width: 3, height: 3, borderRadius: '50%', background: C.muted, flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, color: C.muted }}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -776,24 +888,28 @@ export default function OverviewPage() {
                 </button>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {alerts.slice(0, 3).map(a => (
-                  <div key={a.id} onClick={() => { setAlerts(p => p.map(x => x.id === a.id ? { ...x, read: true } : x)); setAlertOpen(true) }}
-                    style={{
-                      display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px',
-                      borderRadius: 10, cursor: 'pointer', transition: 'background 0.15s',
-                      background: !a.read ? (dk ? '#222' : '#FAFAF9') : 'transparent',
-                      border: `1px solid ${!a.read ? C.border : 'transparent'}`,
-                    }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.read ? C.muted : C.text, marginTop: 4, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
-                        <span style={{ fontSize: 10, color: C.muted, flexShrink: 0, marginLeft: 8 }}>{a.time}</span>
+                {alerts.slice(0, 3).map(a => {
+                  const sev = sevColor(a.severity_tier)
+                  const devName = devices.find(d => d.id === a.device_id)?.name || a.device_id.slice(0, 8)
+                  return (
+                    <div key={a.id} onClick={() => { setAlerts(p => p.map(x => x.id === a.id ? { ...x, is_viewed: true } : x)); setAlertOpen(true) }}
+                      style={{
+                        display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 12px',
+                        borderRadius: 10, cursor: 'pointer', transition: 'background 0.15s',
+                        background: !a.is_viewed ? (dk ? '#222' : '#FAFAF9') : 'transparent',
+                        border: `1px solid ${!a.is_viewed ? C.border : 'transparent'}`,
+                      }}>
+                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.is_viewed ? C.muted : sev, marginTop: 4, flexShrink: 0 }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.plain_language_summary}</span>
+                          <span style={{ fontSize: 10, color: C.muted, flexShrink: 0, marginLeft: 8 }}>{devName}</span>
+                        </div>
+                        <p style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.plain_language_summary}</p>
                       </div>
-                      <p style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.summary}</p>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 

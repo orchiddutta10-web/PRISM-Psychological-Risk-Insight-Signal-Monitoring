@@ -35,11 +35,36 @@ def rag_available() -> bool:
         return False
 
 
+# Module-level caches so embeddings/LLM are constructed once per process —
+# the single biggest cold-start cost in the medical chatbot.
+_embeddings_cache = None
+_llm_cache = None
+
+
+def llm_configured() -> bool:
+    """
+    Fast, synchronous check for whether a real LLM backend is configured.
+    Returns True only when the selected provider has what it needs — no
+    network attempt, so callers can skip dead LLM round-trips instantly.
+    """
+    provider = settings.MEDICAL_LLM_PROVIDER.lower()
+    if provider == "openai":
+        return bool(settings.OPENAI_API_KEY)
+    if provider == "ollama":
+        return bool(settings.OLLAMA_BASE_URL)
+    return False
+
+
 def get_llm():
     """
     Returns a LangChain chat model per settings.MEDICAL_LLM_PROVIDER.
     Raises ValueError if the selected provider is not configured.
+    Cached: constructed once per process.
     """
+    global _llm_cache
+    if _llm_cache is not None:
+        return _llm_cache
+
     from langchain_openai import ChatOpenAI
     from langchain_ollama import ChatOllama
 
@@ -50,22 +75,24 @@ def get_llm():
                 "MEDICAL_LLM_PROVIDER=openai requires OPENAI_API_KEY to be set."
             )
         logger.info("Medical RAG using OpenAI model %s", settings.OPENAI_MODEL)
-        return ChatOpenAI(
+        _llm_cache = ChatOpenAI(
             model=settings.OPENAI_MODEL,
             api_key=settings.OPENAI_API_KEY,
             temperature=0.2,
         )
+        return _llm_cache
     if provider == "ollama":
         logger.info(
             "Medical RAG using local Ollama model %s @ %s",
             settings.OLLAMA_MODEL,
             settings.OLLAMA_BASE_URL,
         )
-        return ChatOllama(
+        _llm_cache = ChatOllama(
             model=settings.OLLAMA_MODEL,
             base_url=settings.OLLAMA_BASE_URL,
             temperature=0.2,
         )
+        return _llm_cache
     raise ValueError(
         f"Unknown MEDICAL_LLM_PROVIDER '{settings.MEDICAL_LLM_PROVIDER}'. "
         "Use 'openai' or 'ollama'."
@@ -77,18 +104,25 @@ def get_embeddings():
     Returns a local embedding model. Prefers HuggingFace sentence-transformers
     (all-MiniLM-L6-v2, free, offline); falls back to a deterministic
     SHA256-seeded projection so the pipeline still works without the model.
+    Cached: constructed once per process.
     """
+    global _embeddings_cache
+    if _embeddings_cache is not None:
+        return _embeddings_cache
+
     try:
         from langchain_community.embeddings import HuggingFaceEmbeddings
 
         logger.info("Medical RAG using embeddings model %s", settings.EMBEDDING_MODEL)
-        return HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+        _embeddings_cache = HuggingFaceEmbeddings(model_name=settings.EMBEDDING_MODEL)
+        return _embeddings_cache
     except Exception as e:
         logger.warning(
             "sentence-transformers unavailable (%s); using hash-projection embeddings",
             str(e),
         )
-        return _HashEmbeddings()
+        _embeddings_cache = _HashEmbeddings()
+        return _embeddings_cache
 
 
 class _HashEmbeddings:

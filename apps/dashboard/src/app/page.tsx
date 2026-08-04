@@ -175,7 +175,8 @@ export default function LoginPage() {
                   <input type="text" required placeholder="Your full name" value={fullName}
                     onChange={e => setFullName(e.target.value)}
                     style={inputStyle} onFocus={e => e.target.style.borderColor = '#0A0A0A'}
-                    onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
+                    onBlur={e => e.target.style.borderColor = '#E5E5E5'}
+                    suppressHydrationWarning />
                 </Field>
               )}
 
@@ -183,7 +184,8 @@ export default function LoginPage() {
                 <input type="email" required placeholder="your@email.com" value={email}
                   onChange={e => setEmail(e.target.value)}
                   style={inputStyle} onFocus={e => e.target.style.borderColor = '#0A0A0A'}
-                  onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
+                  onBlur={e => e.target.style.borderColor = '#E5E5E5'}
+                  suppressHydrationWarning />
               </Field>
 
               <Field icon={<Lock size={15} color="#AEAEB2" />} label="Password"
@@ -197,7 +199,8 @@ export default function LoginPage() {
                   onChange={e => setPassword(e.target.value)}
                   style={{ ...inputStyle, paddingRight: 44 }}
                   onFocus={e => e.target.style.borderColor = '#0A0A0A'}
-                  onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
+                  onBlur={e => e.target.style.borderColor = '#E5E5E5'}
+                  suppressHydrationWarning />
               </Field>
 
               {mode === 'signup' && (

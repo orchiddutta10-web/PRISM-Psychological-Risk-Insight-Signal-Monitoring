@@ -1,6 +1,16 @@
 import uuid
 import json
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Table, Text, Float
+from sqlalchemy import (
+    Column,
+    String,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Table,
+    Text,
+    Float,
+    Integer,
+)
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -486,3 +496,91 @@ class PulseMultiFactorReading(Base):
     )
 
     device = relationship("ChildDevice")
+
+
+class TrendSnapshot(Base):
+    """
+    Module 6: Long-Term Behaviour Tracking.
+
+    Aggregated, de-identified trend snapshots for a device at a given
+    granularity (daily / weekly / monthly). Stores the mean behavioral AI
+    scores (stress, cognitive load, typing fatigue, typing stability) and the
+    mental-risk composite over the window, so the dashboard can render long
+    horizon trends without recomputing over raw events.
+
+    The scores are stored as a compact JSON blob (encrypted at rest) plus a
+    single composite `wellness` value (higher = more attention-worthy) for
+    quick risk-meter rendering.
+    """
+
+    __tablename__ = "trend_snapshots"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    device_id = Column(
+        String, ForeignKey("child_devices.id"), nullable=False, index=True
+    )
+    granularity = Column(String, nullable=False)  # "daily" | "weekly" | "monthly"
+    period_start = Column(DateTime, nullable=False, index=True)
+    period_end = Column(DateTime, nullable=False)
+    wellness = Column(Float, nullable=False)  # 0..1 composite (mental-risk proxy)
+    sample_count = Column(Integer, nullable=False, default=0)
+    encrypted_scores = Column(Text, nullable=False)  # JSON blob of dimension means
+
+    device = relationship("ChildDevice")
+
+    @property
+    def scores(self) -> dict:
+        val = decrypt_field(str(self.encrypted_scores))
+        try:
+            return json.loads(val)
+        except Exception:
+            return {}
+
+    @scores.setter
+    def scores(self, raw_scores: dict):
+        self.encrypted_scores = encrypt_field(json.dumps(raw_scores))  # type: ignore[assignment]
+
+
+class VitalsReading(Base):
+    """
+    Module 10: Future IoT Integration — unified multi-modal vitals reading.
+
+    One row per edge-node sample (ESP32, MAX30102, Raspberry Pi) carrying the
+    physiological channels PRISM is designed to consume: heart rate, SpO2,
+    temperature, ECG, GSR. Raw waveforms are NEVER stored (PRISM constraint);
+    only derived scalar vitals are persisted. `source` records the ingestion
+    path (http | mqtt) and `device_meta` a small encrypted JSON blob of
+    non-sensitive device context (firmware version, sensor flags).
+    """
+
+    __tablename__ = "vitals_readings"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    subject_id = Column(
+        String, ForeignKey("child_devices.id"), nullable=False, index=True
+    )
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+    source = Column(String, default="http", nullable=False)  # "http" | "mqtt"
+    # Derived scalar vitals (all optional — a sample may carry a subset).
+    heart_rate_bpm = Column(Float, nullable=True)
+    spo2_percent = Column(Float, nullable=True)
+    temperature_c = Column(Float, nullable=True)
+    ecg_mv = Column(Float, nullable=True)
+    gsr_microsiemens = Column(Float, nullable=True)
+    device_meta_json = Column(Text, nullable=True)  # encrypted device context
+
+    device = relationship("ChildDevice")
+
+    @property
+    def device_meta(self) -> dict:
+        if not self.device_meta_json:
+            return {}
+        val = decrypt_field(str(self.device_meta_json))
+        try:
+            return json.loads(val)
+        except Exception:
+            return {}
+
+    @device_meta.setter
+    def device_meta(self, raw_payload: dict):
+        self.device_meta_json = encrypt_field(json.dumps(raw_payload))  # type: ignore[assignment]
