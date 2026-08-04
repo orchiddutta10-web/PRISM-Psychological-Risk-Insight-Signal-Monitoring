@@ -14,10 +14,7 @@
 #include <HTTPClient.h>
 
 // ── WiFi & API Config ─────────────────────────────────────────────
-#define WIFI_SSID       "Galaxy A23 5G F647"
-#define WIFI_PASSWORD   "123456789"
-#define ESP32_BRIDGE_URL    "http://192.168.180.97:8081"  // RPi Edge Bridge
-#define DEVICE_JWT      ""
+#include "config.h"
 
 // ── Pin Definitions ───────────────────────────────────────────────
 #define PULSE_PIN       34    // Analog Pulse Sensor (S) → GPIO34
