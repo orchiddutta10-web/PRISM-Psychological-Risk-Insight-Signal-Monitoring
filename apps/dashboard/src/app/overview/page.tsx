@@ -342,17 +342,50 @@ export default function OverviewPage() {
     }
     loadDevices()
 
-    try {
-      const ws = new WebSocket(wsUrl('/events/ws?token=' + token))
-      wsRef.current = ws
-      ws.onopen  = () => setWsStatus('connected')
-      ws.onclose = () => setWsStatus('disconnected')
-      ws.onerror = () => setWsStatus('disconnected')
-      ws.onmessage = (ev) => {
-        try { const d = JSON.parse(ev.data); if (d.type !== 'chat_message') pushLog(`Live › ${d.signal_type?.toUpperCase() ?? 'EVENT'} — ${String(d.device_id ?? '').slice(0, 8)}`) } catch {}
-      }
-      return () => ws.close()
-    } catch { setWsStatus('disconnected') }
+    let ws: WebSocket | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let attempt = 0
+    const maxDelay = 30000
+
+    const connect = () => {
+      if (ws?.readyState === WebSocket.OPEN) return
+      try {
+        ws = new WebSocket(wsUrl('/events/ws?token=' + token))
+        wsRef.current = ws
+        ws.onopen = () => {
+          setWsStatus('connected')
+          attempt = 0
+        }
+        ws.onclose = () => {
+          setWsStatus('disconnected')
+          scheduleReconnect()
+        }
+        ws.onerror = () => {
+          setWsStatus('disconnected')
+          scheduleReconnect()
+        }
+        ws.onmessage = (ev) => {
+          try { const d = JSON.parse(ev.data); if (d.type !== 'chat_message') pushLog(`Live › ${d.signal_type?.toUpperCase() ?? 'EVENT'} — ${String(d.device_id ?? '').slice(0, 8)}`) } catch {}
+        }
+      } catch { setWsStatus('disconnected'); scheduleReconnect() }
+    }
+
+    const scheduleReconnect = () => {
+      if (reconnectTimer) return
+      const delay = Math.min(1000 * Math.pow(2, attempt), maxDelay)
+      attempt += 1
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connect()
+      }, delay)
+    }
+
+    connect()
+
+    return () => {
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      ws?.close()
+    }
   }, [router, pushLog])
 
   const applyTheme = (t: 'light' | 'dark') => {
