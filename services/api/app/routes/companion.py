@@ -230,27 +230,62 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
     if not sender_id or not message_text:
         return {"status": "ignored", "detail": "Empty or unrecognized Meta payload."}
 
-    # Fetch or start session for this subject on the specific channel
-    session = (
-        db.query(models.CompanionSession)
-        .filter(
-            models.CompanionSession.subject_id == sender_id,
-            models.CompanionSession.channel == channel,
-        )
-        .first()
+    # Determine whether the sender is an internal device (in-app/device flow)
+    # or an external Meta messenger identity. CompanionSession.subject_id is
+    # FK-bound to child_devices.id, so we must NOT insert a session for an
+    # external sender (e.g. a WhatsApp phone number or Instagram user ID) —
+    # that would violate the foreign key and crash with a 500.
+    device = (
+        db.query(models.ChildDevice).filter(models.ChildDevice.id == sender_id).first()
     )
 
-    if not session:
-        # Default to "listener" archetype for new message streams
-        session = models.CompanionSession(
-            subject_id=sender_id, persona_id="listener", channel=channel
+    if device:
+        # Internal device: fetch or start a persisted session (existing path).
+        session = (
+            db.query(models.CompanionSession)
+            .filter(
+                models.CompanionSession.subject_id == sender_id,
+                models.CompanionSession.channel == channel,
+            )
+            .first()
         )
-        db.add(session)
-        db.commit()
-        db.refresh(session)
 
-    # Route message through unified Persona / Crisis pipeline
-    response_text = handle_companion_message(db, session.id, message_text)
+        if not session:
+            # Default to "listener" archetype for new message streams
+            session = models.CompanionSession(
+                subject_id=sender_id, persona_id="listener", channel=channel
+            )
+            db.add(session)
+            db.commit()
+            db.refresh(session)
+
+        # Route message through unified Persona / Crisis pipeline
+        response_text = handle_companion_message(db, session.id, message_text)
+        crisis_flag = session.crisis_flag
+    else:
+        # External sender: process statelessly. Do NOT create a session or
+        # alert (both are FK-bound to child_devices.id). Run the crisis check
+        # directly and return the persona-gated response.
+        from app.utils.companion_engine import (
+            CRISIS_RESPONSE,
+            PERSONAS,
+            check_crisis,
+        )
+
+        is_crisis = check_crisis(message_text)
+        crisis_flag = is_crisis
+        if is_crisis:
+            response_text = CRISIS_RESPONSE
+        else:
+            persona = PERSONAS.get("listener", PERSONAS["listener"])
+            import random as _random
+
+            responses = [
+                f"[{persona['display_name']}] That's interesting. Tell me more about how that affects you.",
+                f"[{persona['display_name']}] I hear you. What do you think is the next best step?",
+                f"[{persona['display_name']}] Thank you for sharing that with me.",
+            ]
+            response_text = _random.choice(responses)
 
     # Send outbound API call back to Meta if token is present
     from app.config import settings
@@ -298,7 +333,7 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
         "status": "processed",
         "channel": channel,
         "response": response_text,
-        "crisis_flag": session.crisis_flag,
+        "crisis_flag": crisis_flag,
     }
 
 

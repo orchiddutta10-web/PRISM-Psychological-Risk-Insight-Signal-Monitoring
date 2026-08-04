@@ -59,12 +59,22 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
         if "physio" in path:
             action = "WRITE_PHYSIO_TELEMETRY"
+        elif "physio/pulse/ingest" in path:
+            action = "WRITE_PULSE_TELEMETRY"
         elif "events/ingest" in path:
             action = "WRITE_TELEMETRY"
         elif "events/alerts" in path:
             action = "READ_ALERTS"
         elif "events/scores" in path:
             action = "READ_RISK_SCORES"
+        elif "events/worker/run" in path:
+            action = "TRIGGER_WORKER"
+        elif "events/demo-trigger" in path:
+            action = "TRIGGER_DEMO"
+        elif "events/baselines/seed" in path:
+            action = "SEED_BASELINE"
+        elif "companion/sessions" in path and method == "POST":
+            action = "START_COMPANION_SESSION"
         elif "consent" in path:
             action = "WRITE_CONSENT" if method == "POST" else "READ_CONSENT"
         elif "audit" in path:

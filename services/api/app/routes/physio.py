@@ -14,10 +14,14 @@ router = APIRouter(prefix="/api/v1/physio", tags=["prism-node"])
 
 
 class PhysioReadingIn(BaseModel):
-    sensor_type: str  # 'gsr' or 'ppg'
+    sensor_type: str = Field(..., pattern=r"^(gsr|ppg)$")  # 'gsr' or 'ppg'
     value: float
     variance: float = 0.0
     timestamp: Optional[datetime] = None
+    # Marks demo/synthetic data (defaults to False = real sensor reading).
+    # Mirrors the pulse ingest path so the health cache reports real vs
+    # synthetic accurately.
+    is_synthetic: bool = False
 
 
 class SleepWindowOut(BaseModel):
@@ -49,13 +53,13 @@ async def ingest_physio(
 ):
     """
     Ingest a single GSR or PPG reading from a PRISM Node wearable.
-    Requires active consent for the 'gsr' modality.
+    Requires active consent for the specific sensor modality ('gsr' or 'ppg').
     """
     consent = (
         db.query(models.ConsentGrant)
         .filter(
             models.ConsentGrant.subject_id == current_device.id,
-            models.ConsentGrant.modality == "gsr",
+            models.ConsentGrant.modality == payload.sensor_type,
         )
         .first()
     )
@@ -84,8 +88,9 @@ async def ingest_physio(
     # Write status to health cache to avoid database checks on health queries
     try:
         redis_conn = get_redis_client()
+        status_str = "synthetic" if payload.is_synthetic else "real"
         await redis_conn.set(
-            f"prism:health:{payload.sensor_type}", "synthetic", ex=3600
+            f"prism:health:{payload.sensor_type}", status_str, ex=3600
         )
     except Exception as e:
         import logging

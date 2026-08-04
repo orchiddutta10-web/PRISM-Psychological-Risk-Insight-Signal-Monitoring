@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 # OTP store: phone -> {"code": str, "expires_at": datetime, "attempts": int}
 MOCK_OTP_STORE: dict = {}
 MOCK_MFA_STORE = {}
+# Phones that have successfully verified an OTP since server start. Used to
+# require proof of phone possession before /otp/register. Consumed on use.
+_VERIFIED_PHONES: set = set()
 
 OTP_TTL_SECONDS = 300  # 5 minutes
 OTP_MAX_ATTEMPTS = 5
@@ -311,15 +314,21 @@ class AuthService:
 
         if stored["code"] != code:
             stored["attempts"] += 1
+            # Never log the submitted OTP code — it is a credential and would be
+            # persisted permanently in the immutable audit log.
             audit.log_audit_event(
                 db,
-                action=f"OTP verification failed for phone {phone} (code: {code})",
+                action=f"OTP verification failed for phone {phone} (attempt {stored['attempts']})",
                 ip_address=ip_address,
             )
             raise invalid
 
         # One-time use: invalidate the code after a successful verification.
         MOCK_OTP_STORE.pop(phone, None)
+
+        # Record that this phone was successfully verified, so a subsequent
+        # /otp/register for the same phone has proof of possession.
+        _VERIFIED_PHONES.add(phone)
 
         mapped_email = f"{phone}@prism-otp.org"
         guardian = (
@@ -359,6 +368,16 @@ class AuthService:
         phone = req.phone_number.strip()
         name = req.full_name.strip()
         mapped_email = f"{phone}@prism-otp.org"
+
+        # Require proof of phone possession: the caller must have successfully
+        # verified an OTP for this phone first. The flag is consumed so a single
+        # verification can't be reused to register arbitrary accounts.
+        if phone not in _VERIFIED_PHONES:
+            raise HTTPException(
+                status_code=403,
+                detail="Phone number not verified. Complete OTP verification first.",
+            )
+        _VERIFIED_PHONES.discard(phone)
 
         existing = (
             db.query(models.Guardian)

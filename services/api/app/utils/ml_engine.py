@@ -228,6 +228,39 @@ def evaluate_risk_signatures(
     return risk_score
 
 
+def evaluate_pulse_model(
+    device_id: str, metadata: dict, db: Session
+) -> models.RiskScore:
+    """
+    PRISM PULSE Multi-Factor Model: flags when the ESP32 node reports a
+    warning/trigger (e.g. ISD_TRIGGERED). High BPM + low movement is the
+    multi-factor crisis gate on the firmware.
+    """
+    status = metadata.get("alert_status", "OK")
+    bpm = float(metadata.get("bpm", 0))
+    g_force = float(metadata.get("g_force", 0))
+    flagged = status != "OK"
+    score = 1.0 if flagged else 0.0
+    threshold = 0.5
+
+    factors = []
+    if flagged:
+        factors.append(
+            f"Multi-factor pulse alert: BPM {bpm:.0f}, G-force {g_force:.2f}g, status {status}"
+        )
+
+    risk_score = models.RiskScore(
+        device_id=device_id,
+        model_name="pulse",
+        score=score,
+        threshold=threshold,
+        flagged=flagged,
+    )
+    risk_score.contributing_factors = factors
+    db.add(risk_score)
+    return risk_score
+
+
 async def run_risk_engine(
     device_id: str, signal_type: str, metadata: dict, db: Session
 ):
@@ -240,6 +273,8 @@ async def run_risk_engine(
         if "new_installed_packages" in metadata:
             evaluate_risk_signatures(device_id, metadata, db)
         evaluate_app_usage_model(device_id, metadata, db)
+    elif signal_type == "pulse":
+        evaluate_pulse_model(device_id, metadata, db)
 
     # Make the just-added RiskScores visible to the aggregation query, then
     # persist everything (scores + alerts) in a single transaction.
@@ -250,7 +285,7 @@ async def run_risk_engine(
 
 async def aggregate_alerts(device_id: str, db: Session):
     """Aggregates scores and writes any generated alerts to PostgreSQL."""
-    models_list = ["mobility", "typing", "app_usage", "signatures"]
+    models_list = ["mobility", "typing", "app_usage", "signatures", "pulse"]
     latest_scores = []
 
     # Fetch the latest score per model in ONE query (ordered by model + timestamp desc,
@@ -332,6 +367,8 @@ async def aggregate_alerts(device_id: str, db: Session):
             summary = "Reduction in daily active travel patterns."
         elif flagged_model == "signatures":
             summary = "Potentially risky app package installation detected."
+        elif flagged_model == "pulse":
+            summary = "Multi-factor physiological alert from the PRISM PULSE node."
 
     device = (
         db.query(models.ChildDevice).filter(models.ChildDevice.id == device_id).first()

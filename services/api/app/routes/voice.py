@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from datetime import datetime
 import os
@@ -31,6 +31,7 @@ async def voice_checkin(
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_device: models.ChildDevice = Depends(auth.get_current_device),
+    request: Request = None,
 ):
     """
     Phase 4: Voice Module Check-in
@@ -53,15 +54,29 @@ async def voice_checkin(
             status_code=403, detail="Active consent for voice modality is not granted."
         )
 
-    # Read uploaded file content in-memory
-    audio_bytes = await audio.read()
+    # Reject oversized bodies by declared Content-Length up front, before any
+    # bytes are read into memory (defense against memory-exhaustion DoS).
+    if request:
+        content_length = request.headers.get("content-length")
+        if content_length and content_length.isdigit() and int(content_length) > MAX_AUDIO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Audio file too large (max 10 MB).",
+            )
 
-    # Enforce a size limit to prevent memory-exhaustion DoS.
-    if len(audio_bytes) > MAX_AUDIO_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail="Audio file too large (max 10 MB).",
-        )
+    # Read the uploaded file in bounded chunks so memory stays capped even if
+    # the client omits/spoofs Content-Length.
+    audio_bytes = b""
+    while True:
+        chunk = await audio.read(MAX_AUDIO_BYTES + 1)
+        if not chunk:
+            break
+        audio_bytes += chunk
+        if len(audio_bytes) > MAX_AUDIO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Audio file too large (max 10 MB).",
+            )
 
     # Allowlist MIME type / extension so only real audio enters the pipeline.
     content_type = (audio.content_type or "").lower()
