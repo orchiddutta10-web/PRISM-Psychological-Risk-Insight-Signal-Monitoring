@@ -477,7 +477,9 @@ export default function ChatbotPage() {
     // reading state right after setState would use stale, pre-fetch values.
     const [rag, mood] = await Promise.all([fetchRAGSearch(trimmed), fetchMoodTimeline()])
 
-    await new Promise(r => setTimeout(r, 700 + Math.random() * 700))
+    // Show typing indicator while AI thinks
+    const typingId = `typing-${Date.now()}`
+    setMessages(prev => [...prev, { id: typingId, role: 'assistant', content: '…', timestamp: new Date() }])
 
     let response = generateRAGResponse(trimmed, rag, mood)
     if (!response) {
@@ -496,11 +498,16 @@ export default function ChatbotPage() {
       }
       
       if (!response) {
-        response = `Thanks for asking. I can help with PRISM's multimodal signals, companion personas, risk scoring, and privacy design. What specifically would you like to explore?`
+        response = `Thanks for sharing that. I'm here to help — could you tell me a bit more about what's on your mind?`
       }
     }
 
-    setMessages(prev => [...prev, { id: `a-${Date.now()}`, role: 'assistant', content: response + '\n\n---\n*Responding as ' + activeCfg?.display + '*', timestamp: new Date() }])
+    // Replace typing indicator with real response
+    setMessages(prev => prev.map(m =>
+      m.id === typingId
+        ? { ...m, content: response + '\n\n---\n*Responding as ' + activeCfg?.display + '*' }
+        : m
+    ))
     setIsLoading(false)
   }
 
