@@ -3,13 +3,12 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Cpu, Wifi, WifiOff, Battery, Clock, Activity,
-  CheckCircle, AlertTriangle, XCircle, Smartphone, Monitor,
-  Zap, Signal
+  ArrowLeft, Cpu, Wifi, Clock, Activity,
+  CheckCircle, AlertTriangle, Smartphone, Monitor,
+  Signal, Radio,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth-context'
-
-const API = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+import { apiFetchSafe, timeAgo, type BackendAlert, type IngestionHealth } from '../../lib/api'
 
 interface DeviceStatus {
   id: string
@@ -18,76 +17,17 @@ interface DeviceStatus {
   label: string
   connected: boolean
   lastSeen: string
-  battery: number | null
-  signalStrength: number | null
+  unreadAlerts: number
   latency: number | null
   readingsPerMin: number | null
   firmware: string | null
 }
 
-function inferDeviceStatuses(devices: any[], alerts: any[]): DeviceStatus[] {
-  const statuses: DeviceStatus[] = []
-
-  for (const d of devices) {
-    const lastSeen = d.last_seen ? new Date(d.last_seen) : null
-    const minAgo = lastSeen ? Math.round((Date.now() - lastSeen.getTime()) / 60000) : null
-    const connected = minAgo !== null && minAgo < 15
-
-    statuses.push({
-      id: d.id,
-      name: d.name,
-      type: d.platform === 'ios' ? 'android' : 'android',
-      label: d.platform === 'ios' ? 'iPhone' : 'Android',
-      connected,
-      lastSeen: minAgo !== null
-        ? (minAgo < 120 ? `${minAgo} min ago` : lastSeen!.toLocaleString())
-        : 'Never',
-      battery: connected ? Math.round(70 + Math.random() * 25) : null,
-      signalStrength: connected ? Math.round(60 + Math.random() * 35) : null,
-      latency: connected ? Math.round(40 + Math.random() * 120) : null,
-      readingsPerMin: connected ? Math.round(5 + Math.random() * 15) : null,
-      firmware: null,
-    })
-  }
-
-  // Add ESP32 device if pulse data is flowing
-  const hasPulseAlerts = alerts.some(a => a.severity_tier === 'sage' || a.plain_language_summary?.includes('pulse'))
-  statuses.push({
-    id: 'prism-pulse-001',
-    name: 'PRISM PULSE',
-    type: 'esp32',
-    label: 'ESP32 Pulse',
-    connected: hasPulseAlerts,
-    lastSeen: hasPulseAlerts ? '—' : 'No data',
-    battery: hasPulseAlerts ? 85 : null,
-    signalStrength: hasPulseAlerts ? 90 : null,
-    latency: hasPulseAlerts ? Math.round(20 + Math.random() * 30) : null,
-    readingsPerMin: hasPulseAlerts ? 60 : null,
-    firmware: 'v4.0',
-  })
-
-  // Add RPi device
-  statuses.push({
-    id: 'prism-edge-001',
-    name: 'PRISM Edge',
-    type: 'rpi',
-    label: 'Raspberry Pi 4B',
-    connected: true,
-    lastSeen: '—',
-    battery: null,
-    signalStrength: null,
-    latency: Math.round(5 + Math.random() * 15),
-    readingsPerMin: 30,
-    firmware: '2.1.0',
-  })
-
-  return statuses
-}
-
 export default function DevicesPage() {
   const router = useRouter()
-  const { token, guardian, isAuthLoaded, devices } = useAuth()
+  const { token, isAuthLoaded, devices } = useAuth()
   const [deviceStatuses, setDeviceStatuses] = useState<DeviceStatus[]>([])
+  const [modalities, setModalities] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
@@ -97,14 +37,50 @@ export default function DevicesPage() {
       return
     }
     try {
-      const alertsRes = await fetch(`${API}/alerts`, {
-        headers: { Authorization: `Bearer ${token}` },
+      // Real per-device alerts (unread count) — one call per device, in parallel
+      const alertLists = await Promise.all(
+        devices.map(d => apiFetchSafe<BackendAlert[]>(`/events/alerts/${d.id}`, token, []))
+      )
+      // Real ingestion health for stream status
+      const health = await apiFetchSafe<IngestionHealth>('/internal/ingestion/health', token, null as any)
+      const mods = health?.active_modalities ?? {}
+      setModalities(mods)
+
+      const statuses: DeviceStatus[] = devices.map((d, i) => {
+        const online = d.last_seen ? (Date.now() - new Date(d.last_seen).getTime()) < 15 * 60 * 1000 : false
+        return {
+          id: d.id,
+          name: d.name,
+          type: 'android',
+          label: d.platform === 'ios' ? 'iPhone' : 'Android',
+          connected: online,
+          lastSeen: d.last_seen ? timeAgo(d.last_seen) : 'Never',
+          unreadAlerts: alertLists[i].filter(a => !a.is_viewed).length,
+          latency: null,
+          readingsPerMin: null,
+          firmware: null,
+        }
       })
-      const alertsData = alertsRes.ok ? await alertsRes.json() : { alerts: [] }
-      setDeviceStatuses(inferDeviceStatuses(devices, alertsData.alerts || []))
+
+      // PRISM PULSE wearable row — status derived from real ingestion health
+      const pulseFlow = mods.pulse === 'real' || mods.pulse === 'synthetic'
+      statuses.push({
+        id: 'prism-pulse',
+        name: 'PRISM PULSE',
+        type: 'esp32',
+        label: 'ESP32 Wearable',
+        connected: mods.pulse === 'real',
+        lastSeen: pulseFlow ? `Streaming (${mods.pulse})` : 'No data received',
+        unreadAlerts: 0,
+        latency: null,
+        readingsPerMin: null,
+        firmware: null,
+      })
+
+      setDeviceStatuses(statuses)
       setLastRefresh(new Date())
     } catch {
-      setDeviceStatuses(inferDeviceStatuses(devices, []))
+      setDeviceStatuses([])
     } finally {
       setLoading(false)
     }
@@ -158,10 +134,10 @@ export default function DevicesPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 44, height: 44, borderRadius: 14,
-              background: connectedCount === totalCount ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
+              background: connectedCount === totalCount && totalCount > 0 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)',
               display: 'grid', placeItems: 'center',
             }}>
-              {connectedCount === totalCount
+              {connectedCount === totalCount && totalCount > 0
                 ? <CheckCircle size={22} color="#047857" />
                 : <AlertTriangle size={22} color="#92400E" />
               }
@@ -171,7 +147,7 @@ export default function DevicesPage() {
                 {connectedCount}/{totalCount} devices online
               </p>
               <p style={{ margin: '3px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
-                {connectedCount === totalCount ? 'All systems operational' : 'Some devices are offline'}
+                {connectedCount === totalCount && totalCount > 0 ? 'All systems operational' : 'Some devices are offline'}
               </p>
             </div>
           </div>
@@ -197,6 +173,14 @@ export default function DevicesPage() {
                 <div className="skeleton" style={{ height: 14, width: 120 }} />
               </div>
             ))}
+          </div>
+        ) : deviceStatuses.length === 0 ? (
+          <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+            <Smartphone size={28} color="var(--text-muted)" style={{ marginBottom: 14 }} />
+            <h2 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 700 }}>No devices registered</h2>
+            <p style={{ margin: '0 auto', fontSize: 14, color: 'var(--text-secondary)', maxWidth: 480, lineHeight: 1.7 }}>
+              Devices appear here as soon as the teen&apos;s PRISM app registers under your account.
+            </p>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
@@ -231,9 +215,8 @@ export default function DevicesPage() {
                     </div>
                   </div>
 
-                  {/* Metrics grid */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                    {/* Last seen */}
+                  {/* Metrics grid — only real values are shown */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 8 }}>
                     <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                         <Clock size={12} color="var(--text-muted)" />
@@ -242,56 +225,23 @@ export default function DevicesPage() {
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{device.lastSeen}</span>
                     </div>
 
-                    {/* Latency */}
                     <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                        <Signal size={12} color="var(--text-muted)" />
-                        <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Latency</span>
+                        <AlertTriangle size={12} color="var(--text-muted)" />
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Unread Alerts</span>
                       </div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {device.latency !== null ? `${device.latency}ms` : '—'}
-                      </span>
-                    </div>
-
-                    {/* Battery (android only) */}
-                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                        <Battery size={12} color="var(--text-muted)" />
-                        <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Battery</span>
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {device.battery !== null ? `${device.battery}%` : '—'}
-                      </span>
-                    </div>
-
-                    {/* Signal */}
-                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(0,0,0,0.03)', border: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                        <Wifi size={12} color="var(--text-muted)" />
-                        <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Signal</span>
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {device.signalStrength !== null ? `${device.signalStrength}%` : '—'}
-                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{device.unreadAlerts}</span>
                     </div>
                   </div>
 
-                  {/* Data rate */}
-                  {device.readingsPerMin !== null && (
-                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Data rate</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', fontFamily: "'Space Grotesk', monospace" }}>
-                          {device.readingsPerMin} readings/min
+                  {device.type === 'esp32' && (
+                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <Radio size={12} color="var(--text-muted)" />
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          Pulse stream: {modalities.pulse ?? 'inactive'} · PPG: {modalities.ppg ?? 'inactive'} · GSR: {modalities.gsr ?? 'inactive'}
                         </span>
                       </div>
-                    </div>
-                  )}
-
-                  {/* Firmware */}
-                  {device.firmware && (
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
-                      Firmware {device.firmware}
                     </div>
                   )}
                 </div>
@@ -299,6 +249,11 @@ export default function DevicesPage() {
             })}
           </div>
         )}
+
+        <p style={{ marginTop: 20, fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          All values on this page come from live API responses (registered devices, stored alerts, ingestion health).
+          Battery, signal strength, and latency are intentionally omitted — the backend does not collect them, so no fake numbers are shown.
+        </p>
       </div>
     </div>
   )

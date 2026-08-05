@@ -42,7 +42,7 @@ def _seed_scores(subject_id: str, n: int = 30, stable: bool = True):
     for i in range(n):
         day = now - timedelta(days=n - i)
         bw = models.BehaviorWindow(
-            user_id=subject_id,
+            subject_id=subject_id,
             start_ts=day.replace(hour=0, minute=0, second=0),
             end_ts=day.replace(hour=23, minute=59, second=59),
             total_active_mins=180.0,

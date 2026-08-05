@@ -84,7 +84,7 @@ class DriftMonitor:
             db.query(_m.RiskScoreV2)
             .join(_m.BehaviorWindow, _m.RiskScoreV2.window_id == _m.BehaviorWindow.id)
             .filter(
-                _m.BehaviorWindow.user_id == subject_id,
+                _m.BehaviorWindow.subject_id == subject_id,
                 _m.BehaviorWindow.start_ts >= cutoff,
             )
             .order_by(_m.BehaviorWindow.start_ts.asc())
@@ -246,7 +246,7 @@ class DriftMonitor:
         windows = (
             db.query(_m.BehaviorWindow)
             .filter(
-                _m.BehaviorWindow.user_id == subject_id,
+                _m.BehaviorWindow.subject_id == subject_id,
                 _m.BehaviorWindow.start_ts >= cutoff,
             )
             .all()

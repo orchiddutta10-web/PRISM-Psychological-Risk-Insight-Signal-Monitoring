@@ -13,6 +13,7 @@ try:
     import cv2
     HAS_CV2 = True
 except ImportError:
+    cv2 = None
     HAS_CV2 = False
 
 import numpy as np
@@ -52,6 +53,7 @@ class FaceFeatureExtractor:
     def __init__(self):
         self._confidence: float = config.MEDIAPIPE_FACE_CONFIDENCE
         self._model_selection: int = config.MEDIAPIPE_FACE_MODEL
+        self._max_faces: int = 1
         self._face_mesh = None
         self._scale: float = config.FACE_SCALE
         self._ready: bool = False

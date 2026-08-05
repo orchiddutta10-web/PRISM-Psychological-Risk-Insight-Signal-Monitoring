@@ -206,7 +206,7 @@ class TestFusionAnalyze:
         for i in range(14):
             day = now - timedelta(days=13 - i)
             bw = models.BehaviorWindow(
-                user_id=did,
+                subject_id=did,
                 start_ts=day.replace(hour=0, minute=0, second=0),
                 end_ts=day.replace(hour=23, minute=59, second=59),
                 total_active_mins=180.0,

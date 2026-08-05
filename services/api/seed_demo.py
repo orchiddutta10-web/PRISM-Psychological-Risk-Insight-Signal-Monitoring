@@ -58,7 +58,7 @@ now = datetime.now(timezone.utc)
 for i in range(14):
     day = now - timedelta(days=13 - i)
     bw = models.BehaviorWindow(
-        user_id=did,
+        subject_id=did,
         start_ts=day.replace(hour=0, minute=0, second=0, microsecond=0),
         end_ts=day.replace(hour=23, minute=59, second=59, microsecond=0),
         total_active_mins=180.0,
@@ -90,7 +90,7 @@ db.add(alert)
 
 db.commit()
 
-wd = db.query(models.BehaviorWindow).filter(models.BehaviorWindow.user_id == did).count()
+wd = db.query(models.BehaviorWindow).filter(models.BehaviorWindow.subject_id == did).count()
 rd = db.query(models.SensorReading).filter(models.SensorReading.device_id == did).count()
 print(f"Seeded: {wd} windows, {rd} readings, 1 alert")
 db.close()

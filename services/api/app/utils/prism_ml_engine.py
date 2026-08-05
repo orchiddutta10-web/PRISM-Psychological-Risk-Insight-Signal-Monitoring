@@ -175,7 +175,7 @@ class FeatureVectorBuilder:
         bw = (
             self.db.query(self._m.BehaviorWindow)
             .filter(
-                self._m.BehaviorWindow.user_id == subject_id,
+                self._m.BehaviorWindow.subject_id == subject_id,
                 self._m.BehaviorWindow.start_ts >= window_start,
             )
             .order_by(self._m.BehaviorWindow.start_ts.desc())
@@ -279,7 +279,7 @@ class FeatureVectorBuilder:
         windows = (
             self.db.query(self._m.BehaviorWindow)
             .filter(
-                self._m.BehaviorWindow.user_id == subject_id,
+                self._m.BehaviorWindow.subject_id == subject_id,
                 self._m.BehaviorWindow.start_ts >= cutoff,
             )
             .order_by(self._m.BehaviorWindow.start_ts.asc())
@@ -816,7 +816,7 @@ class PrismMLEngine:
             # Find the most recent BehaviorWindow to link
             bw = (
                 db.query(_m.BehaviorWindow)
-                .filter(_m.BehaviorWindow.user_id == subject_id)
+                .filter(_m.BehaviorWindow.subject_id == subject_id)
                 .order_by(_m.BehaviorWindow.start_ts.desc())
                 .first()
             )
@@ -839,7 +839,7 @@ class PrismMLEngine:
                 # Generate alert for MEDIUM or HIGH
                 if result.insight_score > 30:
                     alert = _m.AlertV2(
-                        user_id=subject_id,
+                        subject_id=subject_id,
                         risk_score_id=risk_score.id,
                         summary=(
                             f"PRISM Insight Score: {result.insight_score:.0f}/100 — "

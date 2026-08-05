@@ -45,6 +45,9 @@ dmypy.json
 .env.*.local
 .flake8
 
+# ESP32 firmware secrets
+prism_edge/prism_pulse/secrets.h
+
 # Databases (local dev only)
 *.db
 *.sqlite

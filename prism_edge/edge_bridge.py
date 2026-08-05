@@ -303,7 +303,7 @@ async def _forward_to_api(reading: dict) -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
-                f"{state.api_url}/api/v1/telemetry/ingest",
+                f"{state.api_url}/api/v1/events/ingest",
                 json=payload,
             )
             if resp.status_code >= 400:

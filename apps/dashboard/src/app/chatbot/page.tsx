@@ -116,50 +116,7 @@ const INTRO_MESSAGE = `Welcome! I'm your **PRISM AI Assistant**, powered by RAG 
 
 How can I support you today?`
 
-const PERSONA_RESPONSES: Record<string, (input: string) => string> = {
-  coach: (input) => {
-    const lower = input.toLowerCase()
-    if (lower.includes('anxious') || lower.includes('anxiety'))
-      return "I hear the worry in what you're saying. Let's break this down together: what's the specific thought running through your mind right now when you feel most anxious? Often naming the thought is the first step to testing whether it's the only way to see the situation."
-    if (lower.includes('sleep'))
-      return "Sleep is foundational to well-being. Let's look at this practically: what's your wind-down routine like? Even one small change — like putting your phone in another room 30 minutes before bed — can shift the pattern. Want to try that this week?"
-    if (lower.includes('friend') || lower.includes('social'))
-      return "Friendship dynamics are tough. When you think about the situation, what went through your mind right when it happened? Sometimes we fill in blanks with assumptions that aren't the full picture. Let's test that gently."
-    return "I hear you. Let's focus on one thing: what's the most manageable next step you could take today, even if it's small? I believe small, consistent steps build momentum."
-  },
-  listener: (input) => {
-    const lower = input.toLowerCase()
-    if (lower.includes('sad') || lower.includes('upset'))
-      return "It sounds like you're carrying something heavy right now. I want to make sure I'm really hearing you — can you tell me more about what's underneath the sadness? There's no rush, I'm here to listen."
-    if (lower.includes('confused') || lower.includes('lost'))
-      return "That sense of being lost — it's a hard place to be. It sounds like part of you might want clarity while another part is just tired of trying to figure it all out. Does that feel right?"
-    return "Thank you for sharing that with me. I'm hearing that this matters to you a lot. What does it feel like, physically, when you think about this? Take your time."
-  },
-  strategist: (input) => {
-    const lower = input.toLowerCase()
-    if (lower.includes('stuck') || lower.includes('no progress'))
-      return "Feeling stuck is frustrating. Let me ask a different question: on a scale of 1–10, where are things today? And what would just ONE point higher look like? Don't worry about 10 yet — let's find your next small step."
-    if (lower.includes('goal') || lower.includes('want'))
-      return "Great — you have a direction in mind. Let's make it concrete: what's the smallest version of that goal you could accomplish this week? Not the full dream — just the first inch of movement."
-    return "Let's look at what's already working, even a little. Can you think of a time recently when things felt slightly better? What was different about that moment — who was there, what were you doing, what time of day was it?"
-  },
-  clinician: (input) => {
-    const lower = input.toLowerCase()
-    if (lower.includes('sleep'))
-      return "Let me ask some specific questions — and please remember, I'm an AI, not a doctor: How many hours of sleep are you getting on average? Is it trouble falling asleep, staying asleep, or waking too early? Have there been any recent changes in your sleep pattern?"
-    if (lower.includes('mood') || lower.includes('feeling down'))
-      return "I want to understand this pattern better. Over the last two weeks, have you noticed changes in: sleep, appetite, concentration, energy levels, or interest in things you usually enjoy? Again, I'm not diagnosing — I'm helping you organize what you might want to share with a real professional."
-    return "I understand you're reaching out, and that's an important step. I'm an AI companion, not a licensed clinician, so please treat what I say as a framework for thinking, not medical advice. That said — can you describe what you're experiencing more specifically?"
-  },
-  mentor: (input) => {
-    const lower = input.toLowerCase()
-    if (lower.includes('motivation') || lower.includes('give up'))
-      return "I get it — when motivation dips, everything feels heavier. Let me ask something: what matters most to you that's connected to this? If you could fast-forward six months and things were better, what would have made the difference?"
-    if (lower.includes('change') || lower.includes('want to'))
-      return "You mentioned wanting to change something. On a scale of 1–10, how ready do you feel to make that change right now? And — more importantly — why did you pick that number and not one lower? Let's build on that."
-    return "I believe you have a strong sense of what's right for you, even when it's hard to access. What values do you hold that connect to this situation? Sometimes our own values are the best compass."
-  }
-}
+// PERSONA_RESPONSES have been moved to the backend and are handled via /companion/simulate
 
 function generateRAGResponse(query: string, ragResults: RAGResult | null, moodData: MoodEntry[] | null): string {
   const lower = query.toLowerCase()
@@ -468,19 +425,24 @@ export default function ChatbotPage() {
   }
 
   const fetchRAGSearch = useCallback(async (query: string) => {
-    if (!token) return
+    if (!token) return null
     try {
       const res = await fetch(`${API}/rag/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ query, top_k: 5 }),
       })
-      if (res.ok) setRagResults(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        setRagResults(data)
+        return data
+      }
     } catch {}
+    return null
   }, [token])
 
   const fetchMoodTimeline = useCallback(async () => {
-    if (!token) return
+    if (!token) return null
     try {
       const res = await fetch(`${API}/mood/timeline?days=7`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -488,8 +450,10 @@ export default function ChatbotPage() {
       if (res.ok) {
         const data = await res.json()
         setMoodData(data.daily_mood || [])
+        return data.daily_mood || []
       }
     } catch {}
+    return null
   }, [token])
 
   const switchPersona = (id: string) => {
@@ -509,13 +473,31 @@ export default function ChatbotPage() {
     setInput('')
     setIsLoading(true)
 
-    await Promise.all([fetchRAGSearch(trimmed), fetchMoodTimeline()])
+    // Fetch RAG + mood in parallel and use the FRESH results directly —
+    // reading state right after setState would use stale, pre-fetch values.
+    const [rag, mood] = await Promise.all([fetchRAGSearch(trimmed), fetchMoodTimeline()])
+
     await new Promise(r => setTimeout(r, 700 + Math.random() * 700))
 
-    let response = generateRAGResponse(trimmed, ragResults, moodData)
+    let response = generateRAGResponse(trimmed, rag, mood)
     if (!response) {
-      const personaFn = PERSONA_RESPONSES[activePersona]
-      response = personaFn ? personaFn(trimmed) : `Thanks for asking. I can help with PRISM's multimodal signals, companion personas, risk scoring, and privacy design. What specifically would you like to explore?`
+      try {
+        const res = await fetch(`${API}/companion/simulate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ persona_id: activePersona, message: trimmed }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          response = data.response
+        }
+      } catch (err) {
+        console.error("Simulation failed:", err)
+      }
+      
+      if (!response) {
+        response = `Thanks for asking. I can help with PRISM's multimodal signals, companion personas, risk scoring, and privacy design. What specifically would you like to explore?`
+      }
     }
 
     setMessages(prev => [...prev, { id: `a-${Date.now()}`, role: 'assistant', content: response + '\n\n---\n*Responding as ' + activeCfg?.display + '*', timestamp: new Date() }])
@@ -573,7 +555,7 @@ export default function ChatbotPage() {
                 background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1))',
                 color: '#6366F1', letterSpacing: '0.05em',
               }}>
-                RAG-POWERED
+                MEMORY-AWARE
               </span>
             </div>
             <p style={{ margin: '2px 0 0', fontSize: 11, color: '#8E8E93' }}>

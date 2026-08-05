@@ -55,7 +55,7 @@ async def ingest_physio(
         db.query(models.ConsentGrant)
         .filter(
             models.ConsentGrant.subject_id == current_device.id,
-            models.ConsentGrant.modality == "gsr",
+            models.ConsentGrant.modality == payload.sensor_type,
         )
         .first()
     )

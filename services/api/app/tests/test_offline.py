@@ -167,6 +167,40 @@ class TestBatchIngestion:
         )
         assert response.status_code == 422
 
+    def test_batch_idempotency_cache(self, client):
+        """Repeating the same batch_id returns the cached result.
+
+        Regression: the cache read/write used a coroutine + setex() that never
+        worked on the lazy Redis client — the idempotency guarantee was dead.
+        """
+        from app.utils.redis_client import _mem_db
+
+        batch_id = str(uuid.uuid4())
+        events = [
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "esp32_pulse",
+                "payload": {"bpm": 72},
+            }
+        ]
+        body = {"batch_id": batch_id, "device_id": "dev-001", "events": events}
+
+        first = client.post("/api/v1/events/ingest/batch", json=body)
+        assert first.status_code in (200, 201)
+        first_data = first.json()
+        assert first_data["accepted"] == 1
+
+        # The idempotency key must now be present in the mock cache.
+        key = f"prism:batch:{batch_id}"
+        assert key in _mem_db, "idempotency cache key was not written"
+
+        # A repeat with the same batch_id returns the cached result.
+        second = client.post("/api/v1/events/ingest/batch", json=body)
+        assert second.status_code in (200, 201)
+        second_data = second.json()
+        assert second_data["accepted"] == first_data["accepted"]
+        assert second_data["batch_id"] == batch_id
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

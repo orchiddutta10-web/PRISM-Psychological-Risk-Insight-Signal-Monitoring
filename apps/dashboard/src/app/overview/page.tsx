@@ -3,89 +3,62 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Bell, LogOut, Moon, Sun, Eye, Shield, TrendingUp, TrendingDown,
-  Activity, ChevronRight, Radio, Wifi, WifiOff, Play,
-  Database, X, Clock, Smartphone, MapPin, Keyboard,
-  AlertTriangle, CheckCircle, Info, BarChart2, Zap, Users,
-  Cpu, HardDrive, Thermometer, Signal, Cloud, CloudOff, RefreshCw,
-  Server, CircleDot
+  Bell, LogOut, Moon, Sun, Shield, TrendingUp, TrendingDown,
+  Activity, ChevronRight, WifiOff, Play,
+  Database, X, Smartphone, MapPin, Keyboard,
+  CheckCircle, Info, BarChart2, Zap,
+  Cpu, HardDrive, Thermometer, Signal, Wifi, RefreshCw,
 } from 'lucide-react'
+import {
+  apiFetch, apiFetchSafe, buildWsUrl, timeAgo, severityOf, riskLabel,
+  type ChildDevice, type BackendAlert, type RiskScore, type BaselineMap, type IngestionHealth,
+} from '../../lib/api'
 
 /* ─────────────────────────────────────────────────────────────
-   DEMO DATA — realistic, non-alarming baseline values
+   TYPES — real backend data mapped for display
 ───────────────────────────────────────────────────────────── */
-const DEVICES = [
-  {
-    id: 'dev-001', name: "Aarav's iPhone", initials: 'AA', childAge: 14,
-    platform: 'iOS', lastSeen: '2 min ago', riskScore: 34, riskLabel: 'Normal Range',
-    status: 'active' as const, concern: 'Screen Time & App Usage',
-    signals: [
-      { label: 'Screen Time', icon: Smartphone, baseline: 180, actual: 210, unit: 'min/day', delta: +17, trend: 'up' as const },
-      { label: 'Bedtime', icon: Moon, baseline: 22.0, actual: 22.5, unit: 'hr', delta: +2, trend: 'stable' as const },
-      { label: 'Daily Steps', icon: MapPin, baseline: 6200, actual: 5900, unit: 'steps', delta: -5, trend: 'down' as const },
-      { label: 'Typing Pace', icon: Keyboard, baseline: 100, actual: 97, unit: 'WPM', delta: -3, trend: 'stable' as const },
-    ],
-    weeklyData: [
-      { day: 'Mon', baseline: 180, actual: 175 }, { day: 'Tue', baseline: 180, actual: 190 },
-      { day: 'Wed', baseline: 180, actual: 185 }, { day: 'Thu', baseline: 180, actual: 200 },
-      { day: 'Fri', baseline: 180, actual: 220 }, { day: 'Sat', baseline: 180, actual: 230 },
-      { day: 'Sun', baseline: 180, actual: 210 },
-    ],
-  },
-  {
-    id: 'dev-002', name: "Priya's Android", initials: 'PR', childAge: 16,
-    platform: 'Android', lastSeen: '11 min ago', riskScore: 61, riskLabel: 'Mild Deviation',
-    status: 'idle' as const, concern: 'Sleep Disruption',
-    signals: [
-      { label: 'Screen Time', icon: Smartphone, baseline: 150, actual: 290, unit: 'min/day', delta: +93, trend: 'up' as const },
-      { label: 'Bedtime', icon: Moon, baseline: 22.5, actual: 24.5, unit: 'hr', delta: +9, trend: 'up' as const },
-      { label: 'Daily Steps', icon: MapPin, baseline: 7000, actual: 3100, unit: 'steps', delta: -56, trend: 'down' as const },
-      { label: 'Typing Pace', icon: Keyboard, baseline: 95, actual: 78, unit: 'WPM', delta: -18, trend: 'down' as const },
-    ],
-    weeklyData: [
-      { day: 'Mon', baseline: 150, actual: 160 }, { day: 'Tue', baseline: 150, actual: 180 },
-      { day: 'Wed', baseline: 150, actual: 210 }, { day: 'Thu', baseline: 150, actual: 240 },
-      { day: 'Fri', baseline: 150, actual: 275 }, { day: 'Sat', baseline: 150, actual: 310 },
-      { day: 'Sun', baseline: 150, actual: 290 },
-    ],
-  },
-]
 
-const INITIAL_ALERTS = [
-  {
-    id: 'a1', severity: 'medium' as const, title: 'Late-Night Screen Activity',
-    summary: "Priya's device showed 2.5h of usage between 11 PM–1:30 AM — later than her usual 10:30 PM bedtime.",
-    factors: ['Screen time 93% above 7-day baseline', 'Bedtime shifted by +2 hours', 'Movement entropy dropped sharply'],
-    device: "Priya's Android", time: '2h ago', read: false,
-  },
-  {
-    id: 'a2', severity: 'low' as const, title: 'Reduced Daily Movement',
-    summary: "Priya's step count (3,100) was 56% below her usual 7,000-step daily average over 3 consecutive days.",
-    factors: ['Steps 56% below rolling baseline', 'Home location stationary for 9+ hours'],
-    device: "Priya's Android", time: '5h ago', read: true,
-  },
-  {
-    id: 'a3', severity: 'low' as const, title: 'Screen Time Slightly Elevated',
-    summary: "Aarav's daily screen time is ~30 min above baseline. Within expected weekend variance.",
-    factors: ['Screen time +17% above baseline', 'Usage primarily social & educational apps'],
-    device: "Aarav's iPhone", time: 'Yesterday', read: true,
-  },
-]
+interface DeviceView {
+  id: string
+  name: string
+  initials: string
+  platform: string
+  lastSeen: string
+  online: boolean
+  riskScore: number        // 0–100 aggregate of latest model scores
+  riskLabel: string
+  flaggedCount: number
+  latestFactors: string[]
+}
+
+interface AlertView {
+  id: string
+  severity: 'high' | 'medium' | 'low'
+  title: string
+  summary: string
+  factors: string[]
+  device: string
+  time: string
+  read: boolean
+}
+
+interface DayPoint { day: string; baseline: number; actual: number }
 
 /* ─────────────────────────────────────────────────────────────
-   PREMIUM REUSABLE COMPONENTS
+   PRESENTATION COMPONENTS
 ───────────────────────────────────────────────────────────── */
 
-function SparkLine({ data, w = 520, h = 88 }: { data: { day: string; baseline: number; actual: number }[]; w?: number; h?: number }) {
+function SparkLine({ data, w = 520, h = 88 }: { data: DayPoint[]; w?: number; h?: number }) {
+  if (data.length < 2) return null
   const pad = { t: 8, b: 8, l: 4, r: 4 }
   const allVals = data.flatMap(d => [d.baseline, d.actual])
-  const min = Math.min(...allVals) - 15
-  const max = Math.max(...allVals) + 15
+  const min = Math.min(...allVals) - 5
+  const max = Math.max(...allVals) + 5
   const sx = (i: number) => pad.l + (i / (data.length - 1)) * (w - pad.l - pad.r)
-  const sy = (v: number) => pad.t + (1 - (v - min) / (max - min)) * (h - pad.t - pad.b)
+  const sy = (v: number) => pad.t + (1 - (v - min) / (max - min || 1)) * (h - pad.t - pad.b)
   const bPath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${sx(i).toFixed(1)} ${sy(d.baseline).toFixed(1)}`).join(' ')
   const aPath = data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${sx(i).toFixed(1)} ${sy(d.actual).toFixed(1)}`).join(' ')
-  const aFill = [...data.map((d, i) => `${i === 0 ? 'M' : 'L'} ${sx(i).toFixed(1)} ${sy(d.actual).toFixed(1)}`), `L ${sx(data.length - 1).toFixed(1)} ${h} L ${sx(0).toFixed(1)} ${h} Z`].join(' ')
+  const aFill = `${aPath} L ${sx(data.length - 1).toFixed(1)} ${h} L ${sx(0).toFixed(1)} ${h} Z`
 
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ overflow: 'visible', display: 'block' }}>
@@ -127,7 +100,6 @@ function RiskGauge({ score }: { score: number }) {
   )
 }
 
-/** Mini progress ring for KPIs */
 function MiniRing({ pct, size = 48, stroke = 5, color }: { pct: number; size?: number; stroke?: number; color: string }) {
   const r = (size - stroke) / 2
   const circ = 2 * Math.PI * r
@@ -143,7 +115,6 @@ function MiniRing({ pct, size = 48, stroke = 5, color }: { pct: number; size?: n
   )
 }
 
-/** Compact KPI card */
 function KpiCard({ icon, label, value, sub, color, ringPct }: { icon: React.ReactNode; label: string; value: string; sub?: string; color: string; ringPct?: number }) {
   return (
     <div style={{
@@ -175,7 +146,6 @@ function KpiCard({ icon, label, value, sub, color, ringPct }: { icon: React.Reac
   )
 }
 
-/** Animated status dot */
 function StatusDot({ status, size = 8 }: { status: 'healthy' | 'warning' | 'critical' | 'offline'; size?: number }) {
   const colors = { healthy: '#10B981', warning: '#F59E0B', critical: '#EF4444', offline: '#AEAEB2' }
   return (
@@ -190,13 +160,93 @@ function StatusDot({ status, size = 8 }: { status: 'healthy' | 'warning' | 'crit
 }
 
 /* ─────────────────────────────────────────────────────────────
+   DATA MAPPERS — backend → view models
+───────────────────────────────────────────────────────────── */
+
+function toInitials(name: string): string {
+  return name.split(/\s+/).map(n => n[0] ?? '').slice(0, 2).join('').toUpperCase() || '??'
+}
+
+function deviceOnline(lastSeenIso: string | null | undefined): boolean {
+  if (!lastSeenIso) return false
+  const t = new Date(lastSeenIso).getTime()
+  if (Number.isNaN(t)) return false
+  return Date.now() - t < 15 * 60 * 1000
+}
+
+function aggregateRisk(scores: RiskScore[]): { score: number; flagged: number; factors: string[] } {
+  if (!scores.length) return { score: 0, flagged: 0, factors: [] }
+  // Latest score per model
+  const latest: Record<string, RiskScore> = {}
+  for (const s of scores) if (!latest[s.model_name]) latest[s.model_name] = s
+  const vals = Object.values(latest)
+  const avg = vals.reduce((a, s) => a + s.score, 0) / vals.length
+  const flagged = vals.filter(s => s.flagged).length
+  const factors = vals.flatMap(s => s.contributing_factors ?? []).slice(0, 4)
+  return { score: Math.round(Math.min(Math.max(avg * 100, 0), 100)), flagged, factors }
+}
+
+function mapAlert(a: BackendAlert, deviceName: string): AlertView {
+  const sev = severityOf(a.severity_tier)
+  return {
+    id: a.id,
+    severity: sev,
+    title: sev === 'high' ? 'Urgent Wellbeing Signal' : sev === 'medium' ? 'Moderate Deviation' : 'Behavioral Notice',
+    summary: a.plain_language_summary,
+    factors: a.contributing_factors ?? [],
+    device: deviceName,
+    time: timeAgo(a.timestamp),
+    read: a.is_viewed,
+  }
+}
+
+/** Group daily average risk scores over the last 7 days for the chart. */
+function buildWeeklyData(scores: RiskScore[]): DayPoint[] {
+  const days: DayPoint[] = []
+  const now = new Date()
+  const byDay: Record<string, number[]> = {}
+  for (const s of scores) {
+    const d = new Date(s.timestamp)
+    if (Number.isNaN(d.getTime())) continue
+    const key = d.toISOString().slice(0, 10)
+    ;(byDay[key] ||= []).push(s.score * 100)
+  }
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 86400000)
+    const key = d.toISOString().slice(0, 10)
+    const vals = byDay[key]
+    days.push({
+      day: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      baseline: 35,
+      actual: vals ? Math.round(vals.reduce((a, v) => a + v, 0) / vals.length) : 0,
+    })
+  }
+  return days
+}
+
+const SIGNAL_META: Record<string, { label: string; unit: string; icon: any }> = {
+  location: { label: 'Mobility / Location', unit: 'steps', icon: MapPin },
+  typing: { label: 'Typing Dynamics', unit: 'delay index', icon: Keyboard },
+  app_usage: { label: 'App Usage', unit: 'hrs/day', icon: Smartphone },
+  gsr: { label: 'GSR (Physio)', unit: 'µS', icon: Activity },
+  voice: { label: 'Voice Check-ins', unit: 'sessions', icon: BarChart2 },
+}
+
+/* ─────────────────────────────────────────────────────────────
    MAIN PAGE
 ───────────────────────────────────────────────────────────── */
 export default function OverviewPage() {
   const router = useRouter()
   const [guardian, setGuardian] = useState({ name: 'Guardian', role: 'guardian' })
-  const [activeId, setActiveId] = useState(DEVICES[0].id)
-  const [alerts, setAlerts] = useState(INITIAL_ALERTS)
+  const [token, setToken] = useState<string | null>(null)
+  const [devices, setDevices] = useState<DeviceView[]>([])
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [alerts, setAlerts] = useState<AlertView[]>([])
+  const [baselines, setBaselines] = useState<BaselineMap>({})
+  const [weeklyData, setWeeklyData] = useState<DayPoint[]>([])
+  const [scores, setScores] = useState<RiskScore[]>([])
+  const [health, setHealth] = useState<IngestionHealth | null>(null)
+  const [loading, setLoading] = useState(true)
   const [alertOpen, setAlertOpen] = useState(false)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [logs, setLogs] = useState<string[]>([])
@@ -204,82 +254,148 @@ export default function OverviewPage() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const wsRef = useRef<WebSocket | null>(null)
 
-  // Simulated system health metrics
-  const [sysHealth, setSysHealth] = useState({
-    cpu: 34, ram: 58, disk: 42, temp: 47,
-    networkPct: 88, syncStatus: 'synced' as const, queueSize: 3,
-    lastSync: '18s ago', apiLatency: 47, dbStatus: 'healthy' as const,
-    uptime: '3d 14h', activeSensors: 4, dataRate: '1.2 KB/s',
-  })
-
-  // Live-update system health every 5s
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSysHealth(prev => ({
-        ...prev,
-        cpu: Math.max(12, Math.min(92, prev.cpu + (Math.random() - 0.5) * 8)),
-        ram: Math.max(20, Math.min(95, prev.ram + (Math.random() - 0.5) * 6)),
-        networkPct: Math.max(50, Math.min(98, prev.networkPct + (Math.random() - 0.5) * 4)),
-        apiLatency: Math.max(20, Math.min(220, prev.apiLatency + (Math.random() - 0.5) * 15)),
-        queueSize: Math.max(0, Math.min(12, prev.queueSize + (Math.random() > 0.7 ? 1 : Math.random() > 0.9 ? -1 : 0))),
-        lastSync: `${Math.floor(Math.random() * 60 + 5)}s ago`,
-        dataRate: `${(Math.random() * 2 + 0.5).toFixed(1)} KB/s`,
-      }))
-    }, 5000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const device = DEVICES.find(d => d.id === activeId) ?? DEVICES[0]
+  const device = devices.find(d => d.id === activeId) ?? devices[0] ?? null
   const unread = alerts.filter(a => !a.read).length
 
   const pushLog = useCallback((msg: string) => {
     setLogs(p => [`${new Date().toLocaleTimeString()} — ${msg}`, ...p].slice(0, 30))
   }, [])
 
+  /* ── Real data loaders ── */
+
+  const loadAlerts = useCallback(async (tk: string, devs: ChildDevice[]) => {
+    const nameOf: Record<string, string> = Object.fromEntries(devs.map(d => [d.id, d.name]))
+    const lists = await Promise.all(
+      devs.map(d => apiFetchSafe<BackendAlert[]>(`/events/alerts/${d.id}`, tk, []))
+    )
+    const mapped = lists
+      .flatMap(list => list.map(a => mapAlert(a, nameOf[a.device_id] ?? 'Device')))
+      .sort((a, b) => (a.read === b.read ? 0 : a.read ? 1 : -1))
+    setAlerts(mapped)
+  }, [])
+
+  const loadDevices = useCallback(async (tk: string) => {
+    const devs = await apiFetchSafe<ChildDevice[]>('/auth/devices', tk, [])
+    const views = await Promise.all(devs.map(async d => {
+      const devScores = await apiFetchSafe<RiskScore[]>(`/events/scores/${d.id}`, tk, [])
+      const agg = aggregateRisk(devScores)
+      return {
+        id: d.id,
+        name: d.name,
+        initials: toInitials(d.name),
+        platform: d.platform === 'ios' ? 'iOS' : d.platform === 'android' ? 'Android' : d.platform,
+        lastSeen: d.last_seen ? timeAgo(d.last_seen) : 'never',
+        online: deviceOnline(d.last_seen),
+        riskScore: agg.score,
+        riskLabel: riskLabel(agg.score),
+        flaggedCount: agg.flagged,
+        latestFactors: agg.factors,
+      } as DeviceView
+    }))
+    setDevices(views)
+    return { devs, views }
+  }, [])
+
+  const loadDeviceDetail = useCallback(async (tk: string, deviceId: string) => {
+    const [bl, sc] = await Promise.all([
+      apiFetchSafe<BaselineMap>(`/events/baselines/${deviceId}`, tk, {}),
+      apiFetchSafe<RiskScore[]>(`/events/scores/${deviceId}`, tk, []),
+    ])
+    setBaselines(bl)
+    setScores(sc)
+    setWeeklyData(buildWeeklyData(sc))
+  }, [])
+
+  const loadHealth = useCallback(async (tk: string) => {
+    const h = await apiFetchSafe<IngestionHealth>('/internal/ingestion/health', tk, null as any)
+    setHealth(h)
+  }, [])
+
+  /* ── Bootstrap ── */
   useEffect(() => {
-    const token = localStorage.getItem('prism_token')
+    const tk = localStorage.getItem('prism_token')
     const gs = localStorage.getItem('prism_guardian')
-    if (!token || !gs) { router.push('/'); return }
+    if (!tk || !gs) { router.push('/'); return }
     try { const g = JSON.parse(gs); setGuardian({ name: g.full_name || 'Guardian', role: g.role || 'guardian' }) } catch {}
+    setToken(tk)
     const saved = localStorage.getItem('prism_theme') as any
     if (saved) { setTheme(saved); document.documentElement.setAttribute('data-theme', saved) }
 
+    const boot = async () => {
+      const { devs, views } = await loadDevices(tk)
+      if (views.length > 0) {
+        const savedDevice = localStorage.getItem('prism_selected_device')
+        const first = views.find(v => v.id === savedDevice)?.id ?? views[0].id
+        setActiveId(first)
+        await loadDeviceDetail(tk, first)
+      }
+      await loadAlerts(tk, devs)
+      await loadHealth(tk)
+      setLoading(false)
+    }
+    boot()
+
     try {
-      const ws = new WebSocket(`ws://localhost:8000/api/v1/events/ws?token=${token}`)
+      const ws = new WebSocket(buildWsUrl('/events/ws', tk))
       wsRef.current = ws
-      ws.onopen  = () => setWsStatus('connected')
+      ws.onopen = () => setWsStatus('connected')
       ws.onclose = () => setWsStatus('disconnected')
       ws.onmessage = (ev) => {
-        try { const d = JSON.parse(ev.data); if (d.type !== 'chat_message') pushLog(`Live › ${d.signal_type?.toUpperCase() ?? 'EVENT'} — ${String(d.device_id ?? '').slice(0, 8)}`) } catch {}
+        try {
+          const d = JSON.parse(ev.data)
+          if (d.type !== 'chat_message') {
+            pushLog(`Live › ${String(d.signal_type ?? d.severity_tier ?? 'EVENT').toUpperCase()} — ${String(d.device_id ?? '').slice(0, 8)}`)
+            // Live alert arrived — refresh the alert list and device risk
+            if (d.severity_tier || d.flagged) {
+              loadDevices(tk).then(({ devs }) => loadAlerts(tk, devs))
+            }
+          }
+        } catch {}
       }
       return () => ws.close()
     } catch { setWsStatus('disconnected') }
-  }, [router, pushLog])
+  }, [router, pushLog, loadDevices, loadAlerts, loadDeviceDetail, loadHealth])
+
+  const selectDevice = async (id: string) => {
+    setActiveId(id)
+    localStorage.setItem('prism_selected_device', id)
+    if (token) await loadDeviceDetail(token, id)
+  }
 
   const applyTheme = (t: 'light' | 'dark') => {
     setTheme(t); localStorage.setItem('prism_theme', t)
     document.documentElement.setAttribute('data-theme', t)
   }
 
+  /** Trigger a REAL demo scenario on the backend risk engine, then reload real alerts. */
   const runSim = async (s: 'A' | 'B' | 'C') => {
+    if (!token || !device) return
     setSim(true)
-    const steps: Record<string, string[]> = {
-      A: ['[SIM-A] Screen-time spike injected (3.5h at 11 PM)', '[SIM-A] Baseline delta +250% computed', '[SIM-A] Risk engine re-scoring…', '[SIM-A] Alert generated — severity: medium'],
-      B: ['[SIM-B] Step count dropped → 1,800 (−74%)', '[SIM-B] Typing delay index +40%', '[SIM-B] Social-withdrawal model fired', '[SIM-B] Alert generated — severity: low'],
-      C: ['[SIM-C] New app detected: com.anon.chat', '[SIM-C] App usage 3.0h overnight', '[SIM-C] Category scored high-risk', '[SIM-C] Alert generated — severity: high'],
+    const labels: Record<string, string> = {
+      A: 'late-night screen spike', B: 'social withdrawal', C: 'high-risk app install',
     }
-    for (const m of steps[s]) { await new Promise(r => setTimeout(r, 650)); pushLog(m) }
-    const newAlert = {
-      id: `sim-${Date.now()}`,
-      severity: (s === 'C' ? 'high' : s === 'A' ? 'medium' : 'low') as any,
-      title: s === 'C' ? 'New High-Risk App Detected' : s === 'A' ? 'Late-Night Screen Spike' : 'Social Withdrawal Signal',
-      summary: s === 'C' ? 'An unrecognised anonymous chat app appeared in overnight app-usage metadata.' : s === 'A' ? 'Screen usage spiked to 3.5h between 11 PM–2:30 AM, well beyond baseline.' : 'Step count and movement entropy dropped simultaneously — correlated withdrawal signal.',
-      factors: steps[s].slice(0, 2),
-      device: "Priya's Android", time: 'Just now', read: false,
+    pushLog(`[DEMO] Triggering scenario ${s} (${labels[s]}) on backend risk engine…`)
+    try {
+      await apiFetch('/events/demo-trigger', token, {
+        method: 'POST',
+        body: JSON.stringify({ device_id: device.id, scenario: s }),
+      })
+      pushLog(`[DEMO] Scenario ${s} processed — re-scoring complete`)
+      const devs = await apiFetchSafe<ChildDevice[]>('/auth/devices', token, [])
+      await loadDevices(token)
+      await loadAlerts(token, devs)
+      const newAlerts = await apiFetchSafe<BackendAlert[]>(`/events/alerts/${device.id}`, token, [])
+      pushLog(`[DEMO] ${device.name} now has ${newAlerts.length} stored alert(s)`)
+      setAlertOpen(true)
+    } catch (err: any) {
+      pushLog(`[DEMO] Failed: ${err.message}`)
     }
-    setAlerts(p => [newAlert, ...p])
-    setAlertOpen(true)
     setSim(false)
+  }
+
+  const acknowledgeAlert = async (id: string) => {
+    setAlerts(p => p.map(x => x.id === id ? { ...x, read: true } : x))
+    if (token) await apiFetchSafe(`/events/alerts/viewed/${id}`, token, null as any, { method: 'POST' })
   }
 
   const sevBorder = (s: string) => s === 'high' ? '#2C2C2E' : s === 'medium' ? '#636366' : '#AEAEB2'
@@ -287,29 +403,41 @@ export default function OverviewPage() {
 
   const dk = theme === 'dark'
   const C = {
-    bg:     dk ? '#0A0A0A' : '#F4F4F2',
-    card:   dk ? '#1C1C1E' : '#FFFFFF',
-    nav:    dk ? '#111111' : '#FFFFFF',
+    bg: dk ? '#0A0A0A' : '#F4F4F2',
+    card: dk ? '#1C1C1E' : '#FFFFFF',
+    nav: dk ? '#111111' : '#FFFFFF',
     border: dk ? '#2C2C2E' : '#EBEBEB',
-    text:   dk ? '#FFFFFF' : '#0A0A0A',
-    sub:    dk ? '#8E8E93' : '#6B6B6B',
-    muted:  dk ? '#48484A' : '#AEAEB2',
-    hover:  dk ? '#2C2C2E' : '#F4F4F2',
+    text: dk ? '#FFFFFF' : '#0A0A0A',
+    sub: dk ? '#8E8E93' : '#6B6B6B',
+    muted: dk ? '#48484A' : '#AEAEB2',
+    hover: dk ? '#2C2C2E' : '#F4F4F2',
     accent: dk ? '#FFFFFF' : '#0A0A0A',
     accentTxt: dk ? '#0A0A0A' : '#FFFFFF',
-    input:  dk ? '#2C2C2E' : '#F4F4F2',
-    logBg:  dk ? '#0A0A0A' : '#F9F9F8',
-    glowGreen: dk ? 'rgba(16,185,129,0.18)' : 'rgba(16,185,129,0.10)',
-    glowIndigo: dk ? 'rgba(99,102,241,0.20)' : 'rgba(99,102,241,0.12)',
-    glowAmber: dk ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.10)',
+    logBg: dk ? '#0A0A0A' : '#F9F9F8',
+  }
+
+  /* ── Real ingestion health aggregates ── */
+  const modalityEntries = Object.entries(health?.active_modalities ?? {})
+  const realCount = modalityEntries.filter(([, v]) => v === 'real').length
+  const synthCount = modalityEntries.filter(([, v]) => v === 'synthetic').length
+  const activeCount = realCount + synthCount
+  const flaggedScores = scores.filter(s => s.flagged).length
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.bg }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 44, height: 44, borderRadius: '50%', border: `3px solid ${C.text}`, borderRightColor: 'transparent', margin: '0 auto 16px', animation: 'spin 1s linear infinite' }} />
+          <p style={{ fontSize: 14, color: C.sub }}>Loading live telemetry…</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: "'Inter', system-ui, sans-serif", transition: 'background 0.2s, color 0.2s' }}>
 
-      {/* ══════════════════════════════════════════════════════
-          TOP NAVIGATION BAR
-      ══════════════════════════════════════════════════════ */}
+      {/* ═══════ NAV ═══════ */}
       <nav style={{
         position: 'sticky', top: 0, zIndex: 100,
         height: 58, background: C.nav, borderBottom: `1px solid ${C.border}`,
@@ -392,9 +520,7 @@ export default function OverviewPage() {
         </div>
       </nav>
 
-      {/* ══════════════════════════════════════════════════════
-          ALERT PANEL (slide-over)
-      ══════════════════════════════════════════════════════ */}
+      {/* ═══════ ALERT SLIDE-OVER ═══════ */}
       {alertOpen && (
         <div style={{
           position: 'fixed', top: 58, right: 0, width: 420, height: 'calc(100vh - 58px)',
@@ -412,8 +538,14 @@ export default function OverviewPage() {
             </button>
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
+            {alerts.length === 0 && (
+              <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 13 }}>
+                <CheckCircle size={22} color={C.muted} style={{ marginBottom: 10 }} />
+                <p>No alerts on record. The risk engine has not flagged any deviations.</p>
+              </div>
+            )}
             {alerts.map((a, i) => (
-              <div key={a.id} onClick={() => setAlerts(p => p.map(x => x.id === a.id ? { ...x, read: true } : x))}
+              <div key={a.id} onClick={() => acknowledgeAlert(a.id)}
                 style={{
                   padding: '16px 24px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer',
                   background: !a.read ? (dk ? '#1A1A1A' : '#FAFAF9') : 'transparent',
@@ -432,7 +564,7 @@ export default function OverviewPage() {
                     <p style={{ fontSize: 12, color: C.sub, lineHeight: 1.65, marginBottom: 10 }}>{a.summary}</p>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                       <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sevBorder(a.severity)}`, color: sevBorder(a.severity), fontWeight: 700 }}>
-                        {(a.severity as string) === 'high' ? '● High' : (a.severity as string) === 'medium' ? '● Moderate' : '● Low'}
+                        {a.severity === 'high' ? '● High' : a.severity === 'medium' ? '● Moderate' : '● Low'}
                       </span>
                       <span style={{ fontSize: 10, padding: '3px 10px', borderRadius: 20, border: `1px solid ${C.border}`, color: C.sub }}>
                         {a.device}
@@ -452,24 +584,25 @@ export default function OverviewPage() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════════════════
-          BODY LAYOUT  (sidebar + main)
-      ══════════════════════════════════════════════════════ */}
+      {/* ═══════ BODY ═══════ */}
       <div style={{ display: 'flex', maxWidth: 1440, margin: '0 auto', padding: '28px 28px 48px', gap: 24 }}>
 
-        {/* ── SIDEBAR ──────────────────────────────────────── */}
+        {/* ── SIDEBAR ── */}
         <aside style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: C.muted, textTransform: 'uppercase', marginBottom: 4 }}>
             Paired Devices
           </p>
 
-          {DEVICES.map(d => {
+          {devices.length === 0 && (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, fontSize: 12, color: C.sub, lineHeight: 1.7 }}>
+              No devices paired yet. Register a device from the teen&apos;s PRISM app — it will appear here automatically.
+            </div>
+          )}
+
+          {devices.map(d => {
             const active = activeId === d.id
             return (
-              <button key={d.id} onClick={() => {
-                setActiveId(d.id)
-                localStorage.setItem('prism_selected_device', d.id)
-              }} style={{
+              <button key={d.id} onClick={() => selectDevice(d.id)} style={{
                 background: active ? C.text : C.card,
                 color: active ? C.accentTxt : C.text,
                 border: `1.5px solid ${active ? C.text : C.border}`,
@@ -488,7 +621,7 @@ export default function OverviewPage() {
                   </div>
                   <div style={{ minWidth: 0 }}>
                     <p style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.name}</p>
-                    <p style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>{d.platform} · Age {d.childAge}</p>
+                    <p style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>{d.platform}</p>
                   </div>
                 </div>
 
@@ -505,7 +638,7 @@ export default function OverviewPage() {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>
-                    {d.status === 'active' ? '● Live' : d.status === 'idle' ? '○ Idle' : '× Offline'}
+                    {d.online ? '● Live' : '○ Idle'}
                   </span>
                   <span style={{ fontSize: 10, opacity: 0.5 }}>{d.lastSeen}</span>
                 </div>
@@ -513,7 +646,7 @@ export default function OverviewPage() {
             )
           })}
 
-          {/* Simulation panel */}
+          {/* Demo scenario panel — drives the real backend risk engine */}
           <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginTop: 8 }}>
             <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', color: C.muted, textTransform: 'uppercase', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Zap size={10} /> Demo Scenarios
@@ -523,20 +656,23 @@ export default function OverviewPage() {
               { s: 'B' as const, emoji: '🚶', label: 'Social Withdrawal' },
               { s: 'C' as const, emoji: '📱', label: 'Unknown App Risk' },
             ].map(({ s, emoji, label }) => (
-              <button key={s} onClick={() => runSim(s)} disabled={simRunning} style={{
+              <button key={s} onClick={() => runSim(s)} disabled={simRunning || !device} style={{
                 width: '100%', marginBottom: 7, padding: '9px 12px', borderRadius: 10,
                 border: `1.5px solid ${C.border}`, background: C.hover,
-                cursor: simRunning ? 'not-allowed' : 'pointer', textAlign: 'left',
-                fontSize: 12, fontWeight: 600, color: C.text, opacity: simRunning ? 0.45 : 1,
+                cursor: simRunning || !device ? 'not-allowed' : 'pointer', textAlign: 'left',
+                fontSize: 12, fontWeight: 600, color: C.text, opacity: simRunning || !device ? 0.45 : 1,
                 transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 8,
               }}
-                onMouseEnter={e => { if (!simRunning) (e.currentTarget as HTMLElement).style.borderColor = C.text }}
+                onMouseEnter={e => { if (!simRunning && device) (e.currentTarget as HTMLElement).style.borderColor = C.text }}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = C.border}
               >
                 <span>{emoji}</span> {label}
               </button>
             ))}
-            {simRunning && <p style={{ fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 6, opacity: 0.7 }}>Running simulation…</p>}
+            {simRunning && <p style={{ fontSize: 11, color: C.sub, textAlign: 'center', marginTop: 6, opacity: 0.7 }}>Running on backend risk engine…</p>}
+            <p style={{ fontSize: 9, color: C.muted, lineHeight: 1.5, marginTop: 8 }}>
+              Triggers POST /events/demo-trigger — alerts shown are real rows generated by the ML risk engine.
+            </p>
           </div>
 
           {/* Privacy badge */}
@@ -554,422 +690,303 @@ export default function OverviewPage() {
           </div>
         </aside>
 
-        {/* ── MAIN CONTENT ─────────────────────────────────── */}
+        {/* ── MAIN ── */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-          {/* ═══════ PROFILE HEADER CARD ═══════ */}
-          <div style={{
-            background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
-            padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            animation: 'fadeUp 0.4s both',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          {!device ? (
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '60px 28px', textAlign: 'center' }}>
+              <Smartphone size={36} color={C.muted} style={{ marginBottom: 16 }} />
+              <h1 style={{ fontSize: 20, fontWeight: 800, color: C.text, marginBottom: 8 }}>No device paired</h1>
+              <p style={{ fontSize: 14, color: C.sub, maxWidth: 480, margin: '0 auto', lineHeight: 1.7 }}>
+                Once the teen&apos;s PRISM app registers a device under your account, live risk scores,
+                alerts, and baselines will appear here — everything below is real backend data, not a mockup.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* ═══════ PROFILE HEADER ═══════ */}
               <div style={{
-                width: 52, height: 52, borderRadius: '50%', background: C.text,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                boxShadow: `0 4px 16px ${dk ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
+                padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                animation: 'fadeUp 0.4s both',
               }}>
-                <span style={{ color: C.accentTxt, fontWeight: 800, fontSize: 17 }}>{device.initials}</span>
-              </div>
-              <div>
-                <h1 style={{ fontSize: 19, fontWeight: 800, color: C.text, letterSpacing: '-0.01em', marginBottom: 3 }}>{device.name}</h1>
-                <p style={{ fontSize: 13, color: C.sub }}>{device.platform} · Age {device.childAge} · Last seen {device.lastSeen}</p>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-              <div style={{ textAlign: 'center' }}>
-                <RiskGauge score={device.riskScore} />
-                <p style={{ fontSize: 11, color: C.sub, marginTop: 4, fontWeight: 600 }}>{device.riskLabel}</p>
-              </div>
-              <div style={{ height: 56, width: 1, background: C.border }} />
-              <div>
-                <p style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Primary concern</p>
-                <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, border: `1.5px solid ${C.border}`, color: C.text }}>
-                  {device.concern}
-                </span>
-              </div>
-              <button onClick={() => setAlertOpen(true)} style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '11px 20px',
-                background: C.text, color: C.accentTxt, border: 'none', borderRadius: 12,
-                fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
-              }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '0.88'}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
-              >
-                <Bell size={14} /> {unread > 0 ? `${unread} Alert${unread > 1 ? 's' : ''}` : 'Alerts'}
-              </button>
-
-              {/* PRISM Node button — premium glassmorphism */}
-              <button onClick={() => { localStorage.setItem('prism_selected_device', device.id); router.push('/prism-node') }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px',
-                  background: `linear-gradient(135deg, rgba(99,102,241,0.16), rgba(139,92,246,0.16))`,
-                  color: '#a5b4fc', border: '1.5px solid rgba(99,102,241,0.35)', borderRadius: 12,
-                  fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.01em',
-                  transition: 'all 0.3s ease',
-                  backdropFilter: 'blur(8px)',
-                }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLElement
-                  el.style.borderColor = 'rgba(99,102,241,0.7)'
-                  el.style.boxShadow = '0 0 20px rgba(99,102,241,0.25)'
-                  el.style.transform = 'translateY(-1px)'
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget as HTMLElement
-                  el.style.borderColor = 'rgba(99,102,241,0.35)'
-                  el.style.boxShadow = 'none'
-                  el.style.transform = 'translateY(0)'
-                }}
-                title="Open PRISM Node wearable dashboard"
-              >
-                <span style={{
-                  width: 9, height: 9, borderRadius: '50%', background: '#818cf8',
-                  display: 'inline-block', animation: 'nodePulse 2s ease-in-out infinite',
-                }} />
-                PRISM Node
-              </button>
-            </div>
-          </div>
-
-          {/* ═══════ SIGNAL CARDS (2 × 2) ═══════ */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'fadeUp 0.4s 0.06s both' }}>
-            {device.signals.map((sig, i) => {
-              const Icon = sig.icon
-              const deviation = Math.abs(sig.delta)
-              const isHigh = deviation > 40
-              return (
-                <div key={sig.label} style={{
-                  background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
-                  padding: '18px 20px', animation: `fadeUp 0.4s ${i * 0.07}s both`,
-                  transition: 'all 0.2s ease',
-                }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = C.text; (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 16px ${dk ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}` }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 10, background: C.hover, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Icon size={15} color={C.sub} />
-                      </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{sig.label}</span>
-                    </div>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 5,
-                      padding: '4px 10px', borderRadius: 20,
-                      background: isHigh ? (dk ? '#2C2C2E' : '#F0F0F0') : C.hover,
-                      border: `1px solid ${isHigh ? C.border : 'transparent'}`,
-                    }}>
-                      {sig.trend === 'up' ? <TrendingUp size={11} color={C.text} /> : sig.trend === 'down' ? <TrendingDown size={11} color={C.text} /> : <Activity size={11} color={C.text} />}
-                      <span style={{ fontSize: 11, fontWeight: 800, color: C.text }}>
-                        {sig.delta > 0 ? '+' : ''}{sig.delta}%
-                      </span>
-                    </div>
-                  </div>
-                  <div style={{ marginBottom: 14 }}>
-                    <span style={{ fontSize: 30, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, letterSpacing: '-0.02em' }}>
-                      {sig.actual.toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: 13, color: C.sub, marginLeft: 6 }}>{sig.unit}</span>
-                  </div>
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ height: 5, borderRadius: 3, background: C.hover, position: 'relative', overflow: 'hidden' }}>
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 3,
-                        width: `${Math.min((sig.baseline / Math.max(sig.baseline, sig.actual)) * 100, 100)}%`,
-                        background: C.muted, transition: 'width 1s ease',
-                      }} />
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 3,
-                        width: `${Math.min((sig.actual / Math.max(sig.baseline, sig.actual)) * 100, 100)}%`,
-                        background: C.text, transition: 'width 1s ease', opacity: 0.85,
-                      }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.muted }}>
-                    <span>Baseline: {sig.baseline.toLocaleString()} {sig.unit}</span>
-                    <span style={{ fontWeight: 700, color: deviation > 20 ? C.text : C.muted }}>
-                      {deviation > 20 ? '⚑ Flagged' : '✓ Normal'}
-                    </span>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          {/* ═══════ CHART CARD ═══════ */}
-          <div style={{
-            background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
-            padding: '22px 26px', animation: 'fadeUp 0.4s 0.15s both',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 3 }}>7-Day Screen Time</p>
-                <p style={{ fontSize: 12, color: C.sub }}>Daily actual <span style={{ color: C.text, fontWeight: 600 }}>— vs —</span> baseline <span style={{ color: C.muted, fontWeight: 600 }}>- -</span></p>
-              </div>
-              <div style={{ display: 'flex', gap: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub }}>
-                  <div style={{ width: 18, height: 2, borderTop: '2px dashed #D1D1D6' }} /> Baseline
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.text, fontWeight: 600 }}>
-                  <div style={{ width: 18, height: 2.5, background: C.text, borderRadius: 2 }} /> Actual
-                </div>
-              </div>
-            </div>
-            <SparkLine data={device.weeklyData} w={680} h={90} />
-            <div style={{
-              display: 'grid', gridTemplateColumns: `repeat(${device.weeklyData.length}, 1fr)`,
-              marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10,
-            }}>
-              {device.weeklyData.map(d => (
-                <span key={d.day} style={{ textAlign: 'center', fontSize: 11, color: C.muted, fontWeight: 600 }}>{d.day}</span>
-              ))}
-            </div>
-          </div>
-
-          {/* ═══════ ALERTS + LIVE LOG ═══════ */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'fadeUp 0.4s 0.2s both' }}>
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Bell size={14} color={C.sub} />
-                  <p style={{ fontSize: 14, fontWeight: 800, color: C.text }}>Recent Alerts</p>
-                </div>
-                <button onClick={() => setAlertOpen(true)} style={{ background: 'none', border: 'none', fontSize: 12, color: C.sub, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-                  View all <ChevronRight size={12} />
-                </button>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {alerts.slice(0, 3).map(a => (
-                  <div key={a.id} onClick={() => { setAlerts(p => p.map(x => x.id === a.id ? { ...x, read: true } : x)); setAlertOpen(true) }}
-                    style={{
-                      display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px',
-                      borderRadius: 10, cursor: 'pointer', transition: 'background 0.15s',
-                      background: !a.read ? (dk ? '#222' : '#FAFAF9') : 'transparent',
-                      border: `1px solid ${!a.read ? C.border : 'transparent'}`,
-                      borderLeft: !a.read ? `3px solid ${sevColors[a.severity] ?? C.text}` : '3px solid transparent',
-                    }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.read ? C.muted : sevColors[a.severity] ?? C.text, marginTop: 4, flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
-                        <span style={{ fontSize: 10, color: C.muted, flexShrink: 0, marginLeft: 8 }}>{a.time}</span>
-                      </div>
-                      <p style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.summary}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <StatusDot status={wsStatus === 'connected' ? 'healthy' : 'offline'} />
-                <p style={{ fontSize: 14, fontWeight: 800, color: C.text }}>Ingestion Log</p>
-                <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, border: `1px solid ${C.border}`, color: C.sub, marginLeft: 'auto' }}>
-                  {wsStatus === 'connected' ? 'Connected' : 'Reconnecting'}
-                </span>
-              </div>
-              <div style={{
-                flex: 1, overflowY: 'auto', fontFamily: "'Space Grotesk', monospace", fontSize: 11,
-                color: C.sub, lineHeight: 1.9, background: C.logBg, borderRadius: 10,
-                padding: '10px 14px', border: `1px solid ${C.border}`, minHeight: 120, maxHeight: 140,
-              }}>
-                {logs.length === 0
-                  ? <span style={{ color: C.muted }}>› Waiting for live events or simulation…</span>
-                  : logs.map((l, i) => <div key={i} style={{ marginBottom: 1, animation: 'fadeUp 0.2s both' }}><span style={{ color: C.muted }}>›</span> {l}</div>)
-                }
-              </div>
-            </div>
-          </div>
-
-          {/* ═══════ SYSTEM HEALTH KPIs (4 columns) ═══════ */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, animation: 'fadeUp 0.4s 0.25s both' }}>
-            <KpiCard
-              icon={<Cpu size={18} />}
-              label="CPU Usage"
-              value={`${sysHealth.cpu.toFixed(0)}%`}
-              sub={`${sysHealth.activeSensors} sensors · ${sysHealth.dataRate}`}
-              color="#6366F1"
-              ringPct={sysHealth.cpu}
-            />
-            <KpiCard
-              icon={<HardDrive size={18} />}
-              label="Memory"
-              value={`${sysHealth.ram.toFixed(0)}%`}
-              sub={`Disk ${sysHealth.disk}% · Temp ${sysHealth.temp}°C`}
-              color="#10B981"
-              ringPct={sysHealth.ram}
-            />
-            <KpiCard
-              icon={<Cloud size={18} />}
-              label="Cloud Sync"
-              value={sysHealth.syncStatus === 'synced' ? 'Synced' : 'Pending'}
-              sub={`Last: ${sysHealth.lastSync} · Queue: ${sysHealth.queueSize.toFixed(0)}`}
-              color="#F59E0B"
-            />
-            <KpiCard
-              icon={<Wifi size={18} />}
-              label="Connectivity"
-              value={`${sysHealth.networkPct.toFixed(0)}%`}
-              sub={`API: ${sysHealth.apiLatency.toFixed(0)}ms · ${sysHealth.uptime}`}
-              color="#0EA5E9"
-              ringPct={sysHealth.networkPct}
-            />
-          </div>
-
-          {/* ═══════ PRISM NODE PREMIUM CARD ═══════ */}
-          <div style={{
-            background: `linear-gradient(145deg, ${dk ? '#1A1A2E' : '#F8F7FF'}, ${dk ? '#1C1C1E' : '#FFFFFF'})`,
-            border: `1px solid ${dk ? 'rgba(99,102,241,0.18)' : 'rgba(99,102,241,0.15)'}`,
-            borderRadius: 20, padding: '22px 26px', animation: 'fadeUp 0.4s 0.3s both',
-            position: 'relative', overflow: 'hidden',
-            transition: 'all 0.3s ease',
-          }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = dk ? '0 0 40px rgba(99,102,241,0.12)' : '0 4px 32px rgba(99,102,241,0.08)' }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}
-          >
-            {/* Background glow */}
-            <div style={{
-              position: 'absolute', top: -60, right: -40, width: 200, height: 200,
-              borderRadius: '50%', background: 'rgba(99,102,241,0.04)', pointerEvents: 'none',
-            }} />
-            <div style={{
-              position: 'absolute', bottom: -40, left: '40%', width: 160, height: 160,
-              borderRadius: '50%', background: 'rgba(139,92,246,0.03)', pointerEvents: 'none',
-            }} />
-
-            {/* Header row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, position: 'relative', zIndex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {/* Prism icon with glow */}
-                <div style={{
-                  width: 44, height: 44, borderRadius: 14,
-                  background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))',
-                  border: '1.5px solid rgba(99,102,241,0.35)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  position: 'relative',
-                }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                   <div style={{
-                    width: 10, height: 10, borderRadius: '50%', background: '#818cf8',
-                    animation: 'nodePulse 2s ease-in-out infinite',
-                  }} />
+                    width: 52, height: 52, borderRadius: '50%', background: C.text,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    boxShadow: `0 4px 16px ${dk ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                  }}>
+                    <span style={{ color: C.accentTxt, fontWeight: 800, fontSize: 17 }}>{device.initials}</span>
+                  </div>
+                  <div>
+                    <h1 style={{ fontSize: 19, fontWeight: 800, color: C.text, letterSpacing: '-0.01em', marginBottom: 3 }}>{device.name}</h1>
+                    <p style={{ fontSize: 13, color: C.sub }}>{device.platform} · Last seen {device.lastSeen} · {device.online ? 'Live' : 'Idle'}</p>
+                  </div>
                 </div>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <p style={{ fontSize: 15, fontWeight: 800, color: C.text, letterSpacing: '-0.01em' }}>PRISM Node</p>
-                    <span style={{
-                      fontSize: 9, fontWeight: 700, padding: '2px 10px', borderRadius: 20,
-                      background: 'rgba(16,185,129,0.12)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)',
-                      display: 'flex', alignItems: 'center', gap: 4,
-                    }}>
-                      <StatusDot status="healthy" size={6} /> Online
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <RiskGauge score={device.riskScore} />
+                    <p style={{ fontSize: 11, color: C.sub, marginTop: 4, fontWeight: 600 }}>{device.riskLabel}</p>
+                  </div>
+                  <div style={{ height: 56, width: 1, background: C.border }} />
+                  <div>
+                    <p style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>Flagged models</p>
+                    <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, border: `1.5px solid ${C.border}`, color: C.text }}>
+                      {device.flaggedCount > 0 ? `${device.flaggedCount} of ${scores.length ? new Set(scores.map(s => s.model_name)).size : 4} models` : 'None — all normal'}
                     </span>
                   </div>
-                  <p style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{device.name} · ESP32 + Raspberry Pi · v5.0 firmware</p>
-                </div>
-              </div>
-              <button onClick={() => router.push('/prism-node')} style={{
-                padding: '8px 18px', borderRadius: 10, border: '1.5px solid rgba(99,102,241,0.3)',
-                background: 'rgba(99,102,241,0.08)', color: '#a5b4fc', fontSize: 12, fontWeight: 700,
-                cursor: 'pointer', transition: 'all 0.2s',
-              }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.16)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.6)' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.08)'; (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.3)' }}
-              >
-                Open Dashboard <ChevronRight size={12} style={{ marginLeft: 4, display: 'inline' }} />
-              </button>
-            </div>
+                  <button onClick={() => setAlertOpen(true)} style={{
+                    display: 'flex', alignItems: 'center', gap: 8, padding: '11px 20px',
+                    background: C.text, color: C.accentTxt, border: 'none', borderRadius: 12,
+                    fontSize: 13, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s',
+                  }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.opacity = '0.88'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.opacity = '1'}
+                  >
+                    <Bell size={14} /> {unread > 0 ? `${unread} Alert${unread > 1 ? 's' : ''}` : 'Alerts'}
+                  </button>
 
-            {/* Metrics grid — 6 columns */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12,
-              position: 'relative', zIndex: 1,
-            }}>
-              {/* CPU */}
-              <div style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
-                <div style={{ display: 'inline-flex', position: 'relative', marginBottom: 8 }}>
-                  <MiniRing pct={sysHealth.cpu} size={52} stroke={5} color="#6366F1" />
-                  <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text }}>
-                    {sysHealth.cpu.toFixed(0)}
-                  </span>
+                  <button onClick={() => { localStorage.setItem('prism_selected_device', device.id); router.push('/prism-node') }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px',
+                      background: `linear-gradient(135deg, rgba(99,102,241,0.16), rgba(139,92,246,0.16))`,
+                      color: '#a5b4fc', border: '1.5px solid rgba(99,102,241,0.35)', borderRadius: 12,
+                      fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.01em',
+                      transition: 'all 0.3s ease', backdropFilter: 'blur(8px)',
+                    }}
+                    onMouseEnter={e => {
+                      const el = e.currentTarget as HTMLElement
+                      el.style.borderColor = 'rgba(99,102,241,0.7)'
+                      el.style.boxShadow = '0 0 20px rgba(99,102,241,0.25)'
+                      el.style.transform = 'translateY(-1px)'
+                    }}
+                    onMouseLeave={e => {
+                      const el = e.currentTarget as HTMLElement
+                      el.style.borderColor = 'rgba(99,102,241,0.35)'
+                      el.style.boxShadow = 'none'
+                      el.style.transform = 'translateY(0)'
+                    }}
+                    title="Open PRISM Node wearable dashboard"
+                  >
+                    <span style={{
+                      width: 9, height: 9, borderRadius: '50%', background: '#818cf8',
+                      display: 'inline-block', animation: 'nodePulse 2s ease-in-out infinite',
+                    }} />
+                    PRISM Node
+                  </button>
                 </div>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>CPU</p>
               </div>
-              {/* Memory */}
-              <div style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
-                <div style={{ display: 'inline-flex', position: 'relative', marginBottom: 8 }}>
-                  <MiniRing pct={sysHealth.ram} size={52} stroke={5} color="#10B981" />
-                  <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text }}>
-                    {sysHealth.ram.toFixed(0)}
-                  </span>
+
+              {/* ═══════ BASELINE SIGNAL CARDS ═══════ */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'fadeUp 0.4s 0.06s both' }}>
+                {Object.entries(SIGNAL_META).map(([key, meta]) => {
+                  const bl = baselines[key]
+                  const modelScores = scores.filter(s => s.model_name === key || (key === 'app_usage' && s.model_name === 'app_usage'))
+                  const latest = modelScores[0]
+                  const status = health?.active_modalities?.[key] ?? 'inactive'
+                  const Icon = meta.icon
+                  return (
+                    <div key={key} style={{
+                      background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
+                      padding: '18px 20px', transition: 'all 0.2s ease',
+                    }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = C.text }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 10, background: C.hover, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Icon size={15} color={C.sub} />
+                          </div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{meta.label}</span>
+                        </div>
+                        <span style={{
+                          fontSize: 10, padding: '3px 10px', borderRadius: 20, fontWeight: 700,
+                          background: status === 'real' ? 'rgba(16,185,129,0.12)' : status === 'synthetic' ? 'rgba(245,158,11,0.12)' : C.hover,
+                          color: status === 'real' ? '#047857' : status === 'synthetic' ? '#92400E' : C.muted,
+                        }}>
+                          {status === 'real' ? '● Real data' : status === 'synthetic' ? '● Synthetic' : '○ Inactive'}
+                        </span>
+                      </div>
+                      {bl ? (
+                        <div style={{ marginBottom: 10 }}>
+                          <span style={{ fontSize: 26, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text }}>
+                            {bl.mean < 10 ? bl.mean.toFixed(2) : Math.round(bl.mean).toLocaleString()}
+                          </span>
+                          <span style={{ fontSize: 12, color: C.sub, marginLeft: 6 }}>{meta.unit} (rolling mean)</span>
+                          <p style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>
+                            variance {bl.variance < 1 ? bl.variance.toFixed(3) : bl.variance.toFixed(1)}
+                            {latest && <> · latest score {(latest.score * 100).toFixed(0)}/100{latest.flagged ? ' ⚑ flagged' : ''}</>}
+                          </p>
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 13, color: C.muted, marginBottom: 10, lineHeight: 1.6 }}>
+                          Awaiting baseline — the worker aggregates rolling means once enough {meta.label.toLowerCase()} telemetry arrives.
+                        </p>
+                      )}
+                      {latest?.contributing_factors?.slice(0, 1).map((f, i) => (
+                        <p key={i} style={{ fontSize: 11, color: C.sub, marginTop: 4 }}>⚑ {f}</p>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* ═══════ RISK HISTORY CHART ═══════ */}
+              <div style={{
+                background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
+                padding: '22px 26px', animation: 'fadeUp 0.4s 0.15s both',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 800, color: C.text, marginBottom: 3 }}>7-Day Risk Score History</p>
+                    <p style={{ fontSize: 12, color: C.sub }}>Daily average model risk score (0–100) from stored engine outputs</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub }}>
+                      <div style={{ width: 18, height: 2, borderTop: '2px dashed #D1D1D6' }} /> Reference
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.text, fontWeight: 600 }}>
+                      <div style={{ width: 18, height: 2.5, background: C.text, borderRadius: 2 }} /> Actual
+                    </div>
+                  </div>
                 </div>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Memory</p>
+                {scores.length > 0 && weeklyData.length > 1 ? (
+                  <>
+                    <SparkLine data={weeklyData} w={680} h={90} />
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: `repeat(${weeklyData.length}, 1fr)`,
+                      marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10,
+                    }}>
+                      {weeklyData.map(d => (
+                        <span key={d.day} style={{ textAlign: 'center', fontSize: 11, color: C.muted, fontWeight: 600 }}>{d.day}</span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p style={{ fontSize: 13, color: C.muted, padding: '24px 0', textAlign: 'center' }}>
+                    No risk scores stored yet for this device. Trigger a demo scenario or wait for the risk engine to process telemetry.
+                  </p>
+                )}
               </div>
-              {/* Temperature */}
-              <div style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
-                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Thermometer size={20} color={sysHealth.temp > 70 ? '#EF4444' : '#F59E0B'} />
-                </div>
-                <p style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, marginBottom: 2 }}>{sysHealth.temp}°C</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Temp</p>
-              </div>
-              {/* Network */}
-              <div style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
-                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                  <Signal size={16} color="#0EA5E9" />
-                  <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 14 }}>
-                    {[0.4, 0.7, 1, 0.85].map((h, i) => (
-                      <div key={i} style={{ width: 3, height: `${h * 14}px`, borderRadius: '1px', background: i < 3 ? '#0EA5E9' : '#AEAEB2', opacity: i < 3 ? 1 : 0.3 }} />
+
+              {/* ═══════ ALERTS + LIVE LOG ═══════ */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, animation: 'fadeUp 0.4s 0.2s both' }}>
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <Bell size={14} color={C.sub} />
+                      <p style={{ fontSize: 14, fontWeight: 800, color: C.text }}>Recent Alerts</p>
+                    </div>
+                    <button onClick={() => setAlertOpen(true)} style={{ background: 'none', border: 'none', fontSize: 12, color: C.sub, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      View all <ChevronRight size={12} />
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {alerts.length === 0 && (
+                      <p style={{ fontSize: 12, color: C.muted, padding: '12px 0' }}>No alerts stored yet — baseline is stable or telemetry has not arrived.</p>
+                    )}
+                    {alerts.slice(0, 3).map(a => (
+                      <div key={a.id} onClick={() => { acknowledgeAlert(a.id); setAlertOpen(true) }}
+                        style={{
+                          display: 'flex', gap: 10, alignItems: 'flex-start', padding: '9px 12px',
+                          borderRadius: 10, cursor: 'pointer', transition: 'background 0.15s',
+                          background: !a.read ? (dk ? '#222' : '#FAFAF9') : 'transparent',
+                          border: `1px solid ${!a.read ? C.border : 'transparent'}`,
+                          borderLeft: !a.read ? `3px solid ${sevColors[a.severity] ?? C.text}` : '3px solid transparent',
+                        }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.read ? C.muted : sevColors[a.severity] ?? C.text, marginTop: 4, flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: C.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.title}</span>
+                            <span style={{ fontSize: 10, color: C.muted, flexShrink: 0, marginLeft: 8 }}>{a.time}</span>
+                          </div>
+                          <p style={{ fontSize: 11, color: C.sub, lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.summary}</p>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>
-                <p style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, marginBottom: 2 }}>{sysHealth.networkPct.toFixed(0)}%</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Signal</p>
-              </div>
-              {/* Sync */}
-              <div style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
-                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                  <RefreshCw size={15} color="#10B981" style={{ animation: 'spin 3s linear infinite' }} />
-                  <StatusDot status="healthy" size={6} />
-                </div>
-                <p style={{ fontSize: 13, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, marginBottom: 2 }}>Synced</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{sysHealth.lastSync}</p>
-              </div>
-              {/* Queue */}
-              <div style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
-                <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Database size={18} color={sysHealth.queueSize > 5 ? '#F59E0B' : '#10B981'} />
-                </div>
-                <p style={{ fontSize: 16, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, marginBottom: 2 }}>{sysHealth.queueSize.toFixed(0)}</p>
-                <p style={{ fontSize: 10, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Queue</p>
-              </div>
-            </div>
 
-            {/* Footer status bar */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, paddingTop: 14, borderTop: `1px solid ${C.border}`, position: 'relative', zIndex: 1 }}>
-              <div style={{ display: 'flex', gap: 18 }}>
-                {[
-                  { label: 'DB', status: sysHealth.dbStatus === 'healthy' ? 'healthy' as const : 'warning' as const },
-                  { label: 'API', status: sysHealth.apiLatency < 100 ? 'healthy' as const : sysHealth.apiLatency < 200 ? 'warning' as const : 'critical' as const },
-                  { label: 'Edge', status: 'healthy' as const },
-                ].map((item) => (
-                  <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: C.muted }}>
-                    <StatusDot status={item.status} size={6} /> <span style={{ fontWeight: 600 }}>{item.label}</span>
+                <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <StatusDot status={wsStatus === 'connected' ? 'healthy' : 'offline'} />
+                    <p style={{ fontSize: 14, fontWeight: 800, color: C.text }}>Ingestion Log</p>
+                    <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, border: `1px solid ${C.border}`, color: C.sub, marginLeft: 'auto' }}>
+                      {wsStatus === 'connected' ? 'Connected' : 'Reconnecting'}
+                    </span>
                   </div>
-                ))}
+                  <div style={{
+                    flex: 1, overflowY: 'auto', fontFamily: "'Space Grotesk', monospace", fontSize: 11,
+                    color: C.sub, lineHeight: 1.9, background: C.logBg, borderRadius: 10,
+                    padding: '10px 14px', border: `1px solid ${C.border}`, minHeight: 120, maxHeight: 140,
+                  }}>
+                    {logs.length === 0
+                      ? <span style={{ color: C.muted }}>› Waiting for live events or demo triggers…</span>
+                      : logs.map((l, i) => <div key={i} style={{ marginBottom: 1, animation: 'fadeUp 0.2s both' }}><span style={{ color: C.muted }}>›</span> {l}</div>)
+                    }
+                  </div>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 10, color: C.muted }}>
-                <span>Uptime: <span style={{ fontWeight: 700, color: C.sub }}>{sysHealth.uptime}</span></span>
-                <div style={{ width: 3, height: 3, borderRadius: '50%', background: C.muted }} />
-                <span>API: <span style={{ fontWeight: 700, color: C.sub }}>{sysHealth.apiLatency.toFixed(0)}ms</span></span>
-                <div style={{ width: 3, height: 3, borderRadius: '50%', background: C.muted }} />
-                <span>Last backup: <span style={{ fontWeight: 700, color: C.sub }}>22 min ago</span></span>
-              </div>
-            </div>
-          </div>
 
+              {/* ═══════ REAL PIPELINE HEALTH KPIs ═══════ */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, animation: 'fadeUp 0.4s 0.25s both' }}>
+                <KpiCard
+                  icon={<Activity size={18} />}
+                  label="Active Modalities"
+                  value={`${activeCount} / 6`}
+                  sub={health ? (synthCount > 0 ? `${synthCount} synthetic · ${realCount} real` : `${realCount} real streams`) : 'Checking…'}
+                  color="#6366F1"
+                  ringPct={(activeCount / 6) * 100}
+                />
+                <KpiCard
+                  icon={<Bell size={18} />}
+                  label="Unread Alerts"
+                  value={`${unread}`}
+                  sub={`${alerts.length} total stored`}
+                  color="#F59E0B"
+                />
+                <KpiCard
+                  icon={<Zap size={18} />}
+                  label="Flagged Scores"
+                  value={`${flaggedScores}`}
+                  sub={`of ${scores.length} stored model outputs`}
+                  color="#EF4444"
+                />
+                <KpiCard
+                  icon={<Wifi size={18} />}
+                  label="Live Channel"
+                  value={wsStatus === 'connected' ? 'Connected' : 'Offline'}
+                  sub={wsStatus === 'connected' ? 'WebSocket streaming' : 'Attempting reconnect'}
+                  color="#0EA5E9"
+                />
+              </div>
+
+              {/* ═══════ MODALITY STATUS DETAIL ═══════ */}
+              <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, padding: '22px 26px', animation: 'fadeUp 0.4s 0.3s both' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                  <Database size={16} color={C.sub} />
+                  <p style={{ fontSize: 14, fontWeight: 800, color: C.text }}>Ingestion Pipeline — per modality</p>
+                  <span style={{ fontSize: 10, color: C.muted, marginLeft: 'auto' }}>Source: GET /api/internal/ingestion/health</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+                  {['gsr', 'ppg', 'pulse', 'location', 'typing', 'app_usage'].map(mod => {
+                    const st = health?.active_modalities?.[mod] ?? 'inactive'
+                    return (
+                      <div key={mod} style={{ textAlign: 'center', padding: '12px 8px', borderRadius: 12, background: C.hover }}>
+                        <div style={{ marginBottom: 6 }}>
+                          <StatusDot status={st === 'real' ? 'healthy' : st === 'synthetic' ? 'warning' : 'offline'} size={8} />
+                        </div>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: C.text, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{mod.replace('_', ' ')}</p>
+                        <p style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{st}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

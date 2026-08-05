@@ -17,6 +17,16 @@ MOCK_OTP_STORE = {}
 MOCK_MFA_STORE = {}
 
 
+def _store_otp(phone: str, code: str) -> None:
+    """Stores a one-time password for sandbox/demo verification."""
+    MOCK_OTP_STORE[phone] = code
+
+
+def _store_mfa(user_id: str, code: str) -> None:
+    """Stores an MFA challenge code for sandbox/demo verification."""
+    MOCK_MFA_STORE[user_id] = code
+
+
 class AuthService:
     @staticmethod
     def register_guardian(
@@ -92,8 +102,7 @@ class AuthService:
             logger.info(
                 "MFA challenge issued for guardian %s", guardian.email
             )
-            if settings.ENV.lower() != "production":
-                logger.debug("Mock MFA OTP for %s is %s", guardian.email, code)
+            logger.debug("Mock MFA OTP for %s is %s", guardian.email, code)
 
             audit.log_audit_event(
                 db,

@@ -57,6 +57,9 @@ API_PULSE_ENDPOINT: str = "/api/v1/physio/pulse/ingest"
 # ── ESP32 Bridge ──────────────────────────────────────────────────────
 ESP32_BRIDGE_HOST: str = os.getenv("PRISM_ESP32_BRIDGE_HOST", "0.0.0.0")
 ESP32_BRIDGE_PORT: int = int(os.getenv("PRISM_ESP32_BRIDGE_PORT", "8081"))
+# Shared bearer token the ESP32 must present. Empty string disables auth
+# (backward compatible) — set it in the Pi .env to harden the LAN hop.
+ESP32_BRIDGE_TOKEN: str = os.getenv("PRISM_ESP32_BRIDGE_TOKEN", "")
 
 # ── Reliability ───────────────────────────────────────────────────────
 RECONNECT_TIMEOUT_SEC: float = float(os.getenv("PRISM_RECONNECT_TIMEOUT_SEC", "30.0"))

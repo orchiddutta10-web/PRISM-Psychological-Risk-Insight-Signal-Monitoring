@@ -12,6 +12,7 @@ from app.utils.companion_engine import (
     PERSONAS,
     handle_companion_message,
 )
+from app.utils.text_screening import screen_text
 
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
 
@@ -38,6 +39,27 @@ def list_personas():
         for k, v in PERSONAS.items()
     ]
 
+
+class SimulateMessageRequest(BaseModel):
+    persona_id: str
+    message: str
+
+
+@router.post("/simulate")
+def simulate_persona(
+    req: SimulateMessageRequest,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """Simulate a persona response for the guardian dashboard."""
+    from app.utils.companion_engine import _respond, PERSONAS
+    
+    if req.persona_id not in PERSONAS:
+        raise HTTPException(status_code=400, detail="Invalid persona ID")
+    
+    persona = PERSONAS[req.persona_id]
+    response_text = _respond(persona, req.message)
+    return {"response": response_text}
 
 @router.post("/sessions")
 def create_session(
@@ -94,6 +116,23 @@ def create_session(
     }
 
 
+def _screening_summary(message: str) -> dict:
+    """Compact explainable signal summary from the text screening layer."""
+    screen = screen_text(message)
+    top_signals = sorted(
+        ((k, v) for k, v in screen.emotion.items() if v > 0), key=lambda x: -x[1]
+    )[:3]
+    return {
+        "alert_level": screen.alert_level,
+        "risk_index": screen.risk_index,
+        "distress_index": screen.distress_index,
+        "protective_index": screen.protective_index,
+        "sentiment": screen.sentiment,
+        "top_emotions": [{"label": k, "score": v} for k, v in top_signals],
+        "contributing_factors": screen.contributing_factors[:5],
+    }
+
+
 @router.post("/sessions/{session_id}/message")
 def send_message(
     session_id: str,
@@ -125,6 +164,7 @@ def send_message(
         "status": "processed",
         "response": response_text,
         "crisis_flag": session.crisis_flag,
+        "signals": _screening_summary(req.message),
     }
 
 
@@ -273,6 +313,7 @@ async def meta_webhook(payload: dict, request: Request, db: Session = Depends(ge
         "channel": channel,
         "response": response_text,
         "crisis_flag": session.crisis_flag,
+        "signals": _screening_summary(message_text),
     }
 
 

@@ -1,4 +1,12 @@
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
+import pytest
+
+# Skip all tests in this file if OpenCV is not available
+pytestmark = pytest.mark.skipif(cv2 is None, reason="OpenCV not installed")
 import time
 import numpy as np
 import threading

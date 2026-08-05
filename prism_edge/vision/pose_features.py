@@ -8,6 +8,12 @@ NO activity recognition, NO emotion inference — numerical features only.
 import logging
 from typing import Optional, Dict, Any
 
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    HAS_CV2 = False
 import numpy as np
 
 from prism_edge import config

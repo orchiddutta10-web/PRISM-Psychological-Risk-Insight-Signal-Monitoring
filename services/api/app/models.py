@@ -509,12 +509,6 @@ class User(Base):
     devices = relationship(
         "Device", back_populates="user", cascade="all, delete-orphan"
     )
-    behavior_windows = relationship(
-        "BehaviorWindow", back_populates="user", cascade="all, delete-orphan"
-    )
-    alerts = relationship(
-        "AlertV2", back_populates="user", cascade="all, delete-orphan"
-    )
 
 
 class Device(Base):
@@ -608,13 +602,13 @@ class BehaviorWindow(Base):
     __tablename__ = "behavior_windows"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
     start_ts = Column(DateTime, nullable=False, index=True)
     end_ts = Column(DateTime, nullable=False)
     total_active_mins = Column(Float, nullable=False)
     sleep_hours_proxy = Column(Float, nullable=False)
 
-    user = relationship("User", back_populates="behavior_windows")
+    device = relationship("ChildDevice")
     risk_score = relationship(
         "RiskScoreV2",
         back_populates="window",
@@ -662,13 +656,13 @@ class AlertV2(Base):
     __tablename__ = "alerts_v2"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
     risk_score_id = Column(String, ForeignKey("risk_scores_v2.id"), nullable=True)
     created_at = Column(DateTime, default=_now, nullable=False)
     summary = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False, nullable=False)
 
-    user = relationship("User", back_populates="alerts")
+    device = relationship("ChildDevice")
     risk_score = relationship("RiskScoreV2")
 
 

@@ -2,11 +2,12 @@
 
 import React, { useEffect, useState, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { 
-  ShieldCheck, ArrowLeft, MapPin, Keyboard, Smartphone, 
+import {
+  ShieldCheck, ArrowLeft, MapPin, Keyboard, Smartphone,
   AlertTriangle, CheckCircle, Clock, BarChart3, ShieldAlert,
   ChevronDown, ChevronUp, Sliders, Moon, Sun, Eye, Info, X, HelpCircle
 } from 'lucide-react'
+import { API_BASE, buildWsUrl } from '../../../lib/api'
 
 interface AlertItem {
   id: string

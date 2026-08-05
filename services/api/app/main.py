@@ -22,7 +22,11 @@ models.Base.metadata.create_all(bind=engine)
 # Seed the Risk Registry
 from app.utils.risk_registry import seed_registry
 
-seed_registry(SessionLocal())
+db = SessionLocal()
+try:
+    seed_registry(db)
+finally:
+    db.close()
 
 
 class AuditLoggingMiddleware(BaseHTTPMiddleware):

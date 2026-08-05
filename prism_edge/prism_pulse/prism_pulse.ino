@@ -13,11 +13,12 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-// ── WiFi & API Config ─────────────────────────────────────────────
-#define WIFI_SSID       "Galaxy A23 5G F647"
-#define WIFI_PASSWORD   "123456789"
-#define API_BASE_URL    "http://192.168.180.193:8500"  // Laptop PRISM Edge Bridge
-#define DEVICE_JWT      ""                              // Edge bridge runs without JWT
+// WiFi & API credentials live in secrets.h (gitignored — never commit real values)
+#include "secrets.h"
+
+#ifndef WIFI_SSID
+#error "secrets.h missing — copy secrets.example.h to secrets.h and fill in your values"
+#endif
 
 // ── Pin Definitions ───────────────────────────────────────────────
 #define PULSE_PIN       34    // Analog Pulse Sensor (S) → GPIO34

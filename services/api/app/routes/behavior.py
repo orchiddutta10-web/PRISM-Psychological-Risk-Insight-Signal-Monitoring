@@ -212,12 +212,35 @@ class RAGSearchRequest(BaseModel):
 def rag_search(
     req: RAGSearchRequest,
     db: Session = Depends(get_db),
-    current_device: models.ChildDevice = Depends(auth.get_current_device),
+    current_user: models.Guardian = Depends(auth.get_current_user),
+    device_id: str | None = None,
 ):
     """
     Semantic search over conversation memory and knowledge base.
     Uses keyword matching as a fallback until vector embeddings are integrated.
+    Searchable by the guardian dashboard (guardian token) or a device.
     """
+    # Resolve the subject device: explicit device_id, else the guardian's first device
+    if device_id:
+        auth.verify_guardian_device_access(current_user, device_id, db)
+        subject_id = device_id
+    else:
+        device = (
+            db.query(models.ChildDevice)
+            .filter(models.ChildDevice.guardian_id == current_user.id)
+            .first()
+        )
+        subject_id = str(device.id) if device else None
+
+    if not subject_id:
+        return {
+            "query": req.query,
+            "results_count": 0,
+            "results": [],
+            "method": "keyword",
+            "note": "No paired device with conversation memory.",
+        }
+
     query_lower = req.query.lower()
     limit = req.top_k
 
@@ -225,7 +248,7 @@ def rag_search(
     memories = (
         db.query(models.ConversationMemory)
         .filter(
-            models.ConversationMemory.subject_id == current_device.id,
+            models.ConversationMemory.subject_id == subject_id,
             models.ConversationMemory.message.ilike(f"%{query_lower}%"),
         )
         .order_by(models.ConversationMemory.timestamp.desc())

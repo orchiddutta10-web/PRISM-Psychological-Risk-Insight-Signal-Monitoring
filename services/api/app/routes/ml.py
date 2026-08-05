@@ -202,7 +202,7 @@ def get_latest_insight(
     """
     latest = (
         db.query(models.RiskScoreV2)
-        .filter(models.RiskScoreV2.window.has(user_id=subject_id))
+        .filter(models.RiskScoreV2.window.has(subject_id=subject_id))
         .order_by(models.RiskScoreV2.id.desc())
         .first()
     )
@@ -242,7 +242,7 @@ def get_insight_history(
     """
     scores = (
         db.query(models.RiskScoreV2)
-        .filter(models.RiskScoreV2.window.has(user_id=subject_id))
+        .filter(models.RiskScoreV2.window.has(subject_id=subject_id))
         .order_by(models.RiskScoreV2.id.desc())
         .limit(limit)
         .all()
@@ -307,7 +307,7 @@ def get_explanation(
         # Fall back to most recent persisted insight
         latest = (
             db.query(models.RiskScoreV2)
-            .filter(models.RiskScoreV2.window.has(user_id=subject_id))
+            .filter(models.RiskScoreV2.window.has(subject_id=subject_id))
             .order_by(models.RiskScoreV2.id.desc())
             .first()
         )
@@ -571,7 +571,7 @@ def get_analytics(
     recent_scores = (
         db.query(models.RiskScoreV2)
         .join(models.BehaviorWindow, models.RiskScoreV2.window_id == models.BehaviorWindow.id)
-        .filter(models.BehaviorWindow.user_id == subject_id)
+        .filter(models.BehaviorWindow.subject_id == subject_id)
         .order_by(models.BehaviorWindow.start_ts.desc())
         .limit(30)
         .all()

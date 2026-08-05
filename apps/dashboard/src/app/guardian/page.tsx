@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ShieldCheck, ArrowLeft, Bell, User, Clock, TrendingUp,
@@ -83,7 +83,7 @@ export default function GuardianDashboardPage() {
   const [selectedSeverity, setSelectedSeverity] = useState<string | null>(null)
   const [connectInput, setConnectInput] = useState('')
 
-  const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  const headers = useMemo(() => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }), [token])
 
   useEffect(() => {
     const t = localStorage.getItem('prism_token')
@@ -91,19 +91,7 @@ export default function GuardianDashboardPage() {
     setToken(t)
   }, [router])
 
-  useEffect(() => {
-    if (!token) return
-    fetchConnections()
-  }, [token])
-
-  useEffect(() => {
-    if (activeConn) {
-      fetchDashboard(activeConn.id)
-      fetchAlerts(activeConn.id)
-    }
-  }, [activeConn])
-
-  const fetchConnections = async () => {
+  const fetchConnections = useCallback(async () => {
     try {
       const res = await fetch(`${API}/connections`, { headers })
       if (res.ok) {
@@ -115,25 +103,39 @@ export default function GuardianDashboardPage() {
         setLoading(false)
       }
     } catch { setLoading(false) }
-  }
+  }, [headers])
 
-  const fetchDashboard = async (connId: string) => {
+  const fetchDashboard = useCallback(async (connId: string) => {
     try {
       const res = await fetch(`${API}/dashboard/${connId}`, { headers })
       if (res.ok) setDashboard(await res.json())
     } catch {} finally { setLoading(false) }
-  }
+  }, [headers])
 
-  const fetchAlerts = async (connId: string) => {
+  // Severity is passed explicitly — reading it from state here would race
+  // with setSelectedSeverity and fetch with the previous filter value.
+  const fetchAlerts = useCallback(async (connId: string, severity: string | null = null) => {
     try {
-      const params = selectedSeverity ? `?severity=${selectedSeverity}` : ''
+      const params = severity ? `?severity=${encodeURIComponent(severity)}` : ''
       const res = await fetch(`${API}/alerts/${connId}${params}`, { headers })
       if (res.ok) {
         const data = await res.json()
         setAlerts(data.alerts || [])
       }
     } catch {}
-  }
+  }, [headers])
+
+  useEffect(() => {
+    if (!token) return
+    fetchConnections()
+  }, [token, fetchConnections])
+
+  useEffect(() => {
+    if (activeConn) {
+      fetchDashboard(activeConn.id)
+      fetchAlerts(activeConn.id, selectedSeverity)
+    }
+  }, [activeConn, selectedSeverity, fetchDashboard, fetchAlerts])
 
   const acknowledge = async (alertId: string) => {
     if (!activeConn) return
@@ -143,16 +145,6 @@ export default function GuardianDashboardPage() {
         body: JSON.stringify({ connection_id: activeConn.id }),
       })
       setAlerts(prev => prev.map(a => a.id === alertId ? { ...a, is_acknowledged: true } : a))
-    } catch {}
-  }
-
-  const seedDemo = async () => {
-    if (!activeConn) return
-    try {
-      await fetch(`${API}/connections/${activeConn.id}/seed-demo`, {
-        method: 'POST', headers,
-      })
-      fetchAlerts(activeConn.id)
     } catch {}
   }
 
@@ -185,7 +177,25 @@ export default function GuardianDashboardPage() {
 
   if (!activeConn) {
     return (
-      <div style={{ minHeight: '100vh', background: '#F4F4F2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div style={{ minHeight: '100vh', background: '#F4F4F2', fontFamily: "'Inter', system-ui, sans-serif", position: 'relative' }}>
+        <header style={{
+          height: 58, background: '#fff', borderBottom: '1px solid #EBEBEB',
+          display: 'flex', alignItems: 'center', padding: '0 28px', gap: 16,
+          position: 'sticky', top: 0, zIndex: 100,
+        }}>
+          <button onClick={() => router.push('/overview')} style={{
+            display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none',
+            cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#6B6B6B',
+          }}><ArrowLeft size={16} /> Dashboard</button>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: '#0A0A0A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ShieldCheck size={16} color="#fff" />
+            </div>
+            <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-0.01em' }}>Guardian Dashboard</span>
+          </div>
+        </header>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 58px)' }}>
         <div style={{ textAlign: 'center', maxWidth: 480, padding: 32, background: '#fff', borderRadius: 24, border: '1px solid #EBEBEB', boxShadow: '0 8px 40px rgba(0,0,0,0.06)' }}>
           <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#0A0A0A', margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ShieldCheck size={28} color="#fff" />
@@ -214,6 +224,7 @@ export default function GuardianDashboardPage() {
             You&apos;ll see behavioral trends only — never messages, conversations, or private content.
           </p>
         </div>
+        </div>
       </div>
     )
   }
@@ -236,12 +247,6 @@ export default function GuardianDashboardPage() {
           </div>
           <span style={{ fontSize: 15, fontWeight: 800, letterSpacing: '-0.01em' }}>Guardian Dashboard</span>
         </div>
-        {false && (
-          <button onClick={seedDemo} style={{
-            padding: '6px 14px', borderRadius: 8, border: '1px solid #EBEBEB',
-            background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#6B6B6B',
-          }}>Seed Demo Alerts</button>
-        )}
       </header>
 
       <div style={{ maxWidth: 960, margin: '0 auto', padding: '32px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -309,7 +314,7 @@ export default function GuardianDashboardPage() {
             {/* Severity filters */}
             <div style={{ display: 'flex', gap: 6 }}>
               {Object.entries(SEVERITY_CONFIG).map(([key, cfg]) => (
-                <button key={key} onClick={() => { setSelectedSeverity(selectedSeverity === key ? null : key); if (activeConn) fetchAlerts(activeConn.id) }}
+                <button key={key} onClick={() => setSelectedSeverity(selectedSeverity === key ? null : key)}
                   style={{
                     padding: '4px 10px', borderRadius: 8, border: selectedSeverity === key ? `2px solid ${cfg.color}` : '1px solid #EBEBEB',
                     background: selectedSeverity === key ? cfg.bg : '#fff', cursor: 'pointer',

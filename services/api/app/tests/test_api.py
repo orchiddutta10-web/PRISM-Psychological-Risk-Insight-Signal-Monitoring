@@ -684,7 +684,7 @@ def test_companion_chat():
         in response.json()["disclosure_banner"]
     )
 
-    # 5. Send normal message
+    # 5. Send normal message — response must be message-aware, not random
     response = client.post(
         f"/api/v1/companion/sessions/{session_id}/message",
         headers={"Authorization": f"Bearer {device_jwt}"},
@@ -694,6 +694,37 @@ def test_companion_chat():
     assert response.json()["status"] == "processed"
     assert "Direct Coach" in response.json()["response"]
     assert response.json()["crisis_flag"] is False
+    assert "signals" in response.json()
+
+    # 5b. Same message must produce a deterministic, relevant reply
+    response2 = client.post(
+        f"/api/v1/companion/sessions/{session_id}/message",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json={"message": "I want to improve my screen time habits."},
+    )
+    assert response2.status_code == 200
+    assert response2.json()["response"] == response.json()["response"]
+
+    # 5c. Anxious message gets an anxiety-aware response
+    anxious = client.post(
+        f"/api/v1/companion/sessions/{session_id}/message",
+        headers={"Authorization": f"Bearer {device_jwt}"},
+        json={"message": "I keep feeling anxious before school"},
+    )
+    assert anxious.status_code == 200
+    assert "worry" in anxious.json()["response"].lower() or "anxiety" in anxious.json()["response"].lower()
+
+    # 5d. Conversation memory is persisted for RAG / mood endpoints
+    db = TestingSessionLocal()
+    memories = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.session_id == session_id)
+        .all()
+    )
+    assert len(memories) >= 4  # user + assistant for each exchange above
+    assert any("improve my screen time" in m.message for m in memories)
+    assert all(m.sentiment in ("positive", "negative", "neutral") for m in memories)
+    db.close()
 
     # 6. Send crisis message (should bypass and flag)
     response = client.post(
@@ -1125,3 +1156,59 @@ def test_mfa_flow():
         assert res_verify.json()["token_type"] == "bearer"
     finally:
         settings.ENV = original_env
+
+
+def test_guardian_connections_endpoint():
+    """Regression: GET /api/v1/guardian/connections returns device_name via join.
+
+    Guards against the N+1 re-introduction where each connection fired two
+    extra device queries inside the list comprehension.
+    """
+    # Setup guardian + device
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Connection Tester",
+            "email": "connections@example.com",
+            "password": "password123",
+        },
+    )
+    res_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "connections@example.com", "password": "password123"},
+    )
+    guardian_token = res_login.json()["access_token"]
+
+    res_dev = client.post(
+        "/api/v1/auth/device",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"name": "Kid Device", "platform": "android", "device_token": "conn-tok-1"},
+    )
+    device_id = res_dev.json()["device"]["id"]
+
+    # Create a connection (auto-active in MVP)
+    res_conn = client.post(
+        "/api/v1/guardian/connections",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+        json={"device_id": device_id},
+    )
+    assert res_conn.status_code == 201
+    connection_id = res_conn.json()["connection_id"]
+
+    # List connections — must include the device_name from the join
+    res_list = client.get(
+        "/api/v1/guardian/connections",
+        headers={"Authorization": f"Bearer {guardian_token}"},
+    )
+    assert res_list.status_code == 200
+    data = res_list.json()
+    assert isinstance(data, list)
+    assert len(data) == 1
+    assert data[0]["id"] == connection_id
+    assert data[0]["device_id"] == device_id
+    assert data[0]["device_name"] == "Kid Device"
+    assert data[0]["status"] == "active"
+
+    # Unauthenticated access is rejected
+    res_unauth = client.get("/api/v1/guardian/connections")
+    assert res_unauth.status_code == 401

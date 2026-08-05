@@ -105,7 +105,7 @@ def _seed_db_with_data(subject_id: str):
         start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         end = day.replace(hour=23, minute=59, second=59, microsecond=0)
         bw = models.BehaviorWindow(
-            user_id=subject_id,
+            subject_id=subject_id,
             start_ts=start,
             end_ts=end,
             total_active_mins=180.0,
@@ -413,7 +413,7 @@ class TestMLEngineIntegration:
         db = TestingSessionLocal()
         try:
             score = db.query(models.RiskScoreV2).filter(
-                models.RiskScoreV2.window.has(user_id=subj)
+                models.RiskScoreV2.window.has(subject_id=subj)
             ).first()
             # May or may not have persisted if no window exists, but evaluate_and_persist
             # should not crash.

@@ -25,8 +25,21 @@ def _create_app():
 
     app = Flask(__name__)
 
+    def _check_auth(request):
+        """Return None if authorized, else an error response."""
+        token = config.ESP32_BRIDGE_TOKEN
+        if not token:
+            return None  # auth disabled (backward compatible)
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header == f"Bearer {token}":
+            return None
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+
     @app.route("/api/v1/physio/pulse/ingest", methods=["POST"])
     def pulse_ingest():
+        auth_error = _check_auth(request)
+        if auth_error is not None:
+            return auth_error
         try:
             payload = request.get_json(force=True)
         except Exception:
