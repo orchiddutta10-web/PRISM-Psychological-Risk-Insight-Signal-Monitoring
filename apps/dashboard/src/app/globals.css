@@ -37,6 +37,13 @@
   --status-warn:   var(--gray-500);
   --status-alert:  var(--black);
 
+  /* Design-system accents (restrained — red reserved for high severity) */
+  --primary:       #312E81;
+  --primary-soft:  #6366F1;
+  --accent-amber:  #D97706;
+  --accent-sage:   #10B981;
+  --accent-red:    #DC2626;
+
   font-family: 'Inter', system-ui, sans-serif;
 }
 
@@ -130,6 +137,12 @@ body {
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: translateY(0) } }
 @keyframes pulse { 0%, 100% { opacity: 0.5 } 50% { opacity: 1 } }
 
+/* Notification slide-over + mobile drawer */
+@keyframes slideInRight { from { opacity: 0; transform: translateX(24px) } to { opacity: 1; transform: translateX(0) } }
+@keyframes drawerSlide { from { opacity: 0; transform: translateX(-24px) } to { opacity: 1; transform: translateX(0) } }
+.anim-slide-right { animation: slideInRight 0.3s cubic-bezier(0.16,1,0.3,1) both; }
+.anim-drawer     { animation: drawerSlide 0.28s cubic-bezier(0.16,1,0.3,1) both; }
+
 /* scrollbar styles used by overview */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -217,3 +230,13 @@ body {
 .status-dot.warn  { background: var(--gray-500); }
 .status-dot.alert { background: var(--black); }
 [data-theme='dark'] .status-dot.ok { background: var(--gray-300); }
+
+/* ─── Reduced motion ───────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
