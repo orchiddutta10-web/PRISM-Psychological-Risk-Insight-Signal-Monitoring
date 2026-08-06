@@ -3,7 +3,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException, status
 from typing import Optional
 import random
-from jose import jwt, JWTError
+import jwt
 
 from app import models, schemas
 from app.utils import auth, audit
@@ -135,7 +135,7 @@ class AuthService:
             token_type = data.get("type")
             if not user_id or token_type != "mfa_pending":
                 raise HTTPException(status_code=401, detail="Invalid MFA token")
-        except JWTError:
+        except jwt.PyJWTError:
             raise HTTPException(status_code=401, detail="Expired or invalid MFA token")
 
         expected_code = MOCK_MFA_STORE.get(user_id)

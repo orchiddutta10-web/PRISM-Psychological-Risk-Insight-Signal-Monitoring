@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { ApiClient } from '../services/api';
 
 interface Persona {
@@ -147,7 +147,7 @@ export default function CompanionScreen({ onBackToDashboard }: { onBackToDashboa
         <Text style={styles.headerTitle}>AI Companion</Text>
         <TouchableOpacity 
           style={styles.voiceCallButton} 
-          onPress={() => alert("Voice Call Channel: Coming Soon (Phase 2)")}
+          onPress={() => Alert.alert("Voice Call", "Voice Call Channel: Coming Soon (Phase 2)")}
         >
           <Text style={styles.voiceCallText}>📞 Call (Soon)</Text>
         </TouchableOpacity>

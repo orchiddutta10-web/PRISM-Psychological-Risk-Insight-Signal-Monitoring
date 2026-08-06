@@ -352,7 +352,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
         return
 
     try:
-        from jose import jwt
+        import jwt
         from app.config import settings
 
         payload = jwt.decode(
@@ -363,7 +363,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
         if not sub_id or token_type not in ["guardian", "device"]:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
-    except Exception:
+    except jwt.PyJWTError:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -661,9 +661,13 @@ def get_behavioral_insights(
             {
                 "name": dim,
                 "score": (latest_by_dim[dim].score if dim in latest_by_dim else None),
-                "flagged": (latest_by_dim[dim].flagged if dim in latest_by_dim else False),
+                "flagged": (
+                    latest_by_dim[dim].flagged if dim in latest_by_dim else False
+                ),
                 "contributing_factors": (
-                    latest_by_dim[dim].contributing_factors if dim in latest_by_dim else []
+                    latest_by_dim[dim].contributing_factors
+                    if dim in latest_by_dim
+                    else []
                 ),
                 "timestamp": (
                     latest_by_dim[dim].timestamp.isoformat()
@@ -791,7 +795,7 @@ def seed_baselines(
             tzinfo=timezone.utc
         )
         age_years = (datetime.now(timezone.utc) - dob_dt).days / 365.25
-    except Exception:
+    except ValueError:
         raise HTTPException(
             status_code=400, detail="Invalid date of birth format. Use YYYY-MM-DD"
         )
@@ -799,7 +803,7 @@ def seed_baselines(
     try:
         h, m = map(int, req.usual_bedtime.split(":"))
         bedtime_hours = h + m / 60.0
-    except Exception:
+    except ValueError:
         raise HTTPException(status_code=400, detail="Invalid bedtime format. Use HH:MM")
 
     # Clean existing guardian_reported baselines for this device

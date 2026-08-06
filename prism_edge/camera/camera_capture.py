@@ -1,21 +1,33 @@
 """
 Camera capture module for PRISM Edge Behaviour Node.
-Handles USB webcam init, frame acquisition, reconnection, and graceful shutdown.
+Handles USB webcam init, frame capture, reconnection, and graceful shutdown.
 """
 
+from __future__ import annotations
+
 import logging
+import sys
 import threading
 import time
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
 from prism_edge import config
 
+if TYPE_CHECKING:
+    import cv2
+
+    VideoCapture = cv2.VideoCapture
+else:
+    VideoCapture = None  # type: ignore[assignment]
+
 try:
     import cv2
+
     HAS_CV2 = True
 except ImportError:
+    cv2: Any = None  # type: ignore[assignment]
     HAS_CV2 = False
 
 logger = logging.getLogger(__name__)
@@ -40,7 +52,12 @@ class CameraCapture:
         self._reconnect_delay: float = config.CAMERA_RECONNECT_DELAY
         self._backend: int = config.CAMERA_BACKEND
 
-        self._cap: Optional[cv2.VideoCapture] = None
+        # Default to V4L2 on Linux to avoid GStreamer Wayland/X11
+        # clipboard errors
+        if self._backend == 0 and sys.platform.startswith("linux") and HAS_CV2:
+            self._backend = cv2.CAP_V4L2
+
+        self._cap: Optional[VideoCapture] = None
         self._lock: threading.Lock = threading.Lock()
         self._running: bool = False
         self._connected: bool = False
@@ -53,7 +70,10 @@ class CameraCapture:
     # ── Public API ──────────────────────────────────────────────────
 
     def start(self) -> bool:
-        """Initialize camera and start continuous capture thread. Returns True on success."""
+        """
+        Initialize camera and start continuous capture thread.
+        Returns True on success.
+        """
         if not HAS_CV2:
             logger.warning("OpenCV not available — camera disabled")
             return False
@@ -66,12 +86,20 @@ class CameraCapture:
         if self._connected:
             logger.info(
                 "Camera %d opened: %dx%d @ %d fps",
-                self._camera_id, self._width, self._height, self._target_fps,
+                self._camera_id,
+                self._width,
+                self._height,
+                self._target_fps,
             )
         else:
-            logger.warning("Camera %d failed to open; will retry in background", self._camera_id)
+            logger.warning(
+                "Camera %d failed to open; will retry in background",
+                self._camera_id,
+            )
 
-        self._capture_thread = threading.Thread(target=self._capture_loop, name="camera-capture", daemon=True)
+        self._capture_thread = threading.Thread(
+            target=self._capture_loop, name="camera-capture", daemon=True
+        )
         self._capture_thread.start()
         return self._connected
 
@@ -80,8 +108,13 @@ class CameraCapture:
         self._running = False
         if self._capture_thread and self._capture_thread.is_alive():
             self._capture_thread.join(timeout=3.0)
-        self._release_camera()
-        logger.info("Camera released")
+            if self._capture_thread.is_alive():
+                logger.warning(
+                    "Camera capture thread did not terminate gracefully."
+                )
+        else:
+            self._release_camera()
+        logger.info("Camera stopped")
 
     def read(self) -> Tuple[Optional[np.ndarray], float]:
         """
@@ -89,7 +122,11 @@ class CameraCapture:
         Returns (frame, timestamp) or (None, 0.0) if no frame available.
         """
         with self._lock:
-            frame = self._last_frame.copy() if self._last_frame is not None else None
+            frame = (
+                self._last_frame.copy()
+                if self._last_frame is not None
+                else None
+            )
             ts = self._last_timestamp
         return frame, ts
 
@@ -116,7 +153,7 @@ class CameraCapture:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
         cap.set(cv2.CAP_PROP_FPS, self._target_fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # minimize latency
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize latency
 
         # Prefer MJPG codec on Linux for higher effective FPS
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -136,33 +173,43 @@ class CameraCapture:
         self._connected = self._init_camera()
         self._reconnect_count += 1
         if self._connected:
-            logger.info("Camera %d reconnected (attempt %d)", self._camera_id, self._reconnect_count)
+            logger.info(
+                "Camera %d reconnected (attempt %d)",
+                self._camera_id,
+                self._reconnect_count,
+            )
         else:
-            logger.warning("Camera %d reconnect failed (attempt %d)", self._camera_id, self._reconnect_count)
+            logger.warning(
+                "Camera %d reconnect failed (attempt %d)",
+                self._camera_id,
+                self._reconnect_count,
+            )
 
     def _capture_loop(self) -> None:
         """Background thread: continuously grab frames from the camera."""
-        while self._running:
-            if not self._connected:
-                self._reconnect()
-                continue
-
-            try:
-                ret, frame = self._cap.read()
-                if not ret or frame is None:
-                    logger.warning("Camera read returned empty frame")
+        try:
+            while self._running:
+                if not self._connected:
                     self._reconnect()
                     continue
 
-                timestamp = time.time()
-                self._frame_count += 1
+                try:
+                    assert self._cap is not None
+                    ret, frame = self._cap.read()
+                    if not ret or frame is None:
+                        logger.warning("Camera read returned empty frame")
+                        self._reconnect()
+                        continue
 
-                with self._lock:
-                    self._last_frame = frame
-                    self._last_timestamp = timestamp
+                    timestamp = time.time()
+                    self._frame_count += 1
 
-            except Exception as e:
-                logger.error("Camera read exception: %s", e)
-                self._reconnect()
+                    with self._lock:
+                        self._last_frame = frame
+                        self._last_timestamp = timestamp
 
-        self._release_camera()
+                except Exception as e:
+                    logger.error("Camera read exception: %s", e)
+                    self._reconnect()
+        finally:
+            self._release_camera()

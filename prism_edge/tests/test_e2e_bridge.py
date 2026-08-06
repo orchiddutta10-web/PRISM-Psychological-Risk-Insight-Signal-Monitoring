@@ -19,7 +19,10 @@ sys.path.insert(0, str(ROOT.parent))
 from prism_edge.bridge.esp32_bridge import start_bridge, shared_state, state_lock  # noqa
 
 
-BRIDGE_URL = "http://127.0.0.1:8081"
+from prism_edge import config
+
+def get_bridge_url():
+    return f"http://127.0.0.1:{config.ESP32_BRIDGE_PORT}"
 TEST_PAYLOAD = {
     "ts_ms": 12345,
     "pulse_raw": 2048,
@@ -36,13 +39,13 @@ def test_bridge_e2e():
     time.sleep(0.5)  # Allow server to start
 
     # Verify health endpoint
-    health = requests.get(f"{BRIDGE_URL}/health", timeout=2)
+    health = requests.get(f"{get_bridge_url()}/health", timeout=2)
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
 
     # Simulate ESP32 sending a pulse reading
     resp = requests.post(
-        f"{BRIDGE_URL}/api/v1/physio/pulse/ingest",
+        f"{get_bridge_url()}/api/v1/physio/pulse/ingest",
         json=TEST_PAYLOAD,
         timeout=2,
     )
@@ -50,7 +53,7 @@ def test_bridge_e2e():
     assert resp.json()["status"] == "accepted"
 
     # Verify latest endpoint reflects the stored reading
-    latest = requests.get(f"{BRIDGE_URL}/latest", timeout=2)
+    latest = requests.get(f"{get_bridge_url()}/latest", timeout=2)
     assert latest.status_code == 200, latest.text
     data = latest.json()
     assert data["status"] == "ok"

@@ -14,10 +14,8 @@
 #include <HTTPClient.h>
 
 // ── WiFi & API Config ─────────────────────────────────────────────
-#define WIFI_SSID       "Galaxy A23 5G F647"
-#define WIFI_PASSWORD   "123456789"
-#define ESP32_BRIDGE_URL    "http://192.168.180.97:8081"  // RPi Edge Bridge
-#define DEVICE_JWT      ""
+// Shared build-time configuration is in config.h at the project root.
+#include "config.h"
 
 // ── Pin Definitions ───────────────────────────────────────────────
 #define PULSE_PIN       34    // Analog Pulse Sensor (S) → GPIO34
@@ -163,7 +161,12 @@ void transmitReading() {
   HTTPClient http;
   http.begin(ESP32_BRIDGE_URL + String("/api/v1/physio/pulse/ingest"));
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", "Bearer " + String(DEVICE_JWT));
+  // Prefer bridge token for local bridge auth; fall back to device JWT
+  if (strlen(BRIDGE_TOKEN) > 0) {
+    http.addHeader("Authorization", "Bearer " + String(BRIDGE_TOKEN));
+  } else if (strlen(DEVICE_JWT) > 0) {
+    http.addHeader("Authorization", "Bearer " + String(DEVICE_JWT));
+  }
   http.setTimeout(3000); // 3 second HTTP timeout
 
   int httpCode = http.POST(jsonPayload);

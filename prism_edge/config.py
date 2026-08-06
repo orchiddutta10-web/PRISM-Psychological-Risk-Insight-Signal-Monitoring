@@ -67,6 +67,7 @@ API_PULSE_ENDPOINT: str = "/api/v1/physio/pulse/ingest"
 # ── ESP32 Bridge ──────────────────────────────────────────────────────
 ESP32_BRIDGE_HOST: str = os.getenv("PRISM_ESP32_BRIDGE_HOST", "0.0.0.0").strip()
 ESP32_BRIDGE_PORT: int = int(os.getenv("PRISM_ESP32_BRIDGE_PORT", "8081"))
+ESP32_BRIDGE_TOKEN: str = os.getenv("PRISM_ESP32_BRIDGE_TOKEN", "").strip()
 
 # ── Reliability ───────────────────────────────────────────────────────
 RECONNECT_TIMEOUT_SEC: float = float(os.getenv("PRISM_RECONNECT_TIMEOUT_SEC", "30.0"))
@@ -91,8 +92,19 @@ DEVICE_TYPE: str = "raspberry_pi_4b"
 
 def ensure_directories() -> None:
     """Create required directories if they don't exist."""
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    OFFLINE_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
+    global LOG_DIR, OFFLINE_QUEUE_DIR
+    for path in (LOG_DIR, OFFLINE_QUEUE_DIR):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            import tempfile
+
+            fallback = Path(tempfile.gettempdir()) / "prism-edge" / path.name
+            fallback.mkdir(parents=True, exist_ok=True)
+            if path is LOG_DIR:
+                LOG_DIR = fallback
+            else:
+                OFFLINE_QUEUE_DIR = fallback
 
 
 def print_config() -> None:

@@ -3,8 +3,10 @@
 # Install: pip install -r requirements.txt
 
 # Camera capture + image processing
+opencv-python-headless>=4.8.0
 
 # MediaPipe for face mesh + pose landmark extraction
+mediapipe>=0.10.0
 
 # Numerical computing
 numpy>=1.24.0,<2.0
@@ -27,6 +29,7 @@ python-dotenv>=1.0.0
 
 # ESP32 Bridge light HTTP server
 flask>=3.0.0
+waitress>=2.1.2
 
 # JSON structured logging
 python-json-logger>=2.0.0

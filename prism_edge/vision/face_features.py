@@ -6,8 +6,7 @@ Output is a flat dict of biometric measurements: eye openness, head pose, mouth 
 """
 
 import logging
-import time
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 try:
     import cv2
@@ -139,12 +138,9 @@ class FaceFeatureExtractor:
         landmarks = results.multi_face_landmarks[0]
         n_landmarks = len(landmarks.landmark)
 
-        # Scale landmarks back to original resolution
-        scale_x = 1.0 / self._scale
-        scale_y = 1.0 / self._scale
-
-        # Extract landmark coordinates as (N, 3) numpy array
-        pts = np.array([[lm.x * w * scale_x, lm.y * h * scale_y, lm.z * w * scale_x] for lm in landmarks.landmark])
+        # MediaPipe landmarks are normalized [0, 1] — multiply by original
+        # dimensions to get pixel coordinates regardless of input scale.
+        pts = np.array([[lm.x * w, lm.y * h, lm.z * w] for lm in landmarks.landmark])
 
         # ── Eye Openness ──────────────────────────────────────────
         left_eye_height = self._distance(pts[LEFT_EYE_TOP], pts[LEFT_EYE_BOTTOM])

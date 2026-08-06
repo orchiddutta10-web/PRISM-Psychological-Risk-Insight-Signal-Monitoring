@@ -4,6 +4,9 @@ import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShieldCheck, ArrowLeft, Inbox, ShieldAlert, Cpu, AlertTriangle, CheckCircle2, Info } from 'lucide-react'
 import { API, authFetch } from '@/lib/api'
+import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
 
 interface ApiAlert {
   id: string
@@ -37,7 +40,6 @@ export default function AlertsPage() {
 
   const loadAlerts = useCallback(async (token: string) => {
     try {
-      // 1. Fetch guardian's devices
       const devRes = await authFetch(`/auth/devices`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -46,7 +48,6 @@ export default function AlertsPage() {
       const nameMap: Record<string, string> = {}
       devices.forEach(d => { nameMap[d.id] = d.name })
 
-      // 2. Aggregate alerts across all devices
       const all: ApiAlert[] = []
       for (const device of devices) {
         const res = await fetch(`${API}/events/alerts/${device.id}`, {
@@ -109,21 +110,21 @@ export default function AlertsPage() {
           </div>
         </header>
 
-        <button type="button" onClick={() => router.push('/overview')} className="btn-ghost" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 24 }}>
+        <Button variant="ghost" onClick={() => router.push('/overview')} style={{ marginBottom: 24 }}>
           <ArrowLeft className="h-4 w-4" /> Back to Overview
-        </button>
+        </Button>
 
         {loading ? (
-          <div className="card" style={{ padding: 48, textAlign: 'center', borderRadius: 24 }}>
+          <Card style={{ padding: 48, textAlign: 'center' }}>
             <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Loading alerts…</p>
-          </div>
+          </Card>
         ) : error ? (
-          <div className="card" style={{ padding: 32, borderRadius: 24, textAlign: 'center' }}>
+          <Card style={{ padding: 32, textAlign: 'center' }}>
             <p style={{ margin: 0, fontSize: 15, color: '#EF4444' }}>⚠️ {error}</p>
             <p style={{ margin: '12px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>Check that the API is running on localhost:8000.</p>
-          </div>
+          </Card>
         ) : alerts.length === 0 ? (
-          <div className="card" style={{ padding: 32, borderRadius: 24, boxShadow: '0 35px 100px rgba(15, 23, 42, 0.08)' }}>
+          <Card style={{ padding: 32, boxShadow: '0 35px 100px rgba(15, 23, 42, 0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 20 }}>
               <div style={{ width: 58, height: 58, borderRadius: 18, background: 'rgba(59,130,246,0.1)', display: 'grid', placeItems: 'center' }}>
                 <Inbox className="h-6 w-6" color="#0B70D1" strokeWidth={2} />
@@ -142,7 +143,7 @@ export default function AlertsPage() {
                 Live ingestion is active — alerts will appear here automatically when deviations are detected.
               </span>
             </div>
-          </div>
+          </Card>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {alerts.map(a => {
@@ -164,9 +165,9 @@ export default function AlertsPage() {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, padding: '3px 12px', borderRadius: 20, background: meta.bg, color: meta.color }}>
+                        <Badge variant={a.severity_tier === 'red' ? 'danger' : a.severity_tier === 'amber' ? 'warning' : 'success'}>
                           ● {meta.label}
-                        </span>
+                        </Badge>
                         {!a.is_viewed && <span style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B' }}>NEW</span>}
                       </div>
                       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>

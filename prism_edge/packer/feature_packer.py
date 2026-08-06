@@ -5,6 +5,7 @@ the unified JSON payload for transmission to the PRISM AI Server.
 
 import json
 import logging
+import queue
 import threading
 import time
 from datetime import datetime, timezone
@@ -64,13 +65,17 @@ class FeaturePacker:
             payload = self._build_payload()
             try:
                 self._tx_queue.put_nowait(payload)
-            except Exception:
+            except queue.Full:
                 logger.warning("TX queue full — dropping oldest payload")
                 try:
-                    self._tx_queue.get_nowait()
-                    self._tx_queue.put_nowait(payload)
-                except Exception:
+                    while not self._tx_queue.empty():
+                        self._tx_queue.get_nowait()
+                except queue.Empty:
                     pass
+                try:
+                    self._tx_queue.put_nowait(payload)
+                except queue.Full:
+                    logger.error("TX queue still full after clearing — payload lost")
 
             elapsed = time.time() - cycle_start
             sleep_time = max(0.0, self._interval - elapsed)

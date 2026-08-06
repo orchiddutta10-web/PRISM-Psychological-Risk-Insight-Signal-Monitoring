@@ -1,5 +1,4 @@
-import base64
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from app.config import settings
 
 # Ensure key is valid base64 and 32 bytes. If not, generate a fallback key or pad/truncate it
@@ -7,7 +6,7 @@ try:
     key_bytes = settings.ENCRYPTION_KEY.encode()
     # Try creating Fernet instance to validate
     fernet_client = Fernet(key_bytes)
-except Exception:
+except ValueError:
     # Generate a secure fallback key if the configured key is invalid or default
     fallback_key = Fernet.generate_key()
     fernet_client = Fernet(fallback_key)
@@ -26,5 +25,5 @@ def decrypt_field(cipher_text: str) -> str:
         return ""
     try:
         return fernet_client.decrypt(cipher_text.encode()).decode()
-    except Exception:
+    except (InvalidToken, TypeError):
         return "[DECRYPTION_FAILED]"

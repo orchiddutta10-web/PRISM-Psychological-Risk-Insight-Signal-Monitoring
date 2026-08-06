@@ -182,9 +182,7 @@ def evaluate_typing_rhythm_model(
         # model so a brand-new device still gets guarded.
         flagged = delay_index > 1.4
         if flagged:
-            factors.append(
-                "Typing delay index above 1.4 (no personal baseline yet)."
-            )
+            factors.append("Typing delay index above 1.4 (no personal baseline yet).")
 
     # Normalize |z| to a 0..1 score for the risk engine
     score = min(1.0, abs(z_score) / 4.0) if baseline else (0.5 if flagged else 0.0)
@@ -449,8 +447,13 @@ async def run_risk_engine(
 async def aggregate_alerts(device_id: str, db: Session):
     """Aggregates scores and writes any generated alerts to PostgreSQL."""
     models_list = [
-        "mobility", "typing", "typing_rhythm", "behavioral_mental_risk",
-        "app_usage", "signatures", "pulse",
+        "mobility",
+        "typing",
+        "typing_rhythm",
+        "behavioral_mental_risk",
+        "app_usage",
+        "signatures",
+        "pulse",
     ]
     latest_scores = []
 
@@ -504,7 +507,9 @@ async def aggregate_alerts(device_id: str, db: Session):
         elif is_signatures_flagged and is_app_usage_flagged:
             summary = "Unsafe anonymous chat installation with overnight usage surge."
         elif is_pulse_flagged and is_mobility_flagged:
-            summary = "Elevated heart rate at rest with reduced movement — possible stress."
+            summary = (
+                "Elevated heart rate at rest with reduced movement — possible stress."
+            )
         elif is_mental_risk_flagged:
             summary = "Behavioral pattern suggests the child may benefit from attention — screening signal, not a diagnosis."
         else:
@@ -512,7 +517,9 @@ async def aggregate_alerts(device_id: str, db: Session):
     elif num_flags == 1:
         if is_pulse_flagged:
             severity = "red"
-            summary = "Physiological stress event detected via PRISM Node (high BPM at rest)."
+            summary = (
+                "Physiological stress event detected via PRISM Node (high BPM at rest)."
+            )
         elif is_mental_risk_flagged:
             severity = "amber"
             summary = "Elevated mental-risk screening signal from typing behavior — may warrant attention, not a diagnosis."

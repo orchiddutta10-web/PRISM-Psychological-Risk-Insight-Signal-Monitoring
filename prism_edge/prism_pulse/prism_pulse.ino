@@ -3,7 +3,7 @@
  * Sensors: Analog Pulse Sensor (GPIO34) | MPU6050 (I2C) | ISD1820 (GPIO4) | I2C LCD
  * 
  * Logic: Triggers ISD1820 only if High BPM + Low Movement is sustained for 15s.
- * Cloud:  Non-blocking WiFi HTTP POST to PRISM API every TX_INTERVAL ms.
+ * Cloud: Non-blocking WiFi HTTPS POST directly to PRISM Cloud API every TX_INTERVAL ms.
  */
 
 #include <Wire.h>
@@ -11,6 +11,7 @@
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 
 // ── WiFi & API Config ─────────────────────────────────────────────
@@ -159,16 +160,29 @@ void transmitReading() {
 
   txState = TX_BUSY;
 
+  String url = PRISM_API_URL + String("/api/v1/physio/pulse/ingest");
+
   HTTPClient http;
-  http.begin(ESP32_BRIDGE_URL + String("/api/v1/physio/pulse/ingest"));
+  if (url.startsWith("https://")) {
+    WiFiClientSecure client;
+    client.setInsecure(); // Required if not validating the root CA certificate
+    http.begin(client, url);
+  } else {
+    http.begin(url);
+  }
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", "Bearer " + String(DEVICE_JWT));
+  // Use device JWT since we are bypassing the local bridge
+  if (strlen(DEVICE_JWT) > 0) {
+    http.addHeader("Authorization", "Bearer " + String(DEVICE_JWT));
+  } else if (strlen(BRIDGE_TOKEN) > 0) {
+    http.addHeader("Authorization", "Bearer " + String(BRIDGE_TOKEN));
+  }
   http.setTimeout(3000); // 3 second HTTP timeout
 
   int httpCode = http.POST(jsonPayload);
   
   if (httpCode > 0) {
-    Serial.print("[HTTP] POST /pulse/ingest → "); Serial.print(httpCode);
+    Serial.print("[HTTPS] POST /pulse/ingest → "); Serial.print(httpCode);
     Serial.print(" — ");
     if (httpCode == 200 || httpCode == 201) {
       Serial.println("OK");
@@ -181,7 +195,7 @@ void transmitReading() {
       }
     }
   } else {
-    Serial.print("[HTTP] POST failed: "); Serial.println(http.errorToString(httpCode));
+    Serial.print("[HTTPS] POST failed: "); Serial.println(http.errorToString(httpCode));
     // Connection error likely means WiFi dropped
     wifiState = WIFI_DISCONNECTED;
   }

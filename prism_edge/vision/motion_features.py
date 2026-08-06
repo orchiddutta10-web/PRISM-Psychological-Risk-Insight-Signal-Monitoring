@@ -6,7 +6,6 @@ Computationally efficient — designed for 15 Hz on RPi 4B CPU.
 """
 
 import logging
-import time
 from typing import Dict, Any, Optional
 
 try:

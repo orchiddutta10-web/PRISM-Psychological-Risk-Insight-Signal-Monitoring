@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, Switch, TouchableOpacity, Alert, Modal, SafeAreaView } from 'react-native';
-import { Lock, CheckSquare, RefreshCw, UserCheck, Eye, ShieldAlert, X } from 'lucide-react-native';
+import { UserCheck, Eye, X } from 'lucide-react-native';
 import { ApiClient } from '../services/api';
 
 interface ConsentScreenProps {

@@ -6,11 +6,15 @@
 //   -DWIFI_SSID=\"MyNetwork\" -DWIFI_PASSWORD=\"secret\"
 
 #ifndef WIFI_SSID
-#define WIFI_SSID "Galaxy A23 5G F647"
+#define WIFI_SSID "AndroidShare_RS"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "123456789"
+#define WIFI_PASSWORD "orchid@12345"
+#endif
+
+#ifndef PRISM_API_URL
+#define PRISM_API_URL "http://192.168.180.97:8081"
 #endif
 
 #ifndef ESP32_BRIDGE_URL
@@ -19,6 +23,10 @@
 
 #ifndef DEVICE_JWT
 #define DEVICE_JWT ""
+#endif
+
+#ifndef BRIDGE_TOKEN
+#define BRIDGE_TOKEN ""
 #endif
 
 #endif // PRISM_PULSE_CONFIG_H

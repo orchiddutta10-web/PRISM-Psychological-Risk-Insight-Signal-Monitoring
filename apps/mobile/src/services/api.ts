@@ -24,22 +24,29 @@ export const TokenManager = {
     try {
       await SecureStore.setItemAsync('prism_jwt_token', token);
     } catch {
-      // Fallback for web testing
-      localStorage.setItem('prism_jwt_token', token);
+      // Fallback for web testing (localStorage is unavailable in React Native)
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('prism_jwt_token', token);
+      }
     }
   },
   async getToken() {
     try {
       return await SecureStore.getItemAsync('prism_jwt_token');
     } catch {
-      return localStorage.getItem('prism_jwt_token');
+      if (typeof localStorage !== 'undefined') {
+        return localStorage.getItem('prism_jwt_token');
+      }
+      return null;
     }
   },
   async clearToken() {
     try {
       await SecureStore.deleteItemAsync('prism_jwt_token');
     } catch {
-      localStorage.removeItem('prism_jwt_token');
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('prism_jwt_token');
+      }
     }
   }
 };

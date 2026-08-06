@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError, jwt
+import jwt
 from sqlalchemy.orm import Session
 
 from app import models
@@ -63,7 +63,7 @@ def get_current_user(
         token_type: str = payload.get("type", "guardian")
         if user_id is None or token_type != "guardian":
             raise credentials_exception
-    except JWTError:
+    except jwt.PyJWTError:
         raise credentials_exception
 
     guardian = db.query(models.Guardian).filter(models.Guardian.id == user_id).first()
@@ -91,7 +91,7 @@ def get_current_device(
         token_type: str = payload.get("type")
         if device_id is None or token_type != "device":
             raise credentials_exception
-    except JWTError:
+    except jwt.PyJWTError:
         raise credentials_exception
 
     device = (

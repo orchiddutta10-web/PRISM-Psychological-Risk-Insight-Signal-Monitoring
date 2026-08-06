@@ -171,7 +171,7 @@ class RiskScore(Base):
         val = decrypt_field(str(self.contributing_factors_json))
         try:
             return json.loads(val)
-        except Exception:
+        except (ValueError, TypeError):
             return []
 
     @contributing_factors.setter
@@ -202,7 +202,7 @@ class Alert(Base):
         val = decrypt_field(str(self.contributing_factors_json))
         try:
             return json.loads(val)
-        except Exception:
+        except (ValueError, TypeError):
             return []
 
     @contributing_factors.setter
@@ -247,7 +247,7 @@ class AuditLogEntry(Base):
         val = decrypt_field(str(self.audit_detail_json))
         try:
             return json.loads(val)
-        except Exception:
+        except (ValueError, TypeError):
             return {}
 
     @context.setter
@@ -316,7 +316,7 @@ class UnifiedEvent(Base):
         val = decrypt_field(str(self.encrypted_value))
         try:
             return json.loads(val)
-        except Exception:
+        except (ValueError, TypeError):
             return {}
 
     @value.setter
@@ -360,7 +360,7 @@ class VoiceSession(Base):
         val = decrypt_field(str(self.encrypted_features))
         try:
             return json.loads(val)
-        except Exception:
+        except (ValueError, TypeError):
             return {}
 
     @features.setter
@@ -467,7 +467,7 @@ class VoiceProfile(Base):
         val = decrypt_field(str(self.encrypted_voiceprint))
         try:
             return json.loads(val)
-        except Exception:
+        except (ValueError, TypeError):
             return []
 
     @voiceprint.setter

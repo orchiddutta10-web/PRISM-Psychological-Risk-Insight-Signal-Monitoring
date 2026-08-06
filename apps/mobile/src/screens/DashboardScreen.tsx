@@ -6,8 +6,6 @@ import {
   startTelemetry,
   pauseTelemetry,
   resumeTelemetry,
-  isTelemetryActive,
-  flushNow,
 } from '../services/TelemetryService';
 
 interface DashboardScreenProps {

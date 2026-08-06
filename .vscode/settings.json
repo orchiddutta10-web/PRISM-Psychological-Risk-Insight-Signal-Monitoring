@@ -1,3 +1,5 @@
 {
-    "python.analysis.typeCheckingMode": "standard"
+    "python.analysis.typeCheckingMode": "standard",
+    "python.terminal.useEnvFile": true,
+    "python.envFile": "${workspaceFolder}/services/api/.env"
 }

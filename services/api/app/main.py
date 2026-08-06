@@ -39,7 +39,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
             try:
-                from jose import jwt
+                import jwt
 
                 payload = jwt.decode(
                     token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM]
