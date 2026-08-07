@@ -20,6 +20,7 @@ client = TestClient(app)
 # Initialize the ML engine singleton for fusion tests
 from app.routes.ml import set_ml_engine
 from app.utils.prism_ml_engine import PrismMLEngine
+
 set_ml_engine(PrismMLEngine(TestingSessionLocal))
 
 
@@ -27,6 +28,7 @@ def _register_and_get_token(email_suffix: str = ""):
     """Register guardian + device, return auth_token and device_id."""
     if not email_suffix:
         import uuid
+
         email_suffix = uuid.uuid4().hex[:8]
     email = f"sensor-{email_suffix}@test.com"
     client.post(
@@ -202,6 +204,7 @@ class TestFusionAnalyze:
         # Seed some behavior windows so the engine can fit
         db = TestingSessionLocal()
         from datetime import timedelta
+
         now = datetime.now(timezone.utc)
         for i in range(14):
             day = now - timedelta(days=13 - i)
@@ -215,7 +218,11 @@ class TestFusionAnalyze:
             db.add(bw)
         # Seed sensor readings too
         for _ in range(10):
-            db.add(models.SensorReading(device_id=did, metric_type="bpm", value=72.0, timestamp=now))
+            db.add(
+                models.SensorReading(
+                    device_id=did, metric_type="bpm", value=72.0, timestamp=now
+                )
+            )
         db.commit()
         db.close()
 

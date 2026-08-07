@@ -59,25 +59,36 @@ class VoiceFeatureExtractor:
         try:
             # Lazy import to allow startup even if audio devices are missing
             import sounddevice as sd
+
             self._sd = sd
 
             devices = sd.query_devices()
-            input_devices = [i for i, d in enumerate(devices) if d.get("max_input_channels", 0) > 0]
+            input_devices = [
+                i for i, d in enumerate(devices) if d.get("max_input_channels", 0) > 0
+            ]
             if not input_devices:
                 logger.warning("No audio input devices found")
                 self._ready = False
                 return
 
-            logger.info("Audio input devices: %s", [devices[i]["name"] for i in input_devices])
+            logger.info(
+                "Audio input devices: %s", [devices[i]["name"] for i in input_devices]
+            )
             self._ready = True
         except Exception as e:
             logger.error("Failed to initialize sounddevice: %s", e)
             self._ready = False
             return
 
-        self._capture_thread = threading.Thread(target=self._capture_loop, name="voice-capture", daemon=True)
+        self._capture_thread = threading.Thread(
+            target=self._capture_loop, name="voice-capture", daemon=True
+        )
         self._capture_thread.start()
-        logger.info("Voice feature extractor started (%d Hz, %d ms chunks)", self._sample_rate, self._chunk_ms)
+        logger.info(
+            "Voice feature extractor started (%d Hz, %d ms chunks)",
+            self._sample_rate,
+            self._chunk_ms,
+        )
 
     def stop(self) -> None:
         self._running = False
@@ -152,7 +163,7 @@ class VoiceFeatureExtractor:
                 features = self._extract_features(audio)
 
                 # Track speaking vs silence
-                if features["rms_energy"] > 0.01:   # rough energy gate
+                if features["rms_energy"] > 0.01:  # rough energy gate
                     speaking_accum += self._chunk_ms / 1000.0
                 else:
                     silence_accum += self._chunk_ms / 1000.0
@@ -181,7 +192,7 @@ class VoiceFeatureExtractor:
         features = {}
 
         # ── RMS Energy ────────────────────────────────────────────
-        rms = float(np.sqrt(np.mean(audio ** 2)))
+        rms = float(np.sqrt(np.mean(audio**2)))
         features["rms_energy"] = round(rms, 4)
 
         # ── Loudness (dB relative to full scale) ──────────────────
@@ -200,22 +211,26 @@ class VoiceFeatureExtractor:
 
         if not voice_active:
             # Early exit — skip expensive DSP when no voice present
-            features.update({
-                "pitch_hz": 0.0,
-                "zero_crossing_rate": 0.0,
-                "mfcc_mean": [0.0] * self._n_mfcc,
-                "spectral_centroid_hz": 0.0,
-                "spectral_bandwidth_hz": 0.0,
-                "spectral_rolloff_hz": 0.0,
-                "chroma_mean": [0.0] * 12,
-            })
+            features.update(
+                {
+                    "pitch_hz": 0.0,
+                    "zero_crossing_rate": 0.0,
+                    "mfcc_mean": [0.0] * self._n_mfcc,
+                    "spectral_centroid_hz": 0.0,
+                    "spectral_bandwidth_hz": 0.0,
+                    "spectral_rolloff_hz": 0.0,
+                    "chroma_mean": [0.0] * 12,
+                }
+            )
             return features
 
         # ── Zero Crossing Rate & Voice Stability ──────────────────
-        zcr_array = librosa.feature.zero_crossing_rate(audio, frame_length=self._n_fft, hop_length=self._hop_length)
+        zcr_array = librosa.feature.zero_crossing_rate(
+            audio, frame_length=self._n_fft, hop_length=self._hop_length
+        )
         zcr = float(zcr_array.mean())
         features["zero_crossing_rate"] = round(zcr, 4)
-        
+
         # Voice stability proxy (inverse of ZCR std dev)
         zcr_std = float(zcr_array.std())
         features["voice_stability"] = round(1.0 / (zcr_std + 1e-6), 2)
@@ -229,33 +244,50 @@ class VoiceFeatureExtractor:
                 sr=self._sample_rate,
                 frame_length=self._n_fft,
             )
-            voiced_f0 = f0[voiced_flag] if voiced_flag is not None and f0 is not None else np.array([])
+            voiced_f0 = (
+                f0[voiced_flag]
+                if voiced_flag is not None and f0 is not None
+                else np.array([])
+            )
             pitch = float(np.median(voiced_f0)) if len(voiced_f0) > 0 else 0.0
             pitch_std = float(np.std(voiced_f0)) if len(voiced_f0) > 0 else 0.0
         except Exception:
             pitch = 0.0
             pitch_std = 0.0
-            
+
         features["pitch_hz"] = round(pitch, 2)
         features["pitch_variation"] = round(pitch_std, 2)
-        
+
         # ── Speech Rate Proxy (Envelope Peaks) ────────────────────
         try:
             # Envelope of the audio signal
-            envelope = np.abs(librosa.onset.onset_strength(y=audio, sr=self._sample_rate))
-            peaks = librosa.util.peak_pick(envelope, pre_max=3, post_max=3, pre_avg=3, post_avg=5, delta=0.5, wait=10)
+            envelope = np.abs(
+                librosa.onset.onset_strength(y=audio, sr=self._sample_rate)
+            )
+            peaks = librosa.util.peak_pick(
+                envelope,
+                pre_max=3,
+                post_max=3,
+                pre_avg=3,
+                post_avg=5,
+                delta=0.5,
+                wait=10,
+            )
             # peaks per second
             speech_rate = len(peaks) / (self._chunk_ms / 1000.0)
         except Exception:
             speech_rate = 0.0
-            
+
         features["speech_rate_proxy"] = round(speech_rate, 2)
 
         # ── MFCC ──────────────────────────────────────────────────
         try:
             mfcc = librosa.feature.mfcc(
-                y=audio, sr=self._sample_rate, n_mfcc=self._n_mfcc,
-                n_fft=self._n_fft, hop_length=self._hop_length,
+                y=audio,
+                sr=self._sample_rate,
+                n_mfcc=self._n_mfcc,
+                n_fft=self._n_fft,
+                hop_length=self._hop_length,
             )
             mfcc_mean = mfcc.mean(axis=1).tolist()
             features["mfcc_mean"] = [round(v, 3) for v in mfcc_mean]
@@ -264,19 +296,36 @@ class VoiceFeatureExtractor:
 
         # ── Spectral Features ─────────────────────────────────────
         try:
-            stft = np.abs(librosa.stft(audio, n_fft=self._n_fft, hop_length=self._hop_length))
+            stft = np.abs(
+                librosa.stft(audio, n_fft=self._n_fft, hop_length=self._hop_length)
+            )
             freqs = librosa.fft_frequencies(sr=self._sample_rate, n_fft=self._n_fft)
 
             # Spectral Centroid
-            centroid = librosa.feature.spectral_centroid(S=stft, sr=self._sample_rate, n_fft=self._n_fft, hop_length=self._hop_length)
+            centroid = librosa.feature.spectral_centroid(
+                S=stft,
+                sr=self._sample_rate,
+                n_fft=self._n_fft,
+                hop_length=self._hop_length,
+            )
             features["spectral_centroid_hz"] = round(float(centroid.mean()), 2)
 
             # Spectral Bandwidth
-            bandwidth = librosa.feature.spectral_bandwidth(S=stft, sr=self._sample_rate, n_fft=self._n_fft, hop_length=self._hop_length)
+            bandwidth = librosa.feature.spectral_bandwidth(
+                S=stft,
+                sr=self._sample_rate,
+                n_fft=self._n_fft,
+                hop_length=self._hop_length,
+            )
             features["spectral_bandwidth_hz"] = round(float(bandwidth.mean()), 2)
 
             # Spectral Rolloff
-            rolloff = librosa.feature.spectral_rolloff(S=stft, sr=self._sample_rate, n_fft=self._n_fft, hop_length=self._hop_length)
+            rolloff = librosa.feature.spectral_rolloff(
+                S=stft,
+                sr=self._sample_rate,
+                n_fft=self._n_fft,
+                hop_length=self._hop_length,
+            )
             features["spectral_rolloff_hz"] = round(float(rolloff.mean()), 2)
         except Exception:
             features["spectral_centroid_hz"] = 0.0
@@ -285,7 +334,12 @@ class VoiceFeatureExtractor:
 
         # ── Chroma ────────────────────────────────────────────────
         try:
-            chroma = librosa.feature.chroma_stft(y=audio, sr=self._sample_rate, n_fft=self._n_fft, hop_length=self._hop_length)
+            chroma = librosa.feature.chroma_stft(
+                y=audio,
+                sr=self._sample_rate,
+                n_fft=self._n_fft,
+                hop_length=self._hop_length,
+            )
             features["chroma_mean"] = [round(float(v), 3) for v in chroma.mean(axis=1)]
         except Exception:
             features["chroma_mean"] = [0.0] * 12

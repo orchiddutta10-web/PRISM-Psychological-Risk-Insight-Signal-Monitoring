@@ -54,8 +54,13 @@ class LCDController:
         """Open the serial port. Returns True on success."""
         try:
             import serial
-            self._ser = serial.Serial(self._port, self._baud, timeout=1.0, write_timeout=1.0)
-            logger.info("LCD controller connected on %s @ %d baud", self._port, self._baud)
+
+            self._ser = serial.Serial(
+                self._port, self._baud, timeout=1.0, write_timeout=1.0
+            )
+            logger.info(
+                "LCD controller connected on %s @ %d baud", self._port, self._baud
+            )
             return True
         except ImportError:
             logger.warning("pyserial not installed — LCD controller disabled")

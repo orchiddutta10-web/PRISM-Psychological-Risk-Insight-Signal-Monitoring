@@ -48,7 +48,10 @@ def _create_app():
         required = ["ts_ms", "pulse_raw", "bpm", "g_force", "alert_status"]
         for field in required:
             if field not in payload:
-                return jsonify({"status": "error", "message": f"Missing field: {field}"}), 400
+                return (
+                    jsonify({"status": "error", "message": f"Missing field: {field}"}),
+                    400,
+                )
 
         with state_lock:
             shared_state["esp32_pulse"] = {
@@ -58,8 +61,12 @@ def _create_app():
                 "g_force": payload["g_force"],
                 "alert_status": payload["alert_status"],
             }
-        logger.debug("ESP32 pulse: bpm=%s g=%.2f status=%s",
-                      payload.get("bpm"), payload.get("g_force"), payload.get("alert_status"))
+        logger.debug(
+            "ESP32 pulse: bpm=%s g=%.2f status=%s",
+            payload.get("bpm"),
+            payload.get("g_force"),
+            payload.get("alert_status"),
+        )
         return jsonify({"status": "accepted"})
 
     @app.route("/health", methods=["GET"])

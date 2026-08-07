@@ -49,7 +49,9 @@ def verify_guardian_connection(
 class GuardianDashboardResponse(BaseModel):
     connection_id: str
     device_name: str
-    current_status: str  # stable | improving | mild_change | needs_attention | high_concern
+    current_status: (
+        str  # stable | improving | mild_change | needs_attention | high_concern
+    )
     status_summary: str
     stability_score: float
     recent_changes: str

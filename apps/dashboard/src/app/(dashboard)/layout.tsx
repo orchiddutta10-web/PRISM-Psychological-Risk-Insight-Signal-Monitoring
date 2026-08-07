@@ -32,7 +32,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ]
 
   const Sidebar = () => (
-    <div className="flex flex-col h-full bg-[#0A0A0A] border-r border-[#1C1C1E] text-[#D9D8D4] presentation-hide-sidebar">
+    <nav className="flex flex-col h-full bg-[#0A0A0A] border-r border-[#1C1C1E] text-[#D9D8D4] presentation-hide-sidebar">
       {/* Brand Header */}
       <div className="h-16 flex items-center px-6 border-b border-[#1C1C1E]">
         <div className="flex items-center gap-3">
@@ -45,7 +45,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
 
       {/* Nav Links */}
-      <nav className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
+      <div className="flex-1 overflow-y-auto py-6 px-3 space-y-1">
         <p className="px-3 text-[10px] font-bold tracking-[0.12em] text-[#8E8E93] uppercase mb-4">Core Platform</p>
         
         {NAVIGATION.map((item) => {
@@ -66,7 +66,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           )
         })}
-      </nav>
+      </div>
 
       {/* Footer Profile & Logout */}
       <div className="p-4 border-t border-[#1C1C1E]">
@@ -78,7 +78,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           Sign out
         </button>
       </div>
-    </div>
+    </nav>
   )
 
   return (

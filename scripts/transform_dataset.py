@@ -2,6 +2,7 @@
 """
 Script to process a large CSV dataset row-by-row using Google Gemini API for CBT-styled responses.
 """
+
 import os
 import sys
 import csv
@@ -12,11 +13,21 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 from tqdm import tqdm
-from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type, before_sleep_log
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_random_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 from google import genai
 from google.genai import types
-from google.api_core.exceptions import ResourceExhausted, TooManyRequests, ServiceUnavailable
+from google.api_core.exceptions import (
+    ResourceExhausted,
+    TooManyRequests,
+    ServiceUnavailable,
+)
 
 # =======================
 # Configuration Constants
@@ -46,6 +57,7 @@ SYSTEM_INSTRUCTION = (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def load_api_key():
     """Load Gemini API key from environment using dotenv."""
     load_dotenv("services/api/.env")
@@ -55,10 +67,12 @@ def load_api_key():
         sys.exit(1)
     return api_key
 
+
 def init_gemini_client(api_key: str):
     """Initialize the Google Gen AI Gemini client with the provided API key."""
     genai_client = genai.Client(api_key=api_key)
     return genai_client
+
 
 # Define retry conditions for API calls
 retry_exceptions = (
@@ -68,6 +82,7 @@ retry_exceptions = (
     # Include generic exceptions for transient network issues
     Exception,
 )
+
 
 @retry(
     reraise=True,
@@ -95,6 +110,7 @@ def call_gemini(client: genai.Client, text: str) -> str:
     )
     return response.text
 
+
 def main():
     # Load API key and initialize Gemini client
     api_key = load_api_key()
@@ -117,7 +133,9 @@ def main():
     err_file = open(ERROR_FILE, mode="a", newline="", encoding="utf-8")
     err_writer = csv.writer(err_file)
     if not error_exists:
-        err_writer.writerow(["row_number", "patient_text", "error_type", "error_message", "timestamp"])
+        err_writer.writerow(
+            ["row_number", "patient_text", "error_type", "error_message", "timestamp"]
+        )
 
     # Load or initialize checkpoint
     last_processed = 0
@@ -127,14 +145,20 @@ def main():
                 data = json.load(cp)
                 last_processed = int(data.get("last_processed", 0))
         except Exception as e:
-            logger.warning(f"Could not read checkpoint file, starting from scratch: {e}")
+            logger.warning(
+                f"Could not read checkpoint file, starting from scratch: {e}"
+            )
             last_processed = 0
 
     # Open input file for streaming read
     with open(INPUT_FILE, "r", encoding="utf-8", newline="") as f_in:
         reader = csv.DictReader(f_in)
         # Setup CSV writer with new column
-        fieldnames = reader.fieldnames + ["CBT_Coach"] if reader.fieldnames else ["Patient", "CBT_Coach"]
+        fieldnames = (
+            reader.fieldnames + ["CBT_Coach"]
+            if reader.fieldnames
+            else ["Patient", "CBT_Coach"]
+        )
         writer = csv.DictWriter(out_file, fieldnames=fieldnames)
         if not output_exists:
             writer.writeheader()
@@ -150,7 +174,9 @@ def main():
 
         # Initialize progress bar
         if total_lines:
-            pbar = tqdm(total=total_lines, initial=last_processed, desc="Processing rows")
+            pbar = tqdm(
+                total=total_lines, initial=last_processed, desc="Processing rows"
+            )
         else:
             pbar = tqdm(desc="Processing rows")
 
@@ -176,7 +202,9 @@ def main():
                     err_type = type(e).__name__
                     err_msg = str(e).replace("\n", " ")
                     timestamp = datetime.now().isoformat()
-                    err_writer.writerow([row_number, patient_text, err_type, err_msg, timestamp])
+                    err_writer.writerow(
+                        [row_number, patient_text, err_type, err_msg, timestamp]
+                    )
                     err_file.flush()
                     failed_count += 1
                 finally:
@@ -198,6 +226,7 @@ def main():
     out_file.close()
     err_file.close()
     # Removed client.close() here
+
 
 if __name__ == "__main__":
     main()

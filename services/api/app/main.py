@@ -8,7 +8,20 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app import models
 from app.config import settings
 from app.database import SessionLocal, engine
-from app.routes import audit, auth, behavior, companion, consent, guardian, ml, offline, physio, sensors, telemetry, voice
+from app.routes import (
+    audit,
+    auth,
+    behavior,
+    companion,
+    consent,
+    guardian,
+    ml,
+    offline,
+    physio,
+    sensors,
+    telemetry,
+    voice,
+)
 from app.routes.ml import set_ml_engine
 from app.utils.observability import APMMiddleware, setup_structured_logging
 from app.utils.prism_ml_engine import PrismMLEngine
@@ -87,7 +100,9 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 db.add(entry)
                 db.commit()
             except Exception as e:
-                logging.getLogger(__name__).error("Failed to log audit event: %s", str(e))
+                logging.getLogger(__name__).error(
+                    "Failed to log audit event: %s", str(e)
+                )
             finally:
                 db.close()
 
@@ -96,13 +111,16 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
 # ── Lifespan — replaces deprecated @app.on_event("startup") ────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     set_ml_engine(PrismMLEngine(SessionLocal))
     if settings.DEMO_MODE:
         import logging
+
         logging.getLogger(__name__).info("Starting Demo Mode simulation engine...")
         from app.demo_simulation_engine import start_simulation
+
         start_simulation()
     yield
 
@@ -157,4 +175,5 @@ app.include_router(offline.router)
 
 if settings.DEMO_MODE:
     from app.routes import demo
+
     app.include_router(demo.router)

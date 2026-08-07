@@ -83,13 +83,45 @@ _CRISIS_KEYWORDS = [
     "don't want to live",
 ]
 
-_FEAR_KEYWORDS = ["anxious", "anxiety", "scared", "afraid", "worried", "panic", "nervous"]
-_SAD_KEYWORDS = ["sad", "depress", "down", "miserable", "cry", "tears", "grief", "hopeless"]
+_FEAR_KEYWORDS = [
+    "anxious",
+    "anxiety",
+    "scared",
+    "afraid",
+    "worried",
+    "panic",
+    "nervous",
+]
+_SAD_KEYWORDS = [
+    "sad",
+    "depress",
+    "down",
+    "miserable",
+    "cry",
+    "tears",
+    "grief",
+    "hopeless",
+]
 _ANGER_KEYWORDS = ["angry", "mad", "furious", "rage", "frustrated", "pissed"]
-_STRESS_KEYWORDS = ["stress", "overwhelmed", "burnout", "pressure", "can't cope", "too much"]
+_STRESS_KEYWORDS = [
+    "stress",
+    "overwhelmed",
+    "burnout",
+    "pressure",
+    "can't cope",
+    "too much",
+]
 _SLEEP_KEYWORDS = ["sleep", "insomnia", "tired", "exhausted", "wake up"]
 _FRIEND_KEYWORDS = ["friend", "social", "lonely", "isolated", "alone", "left out"]
-_GOAL_KEYWORDS = ["goal", "want to", "plan", "improve", "better", "change", "motivation"]
+_GOAL_KEYWORDS = [
+    "goal",
+    "want to",
+    "plan",
+    "improve",
+    "better",
+    "change",
+    "motivation",
+]
 _HELP_KEYWORDS = ["help", "support", "advice", "what should i do"]
 _THANKS_KEYWORDS = ["thanks", "thank you", "appreciate"]
 
@@ -102,7 +134,9 @@ def check_crisis(message: str) -> bool:
     return any(kw in msg_lower for kw in _CRISIS_KEYWORDS)
 
 
-def _record_message(db: Session, session: models.CompanionSession, message: str, role: str) -> None:
+def _record_message(
+    db: Session, session: models.CompanionSession, message: str, role: str
+) -> None:
     """Persist an exchange in long-term conversation memory with sentiment."""
     screen = screen_text(message)
     sentiment = "neutral"

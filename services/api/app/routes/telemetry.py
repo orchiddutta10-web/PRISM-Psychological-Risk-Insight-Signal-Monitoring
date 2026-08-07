@@ -324,7 +324,6 @@ def trigger_worker_jobs(
     return {"status": "completed", "events_purged": purged}
 
 
-
 # ── Aria WebSocket AI helper ───────────────────────────────────────
 
 
@@ -354,9 +353,7 @@ async def _generate_aria_ws_response(text: str) -> str:
         except Exception as e:
             import logging
 
-            logging.getLogger(__name__).warning(
-                "Aria WS Gemini fallback: %s", e
-            )
+            logging.getLogger(__name__).warning("Aria WS Gemini fallback: %s", e)
 
     # ── Offline fallback ──────────────────────────────────────────
     lower = text.lower()
@@ -568,14 +565,35 @@ async def trigger_demo_scenario(
     auth.verify_guardian_device_access(current_guardian, req.device_id, db)
 
     # Automatically seed baselines if they don't exist
-    existing = db.query(models.BaselineProfile).filter(models.BaselineProfile.device_id == req.device_id).count()
+    existing = (
+        db.query(models.BaselineProfile)
+        .filter(models.BaselineProfile.device_id == req.device_id)
+        .count()
+    )
     if existing == 0:
-        b1 = models.BaselineProfile(device_id=req.device_id, signal_type="location", rolling_mean=15000, rolling_variance=0.5, source="demo_seed")
-        b2 = models.BaselineProfile(device_id=req.device_id, signal_type="typing", rolling_mean=1.0, rolling_variance=0.1, source="demo_seed")
-        b3 = models.BaselineProfile(device_id=req.device_id, signal_type="app_usage", rolling_mean=1.5, rolling_variance=0.2, source="demo_seed")
+        b1 = models.BaselineProfile(
+            device_id=req.device_id,
+            signal_type="location",
+            rolling_mean=15000,
+            rolling_variance=0.5,
+            source="demo_seed",
+        )
+        b2 = models.BaselineProfile(
+            device_id=req.device_id,
+            signal_type="typing",
+            rolling_mean=1.0,
+            rolling_variance=0.1,
+            source="demo_seed",
+        )
+        b3 = models.BaselineProfile(
+            device_id=req.device_id,
+            signal_type="app_usage",
+            rolling_mean=1.5,
+            rolling_variance=0.2,
+            source="demo_seed",
+        )
         db.add_all([b1, b2, b3])
         db.commit()
-
 
     if req.scenario == "A":
         # Late-night usage spike

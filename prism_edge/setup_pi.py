@@ -26,6 +26,7 @@ HOTSPOT_SSID = "PRISM-Node"
 HOTSPOT_PASS = "PrismEdge2024"
 BRIDGE_PORT = 8500
 
+
 def run(cmd: str, check: bool = True) -> str:
     """Run a shell command."""
     print(f"  $ {cmd}")
@@ -38,7 +39,7 @@ def run(cmd: str, check: bool = True) -> str:
 def setup_hotspot():
     """Configure Pi as WiFi access point using hostapd + dnsmasq."""
     print("\n=== Setting up Wi-Fi Hotspot ===")
-    
+
     # Install packages
     run("apt-get update -qq")
     run("apt-get install -y hostapd dnsmasq -qq")
@@ -71,8 +72,10 @@ rsn_pairwise=CCMP
 """
     with open("/etc/hostapd/hostapd.conf", "w") as f:
         f.write(hostapd_conf)
-    
-    run("sed -i 's|#DAEMON_CONF=\"\"|DAEMON_CONF=\"/etc/hostapd/hostapd.conf\"|' /etc/default/hostapd")
+
+    run(
+        'sed -i \'s|#DAEMON_CONF=""|DAEMON_CONF="/etc/hostapd/hostapd.conf"|\' /etc/default/hostapd'
+    )
 
     # dnsmasq config
     dnsmasq_conf = """
@@ -97,9 +100,9 @@ def install_dependencies():
 def setup_bridge_service():
     """Create systemd service for the PRISM Edge Bridge."""
     print("\n=== Setting up PRISM Edge Bridge Service ===")
-    
+
     bridge_script = str(Path(__file__).resolve().parent / "bridge.py")
-    
+
     service_content = f"""
 [Unit]
 Description=PRISM Edge Bridge

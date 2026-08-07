@@ -33,17 +33,17 @@ logger = logging.getLogger(__name__)
 # =========================================================================
 
 # Fusion weights (sum = 1.0)
-WEIGHT_PHONE      = 0.35   # behavioural metadata (mobility, app, typing)
-WEIGHT_VISION     = 0.25   # CV-derived features (blink, posture, presence)
-WEIGHT_PHYSIO     = 0.20   # wearable vitals (BPM, GSR, movement)
-WEIGHT_AUDIO      = 0.10   # acoustic features (speech rate, silence)
-WEIGHT_RISK_REG   = 0.10   # risk-registry hits (installed apps, keywords)
+WEIGHT_PHONE = 0.35  # behavioural metadata (mobility, app, typing)
+WEIGHT_VISION = 0.25  # CV-derived features (blink, posture, presence)
+WEIGHT_PHYSIO = 0.20  # wearable vitals (BPM, GSR, movement)
+WEIGHT_AUDIO = 0.10  # acoustic features (speech rate, silence)
+WEIGHT_RISK_REG = 0.10  # risk-registry hits (installed apps, keywords)
 
 # Isolation Forest hyperparameters (prototype)
-IF_N_ESTIMATORS        = 150
-IF_CONTAMINATION       = 0.10
-IF_MAX_SAMPLES         = "auto"
-IF_RANDOM_STATE        = 42
+IF_N_ESTIMATORS = 150
+IF_CONTAMINATION = 0.10
+IF_MAX_SAMPLES = "auto"
+IF_RANDOM_STATE = 42
 
 # Feature vector dimensions
 FEATURE_DIM = 16
@@ -56,22 +56,33 @@ MIN_WINDOWS_FOR_FIT = 5
 
 # Insight score interpretation tiers
 INSIGHT_TIERS = [
-    (0,  30,  "Baseline",
-     "Behavioural metrics aligned with established patterns."),
-    (31, 60,  "Behavioural change observed",
-     "One or more modalities show deviation from personal baseline."),
-    (61, 80,  "Multiple unusual signals",
-     "Several independent behavioural and physiological signals deviate concurrently."),
-    (81, 100, "High-priority pattern",
-     "A pronounced, multi-modal behavioural shift has been detected."),
+    (0, 30, "Baseline", "Behavioural metrics aligned with established patterns."),
+    (
+        31,
+        60,
+        "Behavioural change observed",
+        "One or more modalities show deviation from personal baseline.",
+    ),
+    (
+        61,
+        80,
+        "Multiple unusual signals",
+        "Several independent behavioural and physiological signals deviate concurrently.",
+    ),
+    (
+        81,
+        100,
+        "High-priority pattern",
+        "A pronounced, multi-modal behavioural shift has been detected.",
+    ),
 ]
 
 # Modality names for contributing factors
 MODALITY_LABELS = {
-    "phone":    "Phone Behaviour",
-    "vision":   "Visual Engagement",
-    "physio":   "Physiological Signals",
-    "audio":    "Vocal Patterns",
+    "phone": "Phone Behaviour",
+    "vision": "Visual Engagement",
+    "physio": "Physiological Signals",
+    "audio": "Vocal Patterns",
     "risk_reg": "Safety Registry",
 }
 
@@ -80,20 +91,21 @@ MODALITY_LABELS = {
 # Data structures
 # =========================================================================
 
+
 @dataclass
 class ModalityScores:
-    phone:    float = 0.0
-    vision:   float = 0.0
-    physio:   float = 0.0
-    audio:    float = 0.0
+    phone: float = 0.0
+    vision: float = 0.0
+    physio: float = 0.0
+    audio: float = 0.0
     risk_reg: float = 0.0
 
     def to_dict(self) -> dict:
         return {
-            "phone":    self.phone,
-            "vision":   self.vision,
-            "physio":   self.physio,
-            "audio":    self.audio,
+            "phone": self.phone,
+            "vision": self.vision,
+            "physio": self.physio,
+            "audio": self.audio,
             "risk_reg": self.risk_reg,
         }
 
@@ -101,34 +113,35 @@ class ModalityScores:
 @dataclass
 class InsightResult:
     subject_id: str
-    insight_score: float          # 0–100
-    tier_label: str               # one of the four labels above
-    tier_summary: str             # human-readable one-liner
-    anomaly_score: float          # raw Isolation Forest score 0–1
+    insight_score: float  # 0–100
+    tier_label: str  # one of the four labels above
+    tier_summary: str  # human-readable one-liner
+    anomaly_score: float  # raw Isolation Forest score 0–1
     modality_scores: ModalityScores
-    fusion_score: float           # pre-scaling fusion output
+    fusion_score: float  # pre-scaling fusion output
     contributing_factors: list = field(default_factory=list)
     confidence: float = 1.0
 
     def to_dict(self) -> dict:
         return {
-            "subject_id":        self.subject_id,
-            "insight_score":     round(self.insight_score, 1),
-            "tier_label":        self.tier_label,
-            "tier_summary":      self.tier_summary,
-            "anomaly_score":     round(self.anomaly_score, 4),
-            "modality_scores":   {
+            "subject_id": self.subject_id,
+            "insight_score": round(self.insight_score, 1),
+            "tier_label": self.tier_label,
+            "tier_summary": self.tier_summary,
+            "anomaly_score": round(self.anomaly_score, 4),
+            "modality_scores": {
                 k: round(v, 4) for k, v in self.modality_scores.to_dict().items()
             },
-            "fusion_score":      round(self.fusion_score, 4),
+            "fusion_score": round(self.fusion_score, 4),
             "contributing_factors": self.contributing_factors,
-            "confidence":        round(self.confidence, 3),
+            "confidence": round(self.confidence, 3),
         }
 
 
 # =========================================================================
 # Feature vector builder — aggregates raw DB tables into a 16-dim vector
 # =========================================================================
+
 
 class FeatureVectorBuilder:
     """
@@ -159,6 +172,7 @@ class FeatureVectorBuilder:
         self.db = db
         # Lazy imports to avoid circular deps at module level
         from app import models as _m
+
         self._m = _m
 
     def build(self, subject_id: str) -> Optional[np.ndarray]:
@@ -194,7 +208,7 @@ class FeatureVectorBuilder:
             )
             .all()
         )
-        bpm_vals   = [r.value for r in readings if r.metric_type == "bpm"]
+        bpm_vals = [r.value for r in readings if r.metric_type == "bpm"]
         gforce_vals = [r.value for r in readings if r.metric_type == "g_force"]
 
         if bpm_vals:
@@ -230,9 +244,9 @@ class FeatureVectorBuilder:
             .all()
         )
         if audios:
-            segs     = [a.speech_segments for a in audios]
+            segs = [a.speech_segments for a in audios]
             silences = [a.silence_ratio for a in audios]
-            vec[9]  = float(np.mean(segs))
+            vec[9] = float(np.mean(segs))
             vec[10] = float(np.std(segs)) if len(segs) > 1 else 0.0
             vec[11] = float(np.mean(silences))
             vec[12] = float(np.std(silences)) if len(silences) > 1 else 0.0
@@ -304,7 +318,7 @@ class FeatureVectorBuilder:
     def _build_for_window(self, subject_id: str, bw) -> Optional[np.ndarray]:
         """Build a feature vector anchored to a specific behaviour window."""
         w_start = bw.start_ts
-        w_end   = bw.end_ts
+        w_end = bw.end_ts
 
         vec = np.full(FEATURE_DIM, np.nan, dtype=np.float64)
         vec[0] = float(bw.total_active_mins)
@@ -320,7 +334,7 @@ class FeatureVectorBuilder:
             )
             .all()
         )
-        bpm_vals   = [r.value for r in readings if r.metric_type == "bpm"]
+        bpm_vals = [r.value for r in readings if r.metric_type == "bpm"]
         gforce_vals = [r.value for r in readings if r.metric_type == "g_force"]
         if bpm_vals:
             vec[2] = float(np.mean(bpm_vals))
@@ -339,7 +353,7 @@ class FeatureVectorBuilder:
             .all()
         )
         if visions:
-            blinks   = [v.blink_rate_bpm for v in visions]
+            blinks = [v.blink_rate_bpm for v in visions]
             slouches = [1.0 if v.is_slouching else 0.0 for v in visions]
             vec[6] = float(np.mean(blinks))
             vec[7] = float(np.std(blinks)) if len(blinks) > 1 else 0.0
@@ -355,9 +369,9 @@ class FeatureVectorBuilder:
             .all()
         )
         if audios:
-            segs     = [a.speech_segments for a in audios]
+            segs = [a.speech_segments for a in audios]
             silences = [a.silence_ratio for a in audios]
-            vec[9]  = float(np.mean(segs))
+            vec[9] = float(np.mean(segs))
             vec[10] = float(np.std(segs)) if len(segs) > 1 else 0.0
             vec[11] = float(np.mean(silences))
             vec[12] = float(np.std(silences)) if len(silences) > 1 else 0.0
@@ -393,6 +407,7 @@ class FeatureVectorBuilder:
 # Subject Isolation Forest — per-subject anomaly detection
 # =========================================================================
 
+
 class SubjectIsolationForest:
     """
     Manages a per-subject Isolation Forest model.
@@ -416,7 +431,9 @@ class SubjectIsolationForest:
         """
         if X.shape[0] < MIN_WINDOWS_FOR_FIT:
             logger.warning(
-                "Insufficient samples for IF fit: %d < %d", X.shape[0], MIN_WINDOWS_FOR_FIT
+                "Insufficient samples for IF fit: %d < %d",
+                X.shape[0],
+                MIN_WINDOWS_FOR_FIT,
             )
             return
 
@@ -437,14 +454,17 @@ class SubjectIsolationForest:
         # Store training decision scores for later reference
         train_decisions = self._model.decision_function(X_scaled)
         self._train_decision_mean = float(np.mean(train_decisions))
-        self._train_decision_std = float(np.std(train_decisions)) if len(train_decisions) > 1 else 0.1
+        self._train_decision_std = (
+            float(np.std(train_decisions)) if len(train_decisions) > 1 else 0.1
+        )
 
         self._fitted = True
         self._n_fit_samples = X.shape[0]
 
         logger.info(
             "Isolation Forest fitted for subject: %d samples, %d features",
-            self._n_fit_samples, FEATURE_DIM,
+            self._n_fit_samples,
+            FEATURE_DIM,
         )
 
     def score(self, x: np.ndarray) -> float:
@@ -492,6 +512,7 @@ class SubjectIsolationForest:
 # Modality Deviation Scorer
 # =========================================================================
 
+
 class ModalityDeviationScorer:
     """
     Computes per-modality deviation scores by comparing current feature
@@ -509,10 +530,12 @@ class ModalityDeviationScorer:
             col = X_clean[:, c]
             nan_mask = np.isnan(col)
             if nan_mask.any():
-                valid_mean = float(np.mean(col[~nan_mask])) if (~nan_mask).any() else 0.0
+                valid_mean = (
+                    float(np.mean(col[~nan_mask])) if (~nan_mask).any() else 0.0
+                )
                 X_clean[nan_mask, c] = valid_mean
         self._baseline_means = np.nanmean(X_clean, axis=0)
-        self._baseline_stds  = np.nanstd(X_clean, axis=0)
+        self._baseline_stds = np.nanstd(X_clean, axis=0)
         self._baseline_stds[self._baseline_stds < 1e-6] = 1e-6  # prevent div-by-zero
 
     def score(self, x: np.ndarray) -> ModalityScores:
@@ -528,27 +551,34 @@ class ModalityDeviationScorer:
         z_scores = np.nan_to_num(z_scores, nan=0.0, posinf=0.0, neginf=0.0)
 
         # Feature index groups → modality
-        phone_indices   = [0, 1, 13, 14, 15]   # active_mins, sleep, screen_on, apps, night_ratio
-        vision_indices  = [6, 7, 8]            # blink avg/std, slouch
-        physio_indices  = [2, 3, 4, 5]         # bpm avg/std, gforce avg/std
-        audio_indices   = [9, 10, 11, 12]      # speech avg/std, silence avg/std
+        phone_indices = [
+            0,
+            1,
+            13,
+            14,
+            15,
+        ]  # active_mins, sleep, screen_on, apps, night_ratio
+        vision_indices = [6, 7, 8]  # blink avg/std, slouch
+        physio_indices = [2, 3, 4, 5]  # bpm avg/std, gforce avg/std
+        audio_indices = [9, 10, 11, 12]  # speech avg/std, silence avg/std
 
         def _mod_score(indices):
             vals = z_scores[indices]
             return float(np.clip(np.mean(vals) / 3.0, 0.0, 1.0))  # /3 to keep in range
 
         return ModalityScores(
-            phone    = _mod_score(phone_indices),
-            vision   = _mod_score(vision_indices),
-            physio   = _mod_score(physio_indices),
-            audio    = _mod_score(audio_indices),
-            risk_reg = 0.0,   # set separately from RiskRegistry hits
+            phone=_mod_score(phone_indices),
+            vision=_mod_score(vision_indices),
+            physio=_mod_score(physio_indices),
+            audio=_mod_score(audio_indices),
+            risk_reg=0.0,  # set separately from RiskRegistry hits
         )
 
 
 # =========================================================================
 # Rule-Based Fusion Engine
 # =========================================================================
+
 
 class FusionEngine:
     """
@@ -563,20 +593,20 @@ class FusionEngine:
 
     def __init__(self):
         self.weights = {
-            "phone":    WEIGHT_PHONE,
-            "vision":   WEIGHT_VISION,
-            "physio":   WEIGHT_PHYSIO,
-            "audio":    WEIGHT_AUDIO,
+            "phone": WEIGHT_PHONE,
+            "vision": WEIGHT_VISION,
+            "physio": WEIGHT_PHYSIO,
+            "audio": WEIGHT_AUDIO,
             "risk_reg": WEIGHT_RISK_REG,
         }
 
     def compute(self, scores: ModalityScores) -> float:
         """Compute weighted fusion score in [0, 1]."""
         fused = (
-            scores.phone    * self.weights["phone"]
-            + scores.vision   * self.weights["vision"]
-            + scores.physio   * self.weights["physio"]
-            + scores.audio    * self.weights["audio"]
+            scores.phone * self.weights["phone"]
+            + scores.vision * self.weights["vision"]
+            + scores.physio * self.weights["physio"]
+            + scores.audio * self.weights["audio"]
             + scores.risk_reg * self.weights["risk_reg"]
         )
         return float(np.clip(fused, 0.0, 1.0))
@@ -585,6 +615,7 @@ class FusionEngine:
 # =========================================================================
 # PRISM Insight Scorer — maps fusion output to 0–100 with interpretation
 # =========================================================================
+
 
 class PrismInsightScorer:
     """
@@ -647,10 +678,10 @@ class PrismInsightScorer:
         """Generate human-readable contributing factors per modality."""
         factors = []
         thresholds = {
-            "phone":    0.25,
-            "vision":   0.25,
-            "physio":   0.25,
-            "audio":    0.25,
+            "phone": 0.25,
+            "vision": 0.25,
+            "physio": 0.25,
+            "audio": 0.25,
             "risk_reg": 0.01,
         }
         sd = scores.to_dict()
@@ -696,6 +727,7 @@ class PrismInsightScorer:
 # Orchestrator — ties everything together
 # =========================================================================
 
+
 class PrismMLEngine:
     """
     Top-level ML engine orchestrator for the Phase 10 prototype.
@@ -734,7 +766,8 @@ class PrismMLEngine:
         if X is None or X.shape[0] < MIN_WINDOWS_FOR_FIT:
             logger.info(
                 "Subject %s: insufficient history for IF fit (%s samples)",
-                subject_id, X.shape[0] if X is not None else 0,
+                subject_id,
+                X.shape[0] if X is not None else 0,
             )
             return False
 
@@ -826,9 +859,9 @@ class PrismMLEngine:
                     window_id=bw.id,
                     score_value=result.insight_score,
                     risk_level=(
-                        "LOW" if result.insight_score <= 30
-                        else "MEDIUM" if result.insight_score <= 60
-                        else "HIGH"
+                        "LOW"
+                        if result.insight_score <= 30
+                        else "MEDIUM" if result.insight_score <= 60 else "HIGH"
                     ),
                 )
                 risk_score.contributing_factors = result.contributing_factors
@@ -894,6 +927,7 @@ class PrismMLEngine:
             return
         try:
             import joblib
+
             model_path = os.path.join(_MODEL_DIR, "prism_behavioural_classifier.joblib")
             scaler_path = os.path.join(_MODEL_DIR, "prism_behavioural_scaler.joblib")
             if os.path.exists(model_path):
@@ -962,6 +996,7 @@ def save_subject_model(subject_id: str, engine: PrismMLEngine) -> bool:
         return False
     try:
         import joblib
+
         os.makedirs(_MODEL_DIR, exist_ok=True)
         path = os.path.join(_MODEL_DIR, f"if_model_{subject_id}.joblib")
         joblib.dump(engine._subjects[subject_id], path)
@@ -976,6 +1011,7 @@ def load_subject_model(subject_id: str) -> Optional[SubjectIsolationForest]:
     """Load a previously persisted per-subject model."""
     try:
         import joblib
+
         path = os.path.join(_MODEL_DIR, f"if_model_{subject_id}.joblib")
         if not os.path.exists(path):
             return None
@@ -990,6 +1026,7 @@ def load_subject_model(subject_id: str) -> Optional[SubjectIsolationForest]:
 # =========================================================================
 # Demo / debugging entry-point
 # =========================================================================
+
 
 def demo_pipeline(db, subject_id: str) -> dict:
     """

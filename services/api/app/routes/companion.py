@@ -53,10 +53,10 @@ def simulate_persona(
 ):
     """Simulate a persona response for the guardian dashboard."""
     from app.utils.companion_engine import _respond, PERSONAS
-    
+
     if req.persona_id not in PERSONAS:
         raise HTTPException(status_code=400, detail="Invalid persona ID")
-    
+
     persona = PERSONAS[req.persona_id]
     response_text = _respond(persona, req.message)
     return {"response": response_text}
@@ -177,6 +177,7 @@ def companion_mood_timeline(
             }
         )
     return {"daily_mood": daily}
+
 
 @router.post("/sessions")
 def create_session(

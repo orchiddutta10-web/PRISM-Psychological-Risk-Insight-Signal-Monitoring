@@ -73,7 +73,9 @@ class TimeSeriesFeatureEngineer:
         return df
 
     @staticmethod
-    def encode_cyclical(series: pd.Series, period: float) -> Tuple[pd.Series, pd.Series]:
+    def encode_cyclical(
+        series: pd.Series, period: float
+    ) -> Tuple[pd.Series, pd.Series]:
         """Encode a cyclical variable (day_of_week, hour, etc.) as sin/cos."""
         normalized = 2.0 * np.pi * series / period
         return pd.Series(np.sin(normalized), name=f"{series.name}_sin"), pd.Series(
@@ -106,9 +108,7 @@ class TimeSeriesFeatureEngineer:
 
             # Deviation from 7-day baseline (most interpretable)
             if "7d_mean" not in col:
-                df[f"{col}_dev_from_7d"] = series - df.get(
-                    f"{col}_7d_mean", series
-                )
+                df[f"{col}_dev_from_7d"] = series - df.get(f"{col}_7d_mean", series)
 
         return df
 
@@ -124,9 +124,7 @@ class TimeSeriesFeatureEngineer:
 
         df["Digital_Fatigue_Ratio"] = screen / (sleep + 1.0)
         df["Isolation_Ratio"] = home_pct / (steps + 100.0)
-        df["Affect_Collapse_Score"] = (
-            (sentiment + 1.0) * pitch_var * (smile + 1.0)
-        )
+        df["Affect_Collapse_Score"] = (sentiment + 1.0) * pitch_var * (smile + 1.0)
 
         return df
 
@@ -182,7 +180,8 @@ def prune_collinear_features(
     candidate_cols = [
         c
         for c in df.columns
-        if c not in exclude_cols and df[c].dtype in ["float64", "float32", "int64", "int32"]
+        if c not in exclude_cols
+        and df[c].dtype in ["float64", "float32", "int64", "int32"]
     ]
     if len(candidate_cols) < 2:
         return df, []
@@ -192,7 +191,12 @@ def prune_collinear_features(
     to_drop = [col for col in upper.columns if any(upper[col] > threshold)]
 
     df_pruned = df.drop(columns=to_drop, errors="ignore")
-    logger.info("Pruned %d collinear features (threshold=%.2f): %s", len(to_drop), threshold, to_drop)
+    logger.info(
+        "Pruned %d collinear features (threshold=%.2f): %s",
+        len(to_drop),
+        threshold,
+        to_drop,
+    )
     return df_pruned, to_drop
 
 
@@ -241,9 +245,7 @@ def chrono_split(
     y_reg: np.ndarray,
     y_clf: np.ndarray,
     test_size: float = 0.2,
-) -> tuple[
-    pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, np.ndarray
-]:
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Split time-series data chronologically (past → train, future → test).
     No shuffling — critical to prevent time leakage.
@@ -261,7 +263,9 @@ def chrono_split(
 
     logger.info(
         "Chrono split: train=%d, test=%d (test_size=%.2f)",
-        len(X_train), len(X_test), test_size,
+        len(X_train),
+        len(X_test),
+        test_size,
     )
     return X_train, X_test, y_reg_train, y_reg_test, y_clf_train, y_clf_test
 
@@ -280,7 +284,5 @@ def safe_scale(
     X_train_scaled = pd.DataFrame(
         scaler.fit_transform(X_train), columns=X_train.columns
     )
-    X_test_scaled = pd.DataFrame(
-        scaler.transform(X_test), columns=X_test.columns
-    )
+    X_test_scaled = pd.DataFrame(scaler.transform(X_test), columns=X_test.columns)
     return X_train_scaled, X_test_scaled, scaler

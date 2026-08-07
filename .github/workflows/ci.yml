@@ -109,6 +109,10 @@ jobs:
         working-directory: apps/dashboard
         run: npx playwright install --with-deps
 
+      - name: Build Dashboard for E2E
+        working-directory: apps/dashboard
+        run: npm run build
+
       - name: Run Playwright tests
         working-directory: apps/dashboard
         run: npx playwright test

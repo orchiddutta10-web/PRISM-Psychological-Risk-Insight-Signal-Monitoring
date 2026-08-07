@@ -70,15 +70,24 @@ async def ingest_batch(
             unified.value = event.payload
             db.add(unified)
             db.flush()
-            results.append(BatchResultItem(
-                row_index=i, status="synced", cloud_id=unified.id,
-            ))
+            results.append(
+                BatchResultItem(
+                    row_index=i,
+                    status="synced",
+                    cloud_id=unified.id,
+                )
+            )
             accepted += 1
         except Exception as e:
             db.rollback()
-            results.append(BatchResultItem(
-                row_index=i, status="rejected", error=str(e), code="internal_error",
-            ))
+            results.append(
+                BatchResultItem(
+                    row_index=i,
+                    status="rejected",
+                    error=str(e),
+                    code="internal_error",
+                )
+            )
             rejected += 1
             logger.warning("Batch event %d rejected: %s", i, e)
 
@@ -114,5 +123,7 @@ async def ingest_batch(
     except Exception:
         pass
 
-    logger.info("Batch %s: accepted=%d rejected=%d", payload.batch_id, accepted, rejected)
+    logger.info(
+        "Batch %s: accepted=%d rejected=%d", payload.batch_id, accepted, rejected
+    )
     return response_data

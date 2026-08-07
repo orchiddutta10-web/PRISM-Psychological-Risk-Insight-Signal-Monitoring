@@ -47,7 +47,9 @@ class FeaturePacker:
 
     def start(self) -> None:
         self._running = True
-        self._thread = threading.Thread(target=self._loop, name="feature-packer", daemon=True)
+        self._thread = threading.Thread(
+            target=self._loop, name="feature-packer", daemon=True
+        )
         self._thread.start()
         logger.info("Feature packer started (interval=%.1fs)", self._interval)
 

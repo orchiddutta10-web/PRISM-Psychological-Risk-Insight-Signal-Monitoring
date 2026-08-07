@@ -8,6 +8,7 @@ Guards against:
   - PoseFeatureExtractor using `cv2` without importing it
     (would raise NameError on every extract() call, killing pose features).
 """
+
 import sys
 from pathlib import Path
 
@@ -66,6 +67,7 @@ class TestPoseFeatureExtractor:
     def _load_pose(self):
         try:
             from prism_edge.vision.pose_features import PoseFeatureExtractor
+
             return PoseFeatureExtractor
         except ImportError as e:
             if "cv2" in str(e):

@@ -21,9 +21,15 @@ CAMERA_RECONNECT_DELAY: float = float(os.getenv("PRISM_CAMERA_RECONNECT_DELAY", 
 CAMERA_BACKEND: int = int(os.getenv("PRISM_CAMERA_BACKEND", "0"))  # V4L2 on Linux
 
 # ── MediaPipe ─────────────────────────────────────────────────────────
-MEDIAPIPE_FACE_CONFIDENCE: float = float(os.getenv("PRISM_MEDIAPIPE_FACE_CONFIDENCE", "0.5"))
-MEDIAPIPE_POSE_CONFIDENCE: float = float(os.getenv("PRISM_MEDIAPIPE_POSE_CONFIDENCE", "0.5"))
-MEDIAPIPE_FACE_MODEL: int = int(os.getenv("PRISM_MEDIAPIPE_FACE_MODEL", "0"))  # 0=short-range lite model
+MEDIAPIPE_FACE_CONFIDENCE: float = float(
+    os.getenv("PRISM_MEDIAPIPE_FACE_CONFIDENCE", "0.5")
+)
+MEDIAPIPE_POSE_CONFIDENCE: float = float(
+    os.getenv("PRISM_MEDIAPIPE_POSE_CONFIDENCE", "0.5")
+)
+MEDIAPIPE_FACE_MODEL: int = int(
+    os.getenv("PRISM_MEDIAPIPE_FACE_MODEL", "0")
+)  # 0=short-range lite model
 FACE_SCALE: float = float(os.getenv("PRISM_FACE_SCALE", "0.5"))
 
 # ── Audio ─────────────────────────────────────────────────────────────
@@ -35,13 +41,17 @@ AUDIO_N_MFCC: int = 13
 AUDIO_N_FFT: int = 1024
 AUDIO_HOP_LENGTH: int = 512
 AUDIO_VAD_THRESHOLD_DB: float = float(os.getenv("PRISM_VAD_THRESHOLD_DB", "-40.0"))
-AUDIO_VAD_MIN_DURATION_SEC: float = float(os.getenv("PRISM_VAD_MIN_DURATION_SEC", "0.15"))
+AUDIO_VAD_MIN_DURATION_SEC: float = float(
+    os.getenv("PRISM_VAD_MIN_DURATION_SEC", "0.15")
+)
 
 # ── Motion ────────────────────────────────────────────────────────────
 MOTION_FPS: int = int(os.getenv("PRISM_MOTION_FPS", "15"))
 MOTION_OPTICAL_FLOW_WINDOW: int = 15
 MOTION_IDLE_THRESHOLD: float = float(os.getenv("PRISM_MOTION_IDLE_THRESHOLD", "0.05"))
-MOTION_IDLE_CONFIRMATION_SEC: float = float(os.getenv("PRISM_MOTION_IDLE_CONFIRMATION_SEC", "3.0"))
+MOTION_IDLE_CONFIRMATION_SEC: float = float(
+    os.getenv("PRISM_MOTION_IDLE_CONFIRMATION_SEC", "3.0")
+)
 
 # ── Feature Packing ───────────────────────────────────────────────────
 FEATURE_INTERVAL_SEC: float = float(os.getenv("PRISM_FEATURE_INTERVAL_SEC", "2.0"))
@@ -74,20 +84,34 @@ TEMP_THROTTLE_C: float = float(os.getenv("PRISM_TEMP_THROTTLE_C", "80.0"))
 RAM_WARNING_PCT: float = float(os.getenv("PRISM_RAM_WARNING_PCT", "90.0"))
 
 # ── Offline Queue ──────────────────────────────────────────────────────
-OFFLINE_DB_PATH: Path = Path(os.getenv("PRISM_OFFLINE_DB_PATH", str(DATA_DIR / "offline_queue.db")))
+OFFLINE_DB_PATH: Path = Path(
+    os.getenv("PRISM_OFFLINE_DB_PATH", str(DATA_DIR / "offline_queue.db"))
+)
 OFFLINE_SYNC_BATCH_SIZE: int = int(os.getenv("PRISM_SYNC_BATCH_SIZE", "100"))
 OFFLINE_SYNC_MAX_RETRIES: int = int(os.getenv("PRISM_SYNC_MAX_RETRIES", "5"))
 OFFLINE_SYNC_PURGE_HOURS: int = int(os.getenv("PRISM_SYNC_PURGE_HOURS", "24"))
-OFFLINE_SYNC_PURGE_AGGRESSIVE: int = int(os.getenv("PRISM_SYNC_PURGE_AGGRESSIVE", "1000"))
+OFFLINE_SYNC_PURGE_AGGRESSIVE: int = int(
+    os.getenv("PRISM_SYNC_PURGE_AGGRESSIVE", "1000")
+)
 OFFLINE_QUEUE_MAX_DISK_MB: int = int(os.getenv("PRISM_QUEUE_MAX_DISK_MB", "100"))
 OFFLINE_QUEUE_MIN_FREE_MB: int = int(os.getenv("PRISM_QUEUE_MIN_FREE_MB", "10"))
 
 # ── Connectivity ──────────────────────────────────────────────────────
-CONNECTIVITY_PROBE_INTERVAL_ONLINE: float = float(os.getenv("PRISM_CONNECTIVITY_PROBE_INTERVAL_ONLINE", "15.0"))
-CONNECTIVITY_PROBE_INTERVAL_OFFLINE: float = float(os.getenv("PRISM_CONNECTIVITY_PROBE_INTERVAL_OFFLINE", "5.0"))
-CONNECTIVITY_PROBE_TIMEOUT: float = float(os.getenv("PRISM_CONNECTIVITY_PROBE_TIMEOUT", "3.0"))
-CONNECTIVITY_FAILURES_TO_OFFLINE: int = int(os.getenv("PRISM_CONNECTIVITY_FAILURES_TO_OFFLINE", "3"))
-CONNECTIVITY_SUCCESSES_TO_ONLINE: int = int(os.getenv("PRISM_CONNECTIVITY_SUCCESSES_TO_ONLINE", "2"))
+CONNECTIVITY_PROBE_INTERVAL_ONLINE: float = float(
+    os.getenv("PRISM_CONNECTIVITY_PROBE_INTERVAL_ONLINE", "15.0")
+)
+CONNECTIVITY_PROBE_INTERVAL_OFFLINE: float = float(
+    os.getenv("PRISM_CONNECTIVITY_PROBE_INTERVAL_OFFLINE", "5.0")
+)
+CONNECTIVITY_PROBE_TIMEOUT: float = float(
+    os.getenv("PRISM_CONNECTIVITY_PROBE_TIMEOUT", "3.0")
+)
+CONNECTIVITY_FAILURES_TO_OFFLINE: int = int(
+    os.getenv("PRISM_CONNECTIVITY_FAILURES_TO_OFFLINE", "3")
+)
+CONNECTIVITY_SUCCESSES_TO_ONLINE: int = int(
+    os.getenv("PRISM_CONNECTIVITY_SUCCESSES_TO_ONLINE", "2")
+)
 
 # ── LCD Controller ────────────────────────────────────────────────────
 LCD_SERIAL_PORT: str = os.getenv("PRISM_LCD_SERIAL_PORT", "/dev/ttyUSB0")
@@ -112,11 +136,25 @@ def ensure_directories() -> None:
 def print_config() -> None:
     """Print current configuration (excluding secrets) for startup log."""
     import json
+
     safe = {
-        "camera": {"id": CAMERA_ID, "width": CAMERA_WIDTH, "height": CAMERA_HEIGHT, "fps": CAMERA_FPS},
-        "audio": {"sample_rate": AUDIO_SAMPLE_RATE, "chunk_ms": AUDIO_CHUNK_MS, "n_mfcc": AUDIO_N_MFCC},
+        "camera": {
+            "id": CAMERA_ID,
+            "width": CAMERA_WIDTH,
+            "height": CAMERA_HEIGHT,
+            "fps": CAMERA_FPS,
+        },
+        "audio": {
+            "sample_rate": AUDIO_SAMPLE_RATE,
+            "chunk_ms": AUDIO_CHUNK_MS,
+            "n_mfcc": AUDIO_N_MFCC,
+        },
         "motion": {"fps": MOTION_FPS, "idle_threshold": MOTION_IDLE_THRESHOLD},
-        "api": {"base_url": API_BASE_URL, "device_id": API_DEVICE_ID, "endpoint": API_INGEST_ENDPOINT},
+        "api": {
+            "base_url": API_BASE_URL,
+            "device_id": API_DEVICE_ID,
+            "endpoint": API_INGEST_ENDPOINT,
+        },
         "esp32_bridge": {"host": ESP32_BRIDGE_HOST, "port": ESP32_BRIDGE_PORT},
         "feature_interval_sec": FEATURE_INTERVAL_SEC,
         "edge_version": EDGE_VERSION,

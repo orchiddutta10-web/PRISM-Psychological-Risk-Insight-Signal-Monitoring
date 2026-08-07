@@ -17,7 +17,6 @@ from app.utils.feature_utils import (
     select_features_mutual_info,
 )
 
-
 # ── Helper: generate a minimal test dataset ────────────────────────────
 
 
@@ -122,22 +121,26 @@ class TestCollinearityPruning:
         rng = np.random.default_rng(42)
         n = 100
         base = rng.normal(0, 1, n)
-        df = pd.DataFrame({
-            "feat_a": base,
-            "feat_b": base + rng.normal(0, 0.02, n),  # nearly identical to a
-            "feat_c": rng.normal(0, 1, n),  # independent
-        })
+        df = pd.DataFrame(
+            {
+                "feat_a": base,
+                "feat_b": base + rng.normal(0, 0.02, n),  # nearly identical to a
+                "feat_c": rng.normal(0, 1, n),  # independent
+            }
+        )
         pruned, dropped = prune_collinear_features(df, threshold=0.90)
         assert len(dropped) >= 1
         assert "feat_c" in pruned.columns
 
     def test_no_drop_when_independent(self):
         rng = np.random.default_rng(42)
-        df = pd.DataFrame({
-            "a": rng.normal(0, 1, 50),
-            "b": rng.normal(0, 1, 50),
-            "c": rng.normal(0, 1, 50),
-        })
+        df = pd.DataFrame(
+            {
+                "a": rng.normal(0, 1, 50),
+                "b": rng.normal(0, 1, 50),
+                "c": rng.normal(0, 1, 50),
+            }
+        )
         pruned, dropped = prune_collinear_features(df, threshold=0.90)
         assert len(dropped) == 0
         assert pruned.shape[1] == 3
@@ -148,7 +151,9 @@ class TestMutualInfoSelection:
         df = _make_test_df(30)
         y_clf = df["Behavioural_State"].values
         y_reg = df["behavioural_change_index"].values
-        features = df[["Sleep_Score", "Screen_Time_Hours", "Steps_Count", "Pulse_Rate_BPM"]]
+        features = df[
+            ["Sleep_Score", "Screen_Time_Hours", "Steps_Count", "Pulse_Rate_BPM"]
+        ]
         ranked = select_features_mutual_info(features, y_reg, y_clf)
         assert len(ranked) == 4
         assert "Feature" in ranked.columns
@@ -211,7 +216,8 @@ class TestNotebookConstraintVerification:
         # Check prism_ml_engine.py
         engine_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "utils", "prism_ml_engine.py",
+            "utils",
+            "prism_ml_engine.py",
         )
         content = open(engine_path, encoding="utf-8").read()
         assert forbidden not in content, f"'{forbidden}' found in prism_ml_engine.py"
@@ -221,7 +227,8 @@ class TestNotebookConstraintVerification:
         forbidden = "Distress Risk"
         engine_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "utils", "prism_ml_engine.py",
+            "utils",
+            "prism_ml_engine.py",
         )
         content = open(engine_path, encoding="utf-8").read()
         assert forbidden not in content, f"'{forbidden}' found in prism_ml_engine.py"
@@ -229,9 +236,13 @@ class TestNotebookConstraintVerification:
     def test_no_distress_risk_in_routes(self):
         """The label 'Distress Risk' must never appear in API routes."""
         import glob
+
         route_files = glob.glob(
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                         "routes", "*.py")
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "routes",
+                "*.py",
+            )
         )
         for rf in route_files:
             content = open(rf, encoding="utf-8").read()
@@ -240,7 +251,8 @@ class TestNotebookConstraintVerification:
     def test_feature_utils_no_diagnostic_labels(self):
         utils_path = os.path.join(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "utils", "feature_utils.py",
+            "utils",
+            "feature_utils.py",
         )
         content = open(utils_path, encoding="utf-8").read()
         assert "Psychological_Health_Index" not in content

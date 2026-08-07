@@ -35,10 +35,7 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Security Hardening Failure: Default JWT_SECRET is active in production mode."
                 )
-            if (
-                self.ENCRYPTION_KEY
-                == "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI="
-            ):
+            if self.ENCRYPTION_KEY == "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI=":
                 raise ValueError(
                     "Security Hardening Failure: Default ENCRYPTION_KEY is active in production mode."
                 )

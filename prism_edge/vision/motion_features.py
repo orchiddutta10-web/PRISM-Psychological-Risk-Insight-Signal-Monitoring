@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 
 try:
     import cv2
+
     HAS_CV2 = True
 except ImportError:
     HAS_CV2 = False
@@ -54,17 +55,26 @@ class MotionFeatureExtractor:
         self._last_motion_dir: float = 0.0
 
         # Shi-Tomasi corner detection params
-        self._feature_params = dict(maxCorners=50, qualityLevel=0.3, minDistance=7, blockSize=7)
+        self._feature_params = dict(
+            maxCorners=50, qualityLevel=0.3, minDistance=7, blockSize=7
+        )
         # Lucas-Kanade optical flow params
         if HAS_CV2:
-            self._lk_params = dict(winSize=(15, 15), maxLevel=2,
-                                    criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+            self._lk_params = dict(
+                winSize=(15, 15),
+                maxLevel=2,
+                criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03),
+            )
         else:
             self._lk_params = dict(winSize=(15, 15), maxLevel=2)
 
     def start(self) -> None:
         self._ready = True
-        logger.info("Motion feature extractor initialized (fps=%d, idle_threshold=%.3f)", self._fps, self._idle_threshold)
+        logger.info(
+            "Motion feature extractor initialized (fps=%d, idle_threshold=%.3f)",
+            self._fps,
+            self._idle_threshold,
+        )
 
     def stop(self) -> None:
         self._prev_gray = None
@@ -95,7 +105,7 @@ class MotionFeatureExtractor:
         # ── Frame Differencing ────────────────────────────────────
         if self._prev_gray is not None and self._prev_gray.shape == gray.shape:
             frame_diff = cv2.absdiff(gray, self._prev_gray)
-            diff_mean = float(np.mean(frame_diff)) / 255.0     # normalized 0–1
+            diff_mean = float(np.mean(frame_diff)) / 255.0  # normalized 0–1
         else:
             diff_mean = 0.0
 
@@ -104,7 +114,11 @@ class MotionFeatureExtractor:
         motion_direction = 0.0
         speed = 0.0
 
-        if self._prev_gray is not None and self._prev_pts is not None and len(self._prev_pts) > 0:
+        if (
+            self._prev_gray is not None
+            and self._prev_pts is not None
+            and len(self._prev_pts) > 0
+        ):
             try:
                 new_pts, status, _ = cv2.calcOpticalFlowPyrLK(
                     self._prev_gray, gray, self._prev_pts, None, **self._lk_params
@@ -119,14 +133,18 @@ class MotionFeatureExtractor:
                         # Average direction
                         avg_flow = np.mean(flows, axis=0).flatten()
                         if len(avg_flow) >= 2:
-                            motion_direction = float(np.degrees(np.arctan2(avg_flow[1], avg_flow[0])))
-                        speed = flow_mean * self._fps   # px/sec
+                            motion_direction = float(
+                                np.degrees(np.arctan2(avg_flow[1], avg_flow[0]))
+                            )
+                        speed = flow_mean * self._fps  # px/sec
             except cv2.error as e:
                 logger.debug("Optical flow error: %s", e)
 
         # Detect new feature points for next frame
         try:
-            self._prev_pts = cv2.goodFeaturesToTrack(gray, mask=None, **self._feature_params)
+            self._prev_pts = cv2.goodFeaturesToTrack(
+                gray, mask=None, **self._feature_params
+            )
         except cv2.error:
             self._prev_pts = None
 

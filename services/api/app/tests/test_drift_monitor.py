@@ -17,7 +17,6 @@ from app.utils.drift_monitor import (
 )
 from app.tests.conftest import TestingSessionLocal
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -29,12 +28,19 @@ def _seed_scores(subject_id: str, n: int = 30, stable: bool = True):
     # Create user + device if not exist
     user = db.query(models.User).filter(models.User.id == subject_id).first()
     if not user:
-        user = models.User(id=subject_id, email=f"{subject_id}@test.com", hashed_password="x", role="guardian")
+        user = models.User(
+            id=subject_id,
+            email=f"{subject_id}@test.com",
+            hashed_password="x",
+            role="guardian",
+        )
         db.add(user)
 
     device = db.query(models.Device).filter(models.Device.id == subject_id).first()
     if not device:
-        device = models.Device(id=subject_id, user_id=subject_id, name="Test", device_type="android_phone")
+        device = models.Device(
+            id=subject_id, user_id=subject_id, name="Test", device_type="android_phone"
+        )
         db.add(device)
 
     db.commit()
@@ -63,7 +69,9 @@ def _seed_scores(subject_id: str, n: int = 30, stable: bool = True):
             score_value=float(np.clip(score, 0, 100)),
             risk_level="Baseline" if score < 31 else "Medium",
         )
-        risk.contributing_factors = ["factor_a"] if stable else (["factor_b"] if score > 50 else ["factor_a"])
+        risk.contributing_factors = (
+            ["factor_a"] if stable else (["factor_b"] if score > 50 else ["factor_a"])
+        )
         db.add(risk)
 
     db.commit()
@@ -115,14 +123,17 @@ class TestDriftMonitor:
 
     def test_feature_drift_with_new_factors(self):
         from app import models as _m
+
         # Simulate scores with factor change
         class MockScore:
             def __init__(self, factors):
                 self.contributing_factors = factors
+
             contributing_factors = []
 
-        scores = [MockScore(["factor_a"]) for _ in range(15)] + \
-                 [MockScore(["factor_b", "factor_c"]) for _ in range(5)]
+        scores = [MockScore(["factor_a"]) for _ in range(15)] + [
+            MockScore(["factor_b", "factor_c"]) for _ in range(5)
+        ]
         result = DriftMonitor._compute_feature_drift(scores)
         assert result["new_factors_count"] > 0
         assert result["shift_pct"] > 0

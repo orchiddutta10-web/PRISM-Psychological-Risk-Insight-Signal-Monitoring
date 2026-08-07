@@ -99,9 +99,7 @@ class AuthService:
             )
             code = f"{random.randint(100000, 999999)}"
             _store_mfa(guardian.id, code)
-            logger.info(
-                "MFA challenge issued for guardian %s", guardian.email
-            )
+            logger.info("MFA challenge issued for guardian %s", guardian.email)
             logger.debug("Mock MFA OTP for %s is %s", guardian.email, code)
 
             audit.log_audit_event(

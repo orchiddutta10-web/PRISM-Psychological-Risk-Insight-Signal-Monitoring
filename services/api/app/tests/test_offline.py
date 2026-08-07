@@ -1,6 +1,7 @@
 """
 Tests for the offline batch ingestion endpoint.
 """
+
 import json
 import uuid
 from datetime import datetime, timezone
@@ -102,7 +103,13 @@ class TestBatchIngestion:
                     json={
                         "batch_id": str(uuid.uuid4()),
                         "device_id": "dev-001",
-                        "events": [{"timestamp": datetime.now(timezone.utc).isoformat(), "source": "test", "payload": {}}],
+                        "events": [
+                            {
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "source": "test",
+                                "payload": {},
+                            }
+                        ],
                     },
                 )
                 assert response.status_code == 401
@@ -127,7 +134,11 @@ class TestBatchIngestion:
 
     def test_batch_rejects_too_many_events(self, client):
         events = [
-            {"timestamp": datetime.now(timezone.utc).isoformat(), "source": "esp32_pulse", "payload": {"i": i}}
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "esp32_pulse",
+                "payload": {"i": i},
+            }
             for i in range(101)
         ]
         response = client.post(
@@ -162,7 +173,13 @@ class TestBatchIngestion:
             "/api/v1/events/ingest/batch",
             json={
                 "device_id": "dev-001",
-                "events": [{"timestamp": datetime.now(timezone.utc).isoformat(), "source": "test", "payload": {}}],
+                "events": [
+                    {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "source": "test",
+                        "payload": {},
+                    }
+                ],
             },
         )
         assert response.status_code == 422

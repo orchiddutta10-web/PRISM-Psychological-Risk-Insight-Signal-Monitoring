@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/v1", tags=["behavior"])
 
 class TypingEventIngest(BaseModel):
     """Single keystroke event from Android."""
+
     device_id: str
     key: str
     event_type: str = Field(..., pattern=r"^(key_down|key_up)$")
@@ -36,6 +37,7 @@ class TypingEventIngest(BaseModel):
 
 class TypingBatchIngest(BaseModel):
     """Batch of typing events from a session."""
+
     device_id: str
     session_id: str
     events: list[dict]  # [{key, event_type, timestamp_ms}, ...]
@@ -74,7 +76,9 @@ def ingest_typing_batch(
 
     events = payload.events
     if len(events) < 5:
-        raise HTTPException(400, detail="Need at least 5 keystroke events for analysis.")
+        raise HTTPException(
+            400, detail="Need at least 5 keystroke events for analysis."
+        )
 
     # Sort by timestamp
     events.sort(key=lambda e: e.get("timestamp_ms", 0))
@@ -89,7 +93,9 @@ def ingest_typing_batch(
         if e.get("event_type") == "key_down":
             # Find matching key_up
             for j in range(i + 1, len(events)):
-                if events[j].get("event_type") == "key_up" and events[j].get("key") == e.get("key"):
+                if events[j].get("event_type") == "key_up" and events[j].get(
+                    "key"
+                ) == e.get("key"):
                     hold = events[j].get("timestamp_ms", 0) - e.get("timestamp_ms", 0)
                     if 10 < hold < 2000:  # valid range
                         hold_times.append(hold)
@@ -271,7 +277,7 @@ def rag_search(
         "query": req.query,
         "results_count": len(results),
         "results": results,
-        "method": "keyword"  # will be "vector" once embeddings are integrated
+        "method": "keyword",  # will be "vector" once embeddings are integrated
     }
 
 
@@ -329,6 +335,7 @@ def mood_timeline(
 
     # Aggregate daily sentiment
     from collections import Counter
+
     by_day = {}
     for entry in timeline:
         day = entry["date"]
@@ -341,12 +348,14 @@ def mood_timeline(
     for day, sentiments in sorted(by_day.items()):
         counts = Counter(sentiments)
         dominant = counts.most_common(1)[0][0] if counts else "neutral"
-        daily_mood.append({
-            "date": day,
-            "dominant_sentiment": dominant,
-            "message_count": len(sentiments),
-            "breakdown": dict(counts),
-        })
+        daily_mood.append(
+            {
+                "date": day,
+                "dominant_sentiment": dominant,
+                "message_count": len(sentiments),
+                "breakdown": dict(counts),
+            }
+        )
 
     return {
         "device_id": device_id,

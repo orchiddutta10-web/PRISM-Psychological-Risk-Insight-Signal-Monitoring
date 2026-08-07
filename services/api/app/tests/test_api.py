@@ -712,7 +712,10 @@ def test_companion_chat():
         json={"message": "I keep feeling anxious before school"},
     )
     assert anxious.status_code == 200
-    assert "worry" in anxious.json()["response"].lower() or "anxiety" in anxious.json()["response"].lower()
+    assert (
+        "worry" in anxious.json()["response"].lower()
+        or "anxiety" in anxious.json()["response"].lower()
+    )
 
     # 5d. Conversation memory is persisted for RAG / mood endpoints
     db = TestingSessionLocal()
@@ -1182,7 +1185,11 @@ def test_guardian_connections_endpoint():
     res_dev = client.post(
         "/api/v1/auth/device",
         headers={"Authorization": f"Bearer {guardian_token}"},
-        json={"name": "Kid Device", "platform": "android", "device_token": "conn-tok-1"},
+        json={
+            "name": "Kid Device",
+            "platform": "android",
+            "device_token": "conn-tok-1",
+        },
     )
     device_id = res_dev.json()["device"]["id"]
 

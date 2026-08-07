@@ -278,7 +278,9 @@ def get_insight_history(
 )
 def get_explanation(
     subject_id: str,
-    audience: str = Query(default="guardian", pattern="^(guardian|clinician|scientist)$"),
+    audience: str = Query(
+        default="guardian", pattern="^(guardian|clinician|scientist)$"
+    ),
     db: Session = Depends(get_db),
     current_user: models.Guardian = Depends(auth.get_current_user),
 ) -> ExplanationResponse:
@@ -563,14 +565,21 @@ def get_analytics(
     feedback_volume = {
         "total": len(feedback_records),
         "helpful": sum(1 for f in feedback_records if f.feedback_type == "helpful"),
-        "not_helpful": sum(1 for f in feedback_records if f.feedback_type == "not_helpful"),
-        "false_alert": sum(1 for f in feedback_records if f.feedback_type == "false_alert"),
+        "not_helpful": sum(
+            1 for f in feedback_records if f.feedback_type == "not_helpful"
+        ),
+        "false_alert": sum(
+            1 for f in feedback_records if f.feedback_type == "false_alert"
+        ),
     }
 
     # Recent scores
     recent_scores = (
         db.query(models.RiskScoreV2)
-        .join(models.BehaviorWindow, models.RiskScoreV2.window_id == models.BehaviorWindow.id)
+        .join(
+            models.BehaviorWindow,
+            models.RiskScoreV2.window_id == models.BehaviorWindow.id,
+        )
         .filter(models.BehaviorWindow.subject_id == subject_id)
         .order_by(models.BehaviorWindow.start_ts.desc())
         .limit(30)

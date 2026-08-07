@@ -48,7 +48,9 @@ class ModelTrainingPipeline:
         X = df[features].values
 
         with mlflow.start_run(run_name="IsolationForest_Anomaly"):
-            model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
+            model = IsolationForest(
+                n_estimators=100, contamination=0.05, random_state=42
+            )
             model.fit(X)
 
             scores = model.decision_function(X)
@@ -88,7 +90,9 @@ class ModelTrainingPipeline:
                 "n_estimators": [50, 100],
             }
 
-            base_model = xgb.XGBClassifier(use_label_encoder=False, eval_metric="logloss")
+            base_model = xgb.XGBClassifier(
+                use_label_encoder=False, eval_metric="logloss"
+            )
             grid_search = GridSearchCV(
                 estimator=base_model, param_grid=param_grid, cv=3, scoring="roc_auc"
             )

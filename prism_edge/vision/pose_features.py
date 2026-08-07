@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any
 
 try:
     import cv2
+
     HAS_CV2 = True
 except ImportError:
     cv2 = None
@@ -55,16 +56,20 @@ class PoseFeatureExtractor:
     def start(self) -> None:
         try:
             import mediapipe.python.solutions.pose as mp_pose
+
             self._pose = mp_pose.Pose(
                 static_image_mode=False,
-                model_complexity=1,               # 1 = balanced (0=lite, 2=heavy)
+                model_complexity=1,  # 1 = balanced (0=lite, 2=heavy)
                 smooth_landmarks=True,
                 enable_segmentation=False,
                 min_detection_confidence=self._confidence,
                 min_tracking_confidence=self._confidence,
             )
             self._ready = True
-            logger.info("MediaPipe Pose initialized (complexity=1, confidence=%.2f)", self._confidence)
+            logger.info(
+                "MediaPipe Pose initialized (complexity=1, confidence=%.2f)",
+                self._confidence,
+            )
         except Exception as e:
             logger.error("Failed to initialize MediaPipe Pose: %s", e)
             self._ready = False
@@ -133,17 +138,27 @@ class PoseFeatureExtractor:
 
         # Torso angle: deviation from vertical (measured from hip to shoulder midpoint)
         torso_vec = shoulder_mid[:2] - hip_mid[:2]
-        torso_angle = float(np.degrees(np.arctan2(abs(torso_vec[0]), abs(torso_vec[1]) + 1e-8)))
+        torso_angle = float(
+            np.degrees(np.arctan2(abs(torso_vec[0]), abs(torso_vec[1]) + 1e-8))
+        )
 
         # Spine angle: upper (shoulder midpoint to nose) vs lower (shoulder mid to hip mid)
         upper_spine = pts[NOSE][:2] - shoulder_mid[:2]
         lower_spine = shoulder_mid[:2] - hip_mid[:2]
-        spine_angle = float(abs(np.degrees(np.arctan2(upper_spine[0], abs(upper_spine[1]) + 1e-8) -
-                                     np.arctan2(lower_spine[0], abs(lower_spine[1]) + 1e-8))))
+        spine_angle = float(
+            abs(
+                np.degrees(
+                    np.arctan2(upper_spine[0], abs(upper_spine[1]) + 1e-8)
+                    - np.arctan2(lower_spine[0], abs(lower_spine[1]) + 1e-8)
+                )
+            )
+        )
 
         # Shoulder tilt
         shoulder_vec = pts[RIGHT_SHOULDER][:2] - pts[LEFT_SHOULDER][:2]
-        shoulder_angle = float(np.degrees(np.arctan2(abs(shoulder_vec[1]), abs(shoulder_vec[0]) + 1e-8)))
+        shoulder_angle = float(
+            np.degrees(np.arctan2(abs(shoulder_vec[1]), abs(shoulder_vec[0]) + 1e-8))
+        )
 
         # ── Posture Classification ────────────────────────────────
         # Heuristics based on hip-knee-ankle angle and vertical alignment
@@ -154,7 +169,10 @@ class PoseFeatureExtractor:
             posture = "seated"
         elif avg_knee_angle > 150 and torso_angle < 15:
             posture = "standing"
-        elif abs(pts[LEFT_KNEE][1] - pts[RIGHT_KNEE][1]) < 0.05 * h and avg_knee_angle < 60:
+        elif (
+            abs(pts[LEFT_KNEE][1] - pts[RIGHT_KNEE][1]) < 0.05 * h
+            and avg_knee_angle < 60
+        ):
             posture = "seated"
 
         # ── Body Center (normalized 0–1) ──────────────────────────
@@ -164,10 +182,19 @@ class PoseFeatureExtractor:
 
         # ── Confidence ────────────────────────────────────────────
         # Estimate from MediaPipe visibility scores
-        vis_scores = [lm[LEFT_SHOULDER].visibility, lm[RIGHT_SHOULDER].visibility,
-                       lm[LEFT_HIP].visibility, lm[RIGHT_HIP].visibility,
-                       lm[LEFT_KNEE].visibility, lm[RIGHT_KNEE].visibility]
-        confidence = float(np.mean([v for v in vis_scores if v is not None and v > 0])) if any(v and v > 0 for v in vis_scores) else 0.0
+        vis_scores = [
+            lm[LEFT_SHOULDER].visibility,
+            lm[RIGHT_SHOULDER].visibility,
+            lm[LEFT_HIP].visibility,
+            lm[RIGHT_HIP].visibility,
+            lm[LEFT_KNEE].visibility,
+            lm[RIGHT_KNEE].visibility,
+        ]
+        confidence = (
+            float(np.mean([v for v in vis_scores if v is not None and v > 0]))
+            if any(v and v > 0 for v in vis_scores)
+            else 0.0
+        )
 
         return {
             "present": True,

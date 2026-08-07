@@ -8,6 +8,7 @@ Verifies:
     bearer token is presented
   - the correct token is accepted when auth is enabled
 """
+
 import sys
 import threading
 from pathlib import Path
@@ -48,7 +49,13 @@ def test_pulse_ingest_no_auth_configured(bridge_app):
 
     resp = client.post(
         PULSE_URL,
-        json={"ts_ms": 45000, "pulse_raw": 1950, "bpm": 72, "g_force": 1.02, "alert_status": "OK"},
+        json={
+            "ts_ms": 45000,
+            "pulse_raw": 1950,
+            "bpm": 72,
+            "g_force": 1.02,
+            "alert_status": "OK",
+        },
     )
     assert resp.status_code == 200
     assert resp.get_json()["status"] == "accepted"
@@ -63,7 +70,13 @@ def test_pulse_ingest_rejects_missing_token(bridge_app):
 
     resp = client.post(
         PULSE_URL,
-        json={"ts_ms": 1, "pulse_raw": 1900, "bpm": 70, "g_force": 1.0, "alert_status": "OK"},
+        json={
+            "ts_ms": 1,
+            "pulse_raw": 1900,
+            "bpm": 70,
+            "g_force": 1.0,
+            "alert_status": "OK",
+        },
     )
     assert resp.status_code == 401
     assert resp.get_json()["status"] == "error"
@@ -78,7 +91,13 @@ def test_pulse_ingest_accepts_valid_token(bridge_app):
     resp = client.post(
         PULSE_URL,
         headers={"Authorization": "Bearer super-secret-token"},
-        json={"ts_ms": 2, "pulse_raw": 1910, "bpm": 71, "g_force": 1.01, "alert_status": "OK"},
+        json={
+            "ts_ms": 2,
+            "pulse_raw": 1910,
+            "bpm": 71,
+            "g_force": 1.01,
+            "alert_status": "OK",
+        },
     )
     assert resp.status_code == 200
     assert shared_state["esp32_pulse"]["bpm"] == 71
@@ -93,7 +112,13 @@ def test_pulse_ingest_rejects_wrong_token(bridge_app):
     resp = client.post(
         PULSE_URL,
         headers={"Authorization": "Bearer wrong-token"},
-        json={"ts_ms": 3, "pulse_raw": 1920, "bpm": 73, "g_force": 1.0, "alert_status": "OK"},
+        json={
+            "ts_ms": 3,
+            "pulse_raw": 1920,
+            "bpm": 73,
+            "g_force": 1.0,
+            "alert_status": "OK",
+        },
     )
     assert resp.status_code == 401
     assert "esp32_pulse" not in shared_state
