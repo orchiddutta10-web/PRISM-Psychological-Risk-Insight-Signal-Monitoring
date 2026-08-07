@@ -7,6 +7,7 @@ import {
   ArrowLeft, Lock, PlusCircle, User, Users, BookOpen, Shield, Check, Monitor, Clock, Bell, ChevronDown, ChevronUp, Calendar, Menu, Phone, Heart, Paperclip, Smile, Camera, Send, Volume2, Star
 } from 'lucide-react-native';
 import { ApiClient, TokenManager } from '../services/api';
+import { socketService } from '../services/socket';
 
 // 1. Pricing configuration (Non-hardcoded single source)
 const PRICING_CONFIG = {
@@ -116,7 +117,6 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   // Phase 8: Chat Screen States
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
-  const wsRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
 
   // Phase 8: Trial Conversion States
@@ -176,7 +176,7 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
 
   const loadChatHistory = async () => {
     try {
-      const history = await ApiClient.request('/chat/history', { method: 'GET' });
+      const history = await ApiClient.request('/events/chat/history', { method: 'GET' });
       setChatMessages(history);
       setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err) {
@@ -185,53 +185,20 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   };
 
   const connectWebSocket = async () => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      return;
-    }
-    try {
-      const token = await TokenManager.getToken();
-      if (!token) return;
-
-      const wsUrl = `ws://localhost:8000/api/v1/events/ws?token=${token}`;
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log("WebSocket chat connection established.");
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = jsonParse(event.data);
-          if (payload && payload.type === "chat_message") {
-            setChatMessages(prev => {
-              // Avoid duplicates
-              if (prev.some(m => m.id === payload.id)) return prev;
-              return [...prev, payload];
-            });
-            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-          }
-        } catch (e) {
-          // Non-chat event payload ignored
-        }
-      };
-
-      ws.onclose = () => {
-        console.log("WebSocket chat connection closed. Retrying in 3 seconds...");
-        setTimeout(connectWebSocket, 3000);
-      };
-
-      wsRef.current = ws;
-    } catch (err) {
-      console.log("WebSocket connect error:", err);
-    }
+    socketService.connect('/events/ws');
+    socketService.subscribe((payload) => {
+      if (payload && payload.type === "chat_message") {
+        setChatMessages(prev => {
+          if (prev.some(m => m.id === payload.id)) return prev;
+          return [...prev, payload];
+        });
+        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    });
   };
 
   const disconnectWebSocket = () => {
-    if (wsRef.current) {
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-      wsRef.current = null;
-    }
+    socketService.disconnect();
   };
 
   const jsonParse = (data: string) => {
@@ -243,10 +210,10 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   };
 
   const handleSendChatMessage = () => {
-    if (!chatInput.trim() || !wsRef.current) return;
+    if (!chatInput.trim()) return;
     
     // Broadcast text to server WebSocket
-    wsRef.current.send(JSON.stringify({ text: chatInput.trim() }));
+    socketService.send({ text: chatInput.trim() });
     
     // Optimistic local update
     const tempMsg = {

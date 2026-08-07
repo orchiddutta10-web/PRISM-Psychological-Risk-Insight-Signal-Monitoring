@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "PRISM API Service"
     ENV: str = os.getenv("ENV", "development")
+    DEMO_MODE: bool = os.getenv("DEMO_MODE", "True").lower() in ("true", "1", "yes")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./prism.db")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     JWT_SECRET: str = os.getenv(

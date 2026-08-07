@@ -217,3 +217,35 @@ body {
 .status-dot.warn  { background: var(--gray-500); }
 .status-dot.alert { background: var(--black); }
 [data-theme='dark'] .status-dot.ok { background: var(--gray-300); }
+
+/* ─── Presentation Mode ─────────────────────────────────────── */
+.presentation-mode .presentation-hide-sidebar {
+  display: none !important;
+}
+
+.presentation-mode .presentation-main-content {
+  padding-left: 0 !important;
+}
+
+.presentation-mode .presentation-hide-header {
+  border-bottom: none !important;
+  background: transparent !important;
+  position: absolute !important;
+  width: 100% !important;
+  opacity: 0 !important;
+  transition: opacity 0.3s ease;
+}
+
+.presentation-mode .presentation-hide-header:hover {
+  opacity: 1 !important;
+  background: var(--bg-main) !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.presentation-mode .presentation-hide-footer {
+  display: none !important;
+}
+
+.presentation-mode * {
+  transition: all 0.3s ease-in-out;
+}

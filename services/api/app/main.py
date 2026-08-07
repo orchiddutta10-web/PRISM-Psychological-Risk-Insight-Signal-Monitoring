@@ -99,6 +99,11 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     set_ml_engine(PrismMLEngine(SessionLocal))
+    if settings.DEMO_MODE:
+        import logging
+        logging.getLogger(__name__).info("Starting Demo Mode simulation engine...")
+        from app.demo_simulation_engine import start_simulation
+        start_simulation()
     yield
 
 
@@ -149,3 +154,7 @@ app.include_router(sensors.router)
 app.include_router(behavior.router)
 app.include_router(guardian.router)
 app.include_router(offline.router)
+
+if settings.DEMO_MODE:
+    from app.routes import demo
+    app.include_router(demo.router)

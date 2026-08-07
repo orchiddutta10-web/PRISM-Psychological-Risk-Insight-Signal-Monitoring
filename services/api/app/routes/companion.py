@@ -61,6 +61,123 @@ def simulate_persona(
     response_text = _respond(persona, req.message)
     return {"response": response_text}
 
+
+class RagSearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    device_id: str | None = None
+
+
+@router.post("/rag/search")
+def companion_rag_search(
+    req: RagSearchRequest,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    Lightweight lexical memory search over conversation_memory for the guardian's devices.
+    Kept under /companion so the dashboard chatbot has a real authenticated endpoint.
+    """
+    devices = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == guardian.id)
+        .all()
+    )
+    device_ids = [d.id for d in devices]
+    if req.device_id:
+        if req.device_id not in device_ids:
+            raise HTTPException(status_code=403, detail="Device not owned by guardian")
+        device_ids = [req.device_id]
+
+    if not device_ids:
+        return {"results_count": 0, "results": [], "method": "lexical"}
+
+    q = (req.query or "").strip().lower()
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.subject_id.in_(device_ids))
+        .order_by(models.ConversationMemory.timestamp.desc())
+        .limit(200)
+        .all()
+    )
+
+    scored = []
+    tokens = [t for t in q.replace(",", " ").split() if len(t) > 2]
+    for row in rows:
+        text = (row.message or "").lower()
+        if not tokens or any(t in text for t in tokens):
+            scored.append(
+                {
+                    "id": row.id,
+                    "role": row.role,
+                    "message": row.message,
+                    "sentiment": row.sentiment,
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                }
+            )
+        if len(scored) >= max(1, min(req.top_k, 20)):
+            break
+
+    return {"results_count": len(scored), "results": scored, "method": "lexical"}
+
+
+@router.get("/mood/timeline")
+def companion_mood_timeline(
+    days: int = Query(7, ge=1, le=90),
+    device_id: str | None = None,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """Aggregate daily dominant sentiment from conversation memory for guardian devices."""
+    from collections import Counter, defaultdict
+    from datetime import datetime, timedelta, timezone
+
+    devices = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == guardian.id)
+        .all()
+    )
+    device_ids = [d.id for d in devices]
+    if device_id:
+        if device_id not in device_ids:
+            raise HTTPException(status_code=403, detail="Device not owned by guardian")
+        device_ids = [device_id]
+
+    if not device_ids:
+        return {"daily_mood": []}
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(
+            models.ConversationMemory.subject_id.in_(device_ids),
+            models.ConversationMemory.timestamp >= since,
+        )
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .all()
+    )
+
+    by_day: dict[str, list[str]] = defaultdict(list)
+    for row in rows:
+        if not row.timestamp:
+            continue
+        key = row.timestamp.date().isoformat()
+        by_day[key].append((row.sentiment or "neutral").lower())
+
+    daily = []
+    for day, sentiments in sorted(by_day.items()):
+        counts = Counter(sentiments)
+        dominant, _ = counts.most_common(1)[0]
+        daily.append(
+            {
+                "date": day,
+                "dominant_sentiment": dominant,
+                "message_count": len(sentiments),
+                "breakdown": dict(counts),
+            }
+        )
+    return {"daily_mood": daily}
+
 @router.post("/sessions")
 def create_session(
     req: CompanionSessionCreate,

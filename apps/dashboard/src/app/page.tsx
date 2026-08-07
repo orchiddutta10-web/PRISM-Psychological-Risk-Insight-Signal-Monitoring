@@ -4,7 +4,16 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Mail, Lock, User, Shield, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
 
-const API = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+function resolveApiBase(): string {
+  const raw = process.env.NEXT_PUBLIC_API_URL
+  if (!raw || raw.trim() === '') return '/api/v1'
+  const trimmed = raw.replace(/\/$/, '')
+  if (trimmed.endsWith('/api/v1')) return trimmed
+  if (/^https?:\/\//i.test(trimmed)) return `${trimmed}/api/v1`
+  return trimmed
+}
+
+const API = resolveApiBase()
 
 export default function LoginPage() {
   const router = useRouter()
@@ -18,6 +27,8 @@ export default function LoginPage() {
   const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const [socialLoading, setSocialLoading] = useState<'Google' | 'Apple' | null>(null)
+  const [mfaToken, setMfaToken] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
 
   useEffect(() => {
     if (localStorage.getItem('prism_token')) router.push('/overview')
@@ -39,21 +50,43 @@ export default function LoginPage() {
   }
 
   const save = (data: any) => {
+    if (!data?.access_token || !data?.user) {
+      throw new Error('Login did not return a session token. Complete MFA if prompted.')
+    }
     localStorage.setItem('prism_token', data.access_token)
     localStorage.setItem('prism_guardian', JSON.stringify(data.user))
+  }
+
+  const completeLogin = async (data: any) => {
+    if (data?.mfa_required) {
+      if (!data.mfa_token) throw new Error('MFA required but no challenge token was issued.')
+      setMfaToken(data.mfa_token)
+      setSuccess('Enter the 6-digit MFA code to finish signing in.')
+      return null
+    }
+    save(data)
+    return data.access_token as string
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(''); setSuccess(''); setLoading(true)
     try {
+      if (mfaToken) {
+        const data = await post('/auth/mfa/verify', { mfa_token: mfaToken, otp_code: mfaCode })
+        save(data)
+        setMfaToken(null)
+        setMfaCode('')
+        router.push('/overview')
+        return
+      }
       if (mode === 'signup') {
         await post('/auth/register', { full_name: fullName, email, password, role })
         setSuccess('Account created! Signing you in…')
       }
       const data = await post('/auth/login', { email, password })
-      save(data)
-      router.push('/overview')
+      const token = await completeLogin(data)
+      if (token) router.push('/overview')
     } catch (err: any) { setError(err.message) }
     finally { setLoading(false) }
   }
@@ -66,7 +99,34 @@ export default function LoginPage() {
     try {
       await post('/auth/register', { full_name: `${provider} User`, email: demoEmail, password: demoPass, role: 'guardian' })
       const data = await post('/auth/login', { email: demoEmail, password: demoPass })
-      save(data)
+      const tk = await completeLogin(data)
+      if (!tk) return
+      const devRes = await fetch(`${API}/auth/device`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tk}` },
+        body: JSON.stringify({ name: "Demo Teen (Simulator)", platform: "android", device_token: `mock-fcm-${uid}` })
+      })
+      
+      if (devRes.ok) {
+        const devData = await devRes.json();
+        const devId = devData.device.id;
+        localStorage.setItem('prism_selected_device', devId);
+        
+        // Setup initial consent
+        await fetch(`${API}/consent/grants/${devId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tk}` },
+          body: JSON.stringify({ modality: "location", is_granted: true })
+        });
+        
+        // Trigger a demo scenario to generate initial data
+        await fetch(`${API}/events/demo-trigger`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tk}` },
+          body: JSON.stringify({ device_id: devId, scenario: 'A' })
+        });
+      }
+
       router.push('/overview')
     } catch (err: any) { setError(err.message) }
     finally { setSocialLoading(null) }
@@ -201,13 +261,31 @@ export default function LoginPage() {
                   onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
               </Field>
 
-              {mode === 'signup' && (
+              {mode === 'signup' && !mfaToken && (
                 <Field icon={<Shield size={15} color="#AEAEB2" />} label="Role">
                   <select value={role} onChange={e => setRole(e.target.value)}
                     style={{ ...inputStyle, appearance: 'none', cursor: 'pointer' }}>
                     <option value="guardian">Guardian (Standard)</option>
                     <option value="guardian-admin">Guardian-Admin (Audit Access)</option>
                   </select>
+                </Field>
+              )}
+
+              {mfaToken && (
+                <Field icon={<Shield size={15} color="#AEAEB2" />} label="MFA Code">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    required
+                    placeholder="6-digit code"
+                    value={mfaCode}
+                    onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    style={inputStyle}
+                    onFocus={e => e.target.style.borderColor = '#0A0A0A'}
+                    onBlur={e => e.target.style.borderColor = '#E5E5E5'}
+                  />
                 </Field>
               )}
             </div>
@@ -221,7 +299,7 @@ export default function LoginPage() {
               }}>
               {loading
                 ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Authenticating…</>
-                : <>{mode === 'signin' ? 'Sign In' : 'Create Account'} <ArrowRight size={16} /></>
+                : <>{mfaToken ? 'Verify MFA' : mode === 'signin' ? 'Sign In' : 'Create Account'} <ArrowRight size={16} /></>
               }
             </button>
           </form>

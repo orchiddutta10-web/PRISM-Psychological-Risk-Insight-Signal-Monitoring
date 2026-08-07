@@ -959,7 +959,7 @@ def test_ingestion_health():
     assert res_ingest.status_code == 200
 
     # Retrieve health status and verify it detects 'synthetic' for GSR
-    response = client.get("/api/internal/ingestion/health")
+    response = client.get("/api/v1/internal/ingestion/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"

@@ -9,15 +9,30 @@
  *   - directly when NEXT_PUBLIC_API_URL is set (e.g. http://localhost:8000/api/v1)
  */
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+function normalizeApiBase(raw?: string | null): string {
+  if (!raw || raw.trim() === '') return '/api/v1'
+  const trimmed = raw.replace(/\/$/, '')
+  if (trimmed.endsWith('/api/v1')) return trimmed
+  // Allow either full origin or already-qualified /api/v1 base.
+  if (/^https?:\/\//i.test(trimmed)) return `${trimmed}/api/v1`
+  return trimmed
+}
+
+export const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL)
 
 /** Builds an absolute ws(s):// URL for the live events socket. */
 export function buildWsUrl(path: string, token: string): string {
   const api = process.env.NEXT_PUBLIC_API_URL
-  const base = api
-    ? api.replace(/^http/, 'ws')
-    : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:8000/api/v1`
-  return `${base}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+  let base: string
+  if (api && /^https?:\/\//i.test(api)) {
+    // Normalize so we always end at .../api/v1 regardless of env shape.
+    const normalized = normalizeApiBase(api).replace(/^http/, 'ws')
+    base = normalized
+  } else {
+    base = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:8000/api/v1`
+  }
+  const suffix = path.startsWith('/') ? path : `/${path}`
+  return `${base}${suffix}${suffix.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
 }
 
 export function authHeaders(token: string): HeadersInit {

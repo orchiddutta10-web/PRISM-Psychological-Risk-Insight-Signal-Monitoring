@@ -1,6 +1,6 @@
 /*
  * PRISM PULSE — ESP32 NodeMCU Firmware (Multi-Factor + Cloud Edition)
- * Sensors: Analog Pulse Sensor (GPIO34) | MPU6050 (I2C) | ISD1820 (GPIO4) | I2C LCD
+ * Sensors: Analog Pulse Sensor (GPIO36) | MPU6050 (I2C) | ISD1820 (GPIO4) | I2C LCD
  * 
  * Logic: Triggers ISD1820 only if High BPM + Low Movement is sustained for 15s.
  * Cloud:  Non-blocking WiFi HTTP POST to PRISM API every TX_INTERVAL ms.
@@ -21,7 +21,7 @@
 #endif
 
 // ── Pin Definitions ───────────────────────────────────────────────
-#define PULSE_PIN       34    // Analog Pulse Sensor (S) → GPIO34
+#define PULSE_PIN       36    // Analog Pulse Sensor (S) → GPIO36
 #define ISD_PLAY_PIN    4     // ISD1820 P-E trigger → GPIO4
 
 // ── Devices ───────────────────────────────────────────────────────
