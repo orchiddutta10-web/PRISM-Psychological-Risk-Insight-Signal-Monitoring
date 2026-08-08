@@ -37,8 +37,9 @@ export function Reveal({
   delay = 0,
   variant = 'fade-up',
   className,
-  as: Tag = 'div',
+  as = 'div',
 }: RevealProps) {
+  const Tag = as as any
   const ref = useRef<HTMLElement | null>(null)
   const [visible, setVisible] = useState(false)
   const reduced = usePrefersReducedMotion()

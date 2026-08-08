@@ -1,10 +1,45 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Mail, Lock, User, Shield, Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Canvas, useFrame } from '@react-three/fiber'
+import { Environment, Float, MeshDistortMaterial } from '@react-three/drei'
 
 const API = 'http://localhost:8000/api/v1'
+
+// --- 3D PRISM CRYSTAL COMPONENT ---
+function PrismCrystal() {
+  const meshRef = useRef<any>(null)
+  
+  useFrame((state, delta) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y += delta * 0.2
+      meshRef.current.rotation.z += delta * 0.1
+    }
+  })
+
+  return (
+    <Float speed={2} rotationIntensity={0.5} floatIntensity={2}>
+      <mesh ref={meshRef}>
+        <octahedronGeometry args={[2, 0]} />
+        <MeshDistortMaterial
+          color="#6366f1"
+          envMapIntensity={2}
+          clearcoat={1}
+          clearcoatRoughness={0.1}
+          metalness={0.9}
+          roughness={0.1}
+          distort={0.2}
+          speed={2}
+          transparent
+          opacity={0.85}
+        />
+      </mesh>
+    </Float>
+  )
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -20,7 +55,9 @@ export default function LoginPage() {
   const [socialLoading, setSocialLoading] = useState<'Google' | 'Apple' | null>(null)
 
   useEffect(() => {
-    if (localStorage.getItem('prism_token')) router.push('/overview')
+    if (typeof window !== 'undefined' && localStorage.getItem('prism_token')) {
+      router.push('/overview')
+    }
   }, [router])
 
   const post = async (path: string, body: object) => {
@@ -73,171 +110,222 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', system-ui, sans-serif", background: '#F9F9F8' }}>
-
-      {/* ── LEFT BRAND PANEL ──────────────────────────────────── */}
-      <div style={{
-        width: 480, flexShrink: 0, background: '#0A0A0A', display: 'flex',
-        flexDirection: 'column', justifyContent: 'space-between', padding: '48px 52px',
-        position: 'relative', overflow: 'hidden',
-      }}>
-        {/* Background decoration — overlapping translucent circles */}
-        {[
-          { size: 320, top: -80, right: -80, opacity: 0.04 },
-          { size: 200, top: 60, right: 20, opacity: 0.06 },
-          { size: 160, top: 160, right: -40, opacity: 0.04 },
-          { size: 400, bottom: -120, left: -100, opacity: 0.03 },
-        ].map((c, i) => (
-          <div key={i} style={{
-            position: 'absolute',
-            width: c.size, height: c.size,
-            top: c.top, bottom: c.bottom, left: c.left, right: c.right,
-            borderRadius: '50%',
-            border: '1.5px solid rgba(255,255,255,0.6)',
-            opacity: c.opacity,
-            pointerEvents: 'none',
-          }} />
-        ))}
-
-        {/* Logo */}
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 72 }}>
-            <div style={{ position: 'relative', width: 32, height: 32 }}>
-              <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.9)' }} />
-              <div style={{ position: 'absolute', top: 6, left: 6, width: 14, height: 14, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,0.4)' }} />
-            </div>
-            <span style={{ color: '#fff', fontWeight: 800, fontSize: 18, letterSpacing: '0.18em' }}>PRISM</span>
-          </div>
-
-          <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 20 }}>
-            Guardian Dashboard
-          </p>
-          <h1 style={{ color: '#fff', fontSize: 42, fontWeight: 800, lineHeight: 1.1, marginBottom: 24, letterSpacing: '-0.02em' }}>
-            Your family&apos;s<br />wellbeing,<br />made clear.
-          </h1>
-          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 15, lineHeight: 1.75 }}>
-            Behavior patterns, sleep signals, and real-time insights — explained simply. Privacy-first, always.
-          </p>
+    <div className="flex min-h-screen bg-zinc-950 font-sans text-white selection:bg-indigo-500/30 overflow-hidden">
+      
+      {/* ── LEFT HERO PANEL (3D) ──────────────────────────────── */}
+      <div className="hidden lg:flex w-[55%] relative flex-col justify-between p-16 border-r border-white/5">
+        
+        {/* Deep Space Animated Background */}
+        <div className="absolute inset-0 z-0">
+          <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] rounded-full bg-indigo-600/20 blur-[120px] mix-blend-screen animate-pulse duration-[8000ms]" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-rose-500/10 blur-[150px] mix-blend-screen" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay pointer-events-none" />
         </div>
 
-        {/* Trust points */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* 3D Canvas Layer */}
+        <div className="absolute inset-0 z-10 opacity-80 pointer-events-none">
+          <Canvas camera={{ position: [0, 0, 6], fov: 45 }}>
+            <ambientLight intensity={0.5} />
+            <directionalLight position={[10, 10, 5]} intensity={1} />
+            <Environment preset="city" />
+            <PrismCrystal />
+          </Canvas>
+        </div>
+
+        {/* Branding Overlay */}
+        <div className="relative z-20">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+            className="flex items-center gap-3 mb-16"
+          >
+            <div className="relative w-8 h-8 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full border border-white/90 shadow-[0_0_15px_rgba(255,255,255,0.3)]" />
+              <div className="w-3.5 h-3.5 rounded-full border border-white/40 shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
+            </div>
+            <span className="font-extrabold text-xl tracking-[0.25em] text-white">PRISM</span>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <p className="text-indigo-400 text-[11px] tracking-[0.2em] uppercase font-bold mb-6 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+              Intelligent Command Center
+            </p>
+            <h1 className="text-[4rem] font-extrabold leading-[1.05] tracking-tighter mb-8">
+              Protecting<br />their future,<br />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-white to-rose-300">transparently.</span>
+            </h1>
+            <p className="text-white/60 text-lg leading-relaxed max-w-md font-medium">
+              Behavior patterns, encrypted sleep signals, and real-time insights — delivered with absolute privacy.
+            </p>
+          </motion.div>
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1, delay: 0.5 }}
+          className="relative z-20 flex flex-col gap-5 mt-12"
+        >
           {[
-            'Metadata only — no message content ever read',
-            'Teen can pause or review monitoring anytime',
-            'All data encrypted end-to-end in transit',
-            'WCAG 2.1 AA accessible interface',
+            'Metadata only — zero message content ever read.',
+            'Teen can pause monitoring at any time.',
+            'End-to-end encrypted data transmission.',
           ].map((t, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 20, height: 20, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.5)' }} />
+            <div key={i} className="flex items-center gap-4">
+              <div className="w-6 h-6 rounded-full border border-white/10 flex items-center justify-center shrink-0 bg-white/5 backdrop-blur-md shadow-[0_0_10px_rgba(255,255,255,0.05)]">
+                <div className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
               </div>
-              <span style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13 }}>{t}</span>
+              <span className="text-white/50 text-sm font-medium tracking-wide">{t}</span>
             </div>
           ))}
-        </div>
+        </motion.div>
       </div>
 
       {/* ── RIGHT FORM PANEL ─────────────────────────────────── */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 40px' }}>
-        <div style={{ width: '100%', maxWidth: 400 }}>
+      <div className="flex-1 flex items-center justify-center p-6 sm:p-12 relative bg-zinc-950">
+        
+        {/* Ambient Glow behind the form */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] bg-indigo-900/10 blur-[100px] pointer-events-none" />
 
-          {/* Heading */}
-          <div style={{ marginBottom: 36 }}>
-            <h2 style={{ fontSize: 28, fontWeight: 800, color: '#0A0A0A', letterSpacing: '-0.02em', marginBottom: 8 }}>
-              {mode === 'signin' ? 'Welcome back' : 'Create account'}
+        <div className="w-full max-w-[420px] relative z-10">
+          
+          <motion.div 
+            layout
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+            className="mb-10 text-center lg:text-left"
+          >
+            <h2 className="text-3xl font-extrabold text-white tracking-tight mb-2">
+              {mode === 'signin' ? 'Welcome back' : 'Create an account'}
             </h2>
-            <p style={{ fontSize: 15, color: '#6B6B6B' }}>
+            <p className="text-sm text-zinc-400 font-medium">
               {mode === 'signin'
-                ? 'Sign in to your guardian dashboard.'
+                ? 'Sign in to access your secure guardian dashboard.'
                 : 'Set up your PRISM guardian account in seconds.'}
             </p>
-          </div>
+          </motion.div>
 
-          {/* Error / Success */}
-          {error && (
-            <div style={{ background: '#FFF5F5', border: '1px solid #E8C8C8', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 15, flexShrink: 0 }}>⚠</span>
-              <span style={{ fontSize: 13, color: '#5A2020', lineHeight: 1.5 }}>{error}</span>
-            </div>
-          )}
-          {success && (
-            <div style={{ background: '#F2FAF5', border: '1px solid #B8DEC9', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center' }}>
-              <span style={{ fontSize: 15 }}>✓</span>
-              <span style={{ fontSize: 13, color: '#1A4A2E' }}>{success}</span>
-            </div>
-          )}
+          {/* Alerts */}
+          <AnimatePresence mode="popLayout">
+            {error && (
+              <motion.div 
+                key="error"
+                initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-6 flex gap-3 items-start backdrop-blur-sm"
+              >
+                <Shield className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
+                <span className="text-sm text-red-200 leading-relaxed font-medium">{error}</span>
+              </motion.div>
+            )}
+            {success && (
+              <motion.div 
+                key="success"
+                initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4 mb-6 flex gap-3 items-center backdrop-blur-sm"
+              >
+                <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
+                  <ArrowRight className="w-3 h-3 text-white" />
+                </div>
+                <span className="text-sm text-emerald-200 font-medium">{success}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Form */}
-          <form onSubmit={handleSubmit}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 20 }}>
+          <motion.form layout onSubmit={handleSubmit} className="space-y-4 mb-8">
+            <AnimatePresence mode="popLayout">
               {mode === 'signup' && (
-                <Field icon={<User size={15} color="#AEAEB2" />} label="Full Name">
-                  <input type="text" required placeholder="Your full name" value={fullName}
-                    onChange={e => setFullName(e.target.value)}
-                    style={inputStyle} onFocus={e => e.target.style.borderColor = '#0A0A0A'}
-                    onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
-                </Field>
+                <motion.div
+                  key="fullname"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                >
+                  <Field icon={<User className="w-4 h-4 text-zinc-500" />} label="Full Name">
+                    <input type="text" required placeholder="John Doe" value={fullName}
+                      onChange={e => setFullName(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-zinc-900/50 border border-white/10 rounded-xl text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-inner backdrop-blur-md" />
+                  </Field>
+                </motion.div>
               )}
+            </AnimatePresence>
 
-              <Field icon={<Mail size={15} color="#AEAEB2" />} label="Email">
-                <input type="email" required placeholder="your@email.com" value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  style={inputStyle} onFocus={e => e.target.style.borderColor = '#0A0A0A'}
-                  onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
-              </Field>
+            <Field icon={<Mail className="w-4 h-4 text-zinc-500" />} label="Email address">
+              <input type="email" required placeholder="name@example.com" value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full pl-11 pr-4 py-3.5 bg-zinc-900/50 border border-white/10 rounded-xl text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-inner backdrop-blur-md" />
+            </Field>
 
-              <Field icon={<Lock size={15} color="#AEAEB2" />} label="Password"
-                right={
-                  <button type="button" onClick={() => setShowPass(s => !s)}
-                    style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#AEAEB2', padding: 0 }}>
-                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                }>
-                <input type={showPass ? 'text' : 'password'} required placeholder="••••••••" value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  style={{ ...inputStyle, paddingRight: 44 }}
-                  onFocus={e => e.target.style.borderColor = '#0A0A0A'}
-                  onBlur={e => e.target.style.borderColor = '#E5E5E5'} />
-              </Field>
+            <Field icon={<Lock className="w-4 h-4 text-zinc-500" />} label="Password"
+              right={
+                <button type="button" onClick={() => setShowPass(s => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors p-1">
+                  {showPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              }>
+              <input type={showPass ? 'text' : 'password'} required placeholder="••••••••" value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full pl-11 pr-10 py-3.5 bg-zinc-900/50 border border-white/10 rounded-xl text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-inner backdrop-blur-md" />
+            </Field>
 
+            <AnimatePresence mode="popLayout">
               {mode === 'signup' && (
-                <Field icon={<Shield size={15} color="#AEAEB2" />} label="Role">
-                  <select value={role} onChange={e => setRole(e.target.value)}
-                    style={{ ...inputStyle, appearance: 'none', cursor: 'pointer' }}>
-                    <option value="guardian">Guardian (Standard)</option>
-                    <option value="guardian-admin">Guardian-Admin (Audit Access)</option>
-                  </select>
-                </Field>
+                <motion.div
+                  key="role"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                >
+                  <Field icon={<Shield className="w-4 h-4 text-zinc-500" />} label="Role">
+                    <select value={role} onChange={e => setRole(e.target.value)}
+                      className="w-full pl-11 pr-4 py-3.5 bg-zinc-900/50 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all shadow-inner backdrop-blur-md appearance-none cursor-pointer">
+                      <option value="guardian">Guardian (Standard)</option>
+                      <option value="guardian-admin">Guardian-Admin (Audit Access)</option>
+                    </select>
+                  </Field>
+                </motion.div>
               )}
-            </div>
+            </AnimatePresence>
 
-            <button type="submit" disabled={loading}
-              style={{
-                width: '100%', padding: '14px 20px', background: loading ? '#555' : '#0A0A0A',
-                color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700,
-                cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', gap: 8, transition: 'all 0.15s', letterSpacing: '-0.01em',
-              }}>
+            <motion.button 
+              layout
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.98 }}
+              type="submit" disabled={loading}
+              className="w-full mt-2 py-3.5 px-4 bg-white hover:bg-zinc-200 text-zinc-900 text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+            >
               {loading
-                ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Authenticating…</>
-                : <>{mode === 'signin' ? 'Sign In' : 'Create Account'} <ArrowRight size={16} /></>
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Authenticating…</>
+                : <>{mode === 'signin' ? 'Sign In' : 'Create Account'} <ArrowRight className="w-4 h-4" /></>
               }
-            </button>
-          </form>
+            </motion.button>
+          </motion.form>
 
           {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '24px 0' }}>
-            <div style={{ flex: 1, height: 1, background: '#E8E8E8' }} />
-            <span style={{ fontSize: 12, color: '#AEAEB2', whiteSpace: 'nowrap' }}>or continue with</span>
-            <div style={{ flex: 1, height: 1, background: '#E8E8E8' }} />
+          <div className="flex items-center gap-4 my-8 opacity-50">
+            <div className="flex-1 h-px bg-white/10" />
+            <span className="text-xs font-semibold text-zinc-500 uppercase tracking-widest">or continue with</span>
+            <div className="flex-1 h-px bg-white/10" />
           </div>
 
           {/* Social */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 28 }}>
+          <div className="grid grid-cols-2 gap-4 mb-8">
             <SocialBtn provider="Google" loading={socialLoading === 'Google'} disabled={!!socialLoading || loading} onClick={() => handleSocial('Google')}
               icon={
-                <svg width="20" height="20" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                   <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
                   <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
@@ -247,7 +335,7 @@ export default function LoginPage() {
             />
             <SocialBtn provider="Apple" loading={socialLoading === 'Apple'} disabled={!!socialLoading || loading} onClick={() => handleSocial('Apple')}
               icon={
-                <svg width="20" height="20" viewBox="0 0 814 1000" fill="currentColor">
+                <svg className="w-4 h-4 text-white" viewBox="0 0 814 1000" fill="currentColor">
                   <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-57.8-155.5-127.4C46 436 45.8 281.3 51.3 226.5c9.4-86.8 68-132.5 122.1-149.6 34.4-10.6 83.9-22.5 136.5-22.5 42 0 95 9.4 136.5 39.7C486.7 124.3 535 134 583.9 134c27.8 0 119.2-14.7 163.4-60.6 26.8-28.3 53.6-38.2 100.1-38.2l-59.3 305.7z"/>
                 </svg>
               }
@@ -255,35 +343,27 @@ export default function LoginPage() {
           </div>
 
           {/* Toggle */}
-          <p style={{ textAlign: 'center', fontSize: 14, color: '#6B6B6B' }}>
+          <motion.p layout className="text-center text-sm text-zinc-500 font-medium mt-4">
             {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
             <button onClick={() => { setMode(m => m === 'signin' ? 'signup' : 'signin'); setError(''); setSuccess('') }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700, color: '#0A0A0A', fontSize: 14, textDecoration: 'underline', textUnderlineOffset: 3 }}>
+              className="font-bold text-white hover:text-indigo-300 transition-colors">
               {mode === 'signin' ? 'Sign Up' : 'Sign In'}
             </button>
-          </p>
+          </motion.p>
         </div>
       </div>
-
-      {/* moved global styles and fonts to globals.css to avoid hydration mismatches */}
     </div>
   )
 }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '13px 16px 13px 44px',
-  border: '1.5px solid #E5E5E5', borderRadius: 10,
-  fontSize: 14, color: '#0A0A0A', background: '#fff',
-  outline: 'none', transition: 'border-color 0.15s',
-  fontFamily: 'inherit',
-}
-
 function Field({ icon, label, children, right }: { icon: React.ReactNode; label: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <div>
-      <label style={{ fontSize: 12, fontWeight: 600, color: '#3A3A3A', display: 'block', marginBottom: 6, letterSpacing: '0.01em' }}>{label}</label>
-      <div style={{ position: 'relative' }}>
-        <div style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', display: 'flex', alignItems: 'center' }}>{icon}</div>
+    <div className="space-y-1.5">
+      <label className="block text-[11px] uppercase tracking-wider font-bold text-zinc-400 ml-1">{label}</label>
+      <div className="relative">
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none">
+          {icon}
+        </div>
         {children}
         {right}
       </div>
@@ -292,24 +372,18 @@ function Field({ icon, label, children, right }: { icon: React.ReactNode; label:
 }
 
 function SocialBtn({ provider, loading, disabled, onClick, icon }: { provider: string; loading: boolean; disabled: boolean; onClick: () => void; icon: React.ReactNode }) {
-  const isApple = provider === 'Apple'
   return (
-    <button onClick={onClick} disabled={disabled || loading} style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
-      width: '100%', minHeight: 50, padding: '12px 16px', border: `1.5px solid ${isApple ? '#111' : '#E5E5E5'}`,
-      borderRadius: 10,
-      background: isApple ? '#111' : '#fff', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 14,
-      fontWeight: 600, color: isApple ? '#fff' : '#0A0A0A', transition: 'all 0.15s',
-      opacity: disabled ? 0.6 : 1, fontFamily: 'inherit',
-    }}
-      onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLElement).style.borderColor = isApple ? '#fff' : '#0A0A0A' }}
-      onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = isApple ? '#111' : '#E5E5E5'}
+    <motion.button 
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick} disabled={disabled || loading} 
+      className="flex items-center justify-center gap-3 w-full h-12 bg-zinc-900/50 border border-white/10 backdrop-blur-md rounded-xl text-sm font-semibold text-white transition-colors hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed shadow-inner"
     >
       {loading
-        ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} />
-        : <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 20, minHeight: 20 }}>{icon}</span>
+        ? <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+        : icon
       }
-      <span style={{ lineHeight: 1 }}>{provider}</span>
-    </button>
+      <span>{provider}</span>
+    </motion.button>
   )
 }

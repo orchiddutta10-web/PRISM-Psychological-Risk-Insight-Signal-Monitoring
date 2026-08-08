@@ -3,20 +3,12 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
 import {
-  LayoutDashboard,
-  Activity,
-  Bell,
-  MessageCircle,
-  HeartPulse,
-  LogOut,
-  Moon,
-  Sun,
-  Contrast,
+  LayoutDashboard, Activity, Bell, MessageCircle, HeartPulse,
+  LogOut, ChevronLeft, ChevronRight, Settings
 } from 'lucide-react'
 import { Logo } from '../ui/Logo'
-import { useTheme, type Theme } from '../../lib/theme'
-import { cx } from '../../lib/cx'
 import { clearAuth } from '../../lib/api'
 
 interface NavItem {
@@ -27,129 +19,133 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Overview', href: '/overview', icon: <LayoutDashboard size={17} /> },
-  { label: 'Signals', href: '/signals', icon: <Activity size={17} /> },
-  { label: 'Alerts', href: '/alerts', icon: <Bell size={17} /> },
-  { label: 'Companion', href: '/companion', icon: <MessageCircle size={17} /> },
-  { label: 'PRISM Node', href: '/prism-node', icon: <HeartPulse size={17} />, section: 'Wearable' },
+  { label: 'Command Center', href: '/overview', icon: <LayoutDashboard size={20} /> },
+  { label: 'Telemetry', href: '/signals', icon: <Activity size={20} /> },
+  { label: 'Alert Inbox', href: '/alerts', icon: <Bell size={20} /> },
+  { label: 'Companion AI', href: '/companion', icon: <MessageCircle size={20} /> },
+  { label: 'PRISM Node', href: '/prism-node', icon: <HeartPulse size={20} />, section: 'Hardware' },
 ]
-
-const themeIcons: Record<Theme, React.ReactNode> = {
-  light: <Moon size={15} />,
-  dark: <Sun size={15} />,
-  'high-contrast': <Contrast size={15} />,
-}
 
 interface SidebarProps {
   collapsed?: boolean
+  onToggle?: () => void
   guardian: { name: string; role: string }
   onNavigate?: () => void
 }
 
-export function Sidebar({ collapsed, guardian, onNavigate }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, guardian, onNavigate }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const { theme, setTheme } = useTheme()
-
-  const themeOrder: Theme[] = ['light', 'dark', 'high-contrast']
-  const cycleTheme = () => {
-    const idx = themeOrder.indexOf(theme)
-    setTheme(themeOrder[(idx + 1) % themeOrder.length])
-  }
-
-  const initials = guardian.name
-    .split(' ')
-    .map((n) => n[0])
-    .slice(0, 2)
-    .join('')
-    .toUpperCase()
 
   return (
-    <aside
-      className={cx(
-        'flex h-full flex-col border-r border-(--border) bg-(--bg-sidebar) transition-[width] duration-200',
-        collapsed ? 'w-[72px]' : 'w-[240px]'
-      )}
-    >
+    <aside className="flex h-full flex-col relative text-zinc-400">
+      
       {/* Brand */}
-      <div className={cx('flex h-16 items-center border-b border-(--border) px-5', collapsed && 'justify-center px-0')}>
-        <Link href="/overview" onClick={onNavigate} aria-label="PRISM Overview" className="flex items-center gap-2.5">
-          <Logo size={26} />
-          {!collapsed && <span className="font-mono text-[15px] font-extrabold tracking-[0.16em] text-(--text-primary)">PRISM</span>}
+      <div className={`flex h-20 items-center px-6 shrink-0 transition-all ${collapsed ? 'justify-center px-0' : 'justify-start'}`}>
+        <Link href="/overview" onClick={onNavigate} aria-label="PRISM Dashboard" className="flex items-center gap-3.5 group">
+          <div className="relative flex items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-indigo-500/20 blur-md group-hover:bg-indigo-500/40 transition-colors" />
+            <Logo size={28} className="relative text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
+          </div>
+          {!collapsed && (
+            <span className="font-sans text-lg font-extrabold tracking-[0.15em] text-white">
+              PRISM
+            </span>
+          )}
         </Link>
       </div>
 
-      {/* Nav */}
-      <nav aria-label="Main" className="flex-1 overflow-y-auto px-3 py-4">
-        {NAV_ITEMS.map((item) => {
+      {/* Toggle Button (Desktop Only) */}
+      {onToggle && (
+        <button
+          onClick={onToggle}
+          className="hidden lg:flex absolute -right-3.5 top-24 h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-zinc-900 text-zinc-400 hover:text-white hover:border-indigo-500/50 hover:bg-zinc-800 shadow-[0_0_15px_rgba(0,0,0,0.5)] transition-all z-20"
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {collapsed ? <ChevronRight size={14} strokeWidth={2.5} /> : <ChevronLeft size={14} strokeWidth={2.5} />}
+        </button>
+      )}
+
+      {/* Main Navigation */}
+      <nav aria-label="Main Navigation" className="flex-1 overflow-y-auto px-4 py-6 space-y-1.5 custom-scrollbar">
+        {NAV_ITEMS.map((item, idx) => {
           const active = pathname === item.href || pathname.startsWith(item.href + '/')
+          const showSection = item.section && !collapsed && (idx === 0 || NAV_ITEMS[idx - 1].section !== item.section)
+
           return (
             <React.Fragment key={item.href}>
-              {item.section && !collapsed && (
-                <p className="mb-1 mt-4 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-(--text-muted)">
-                  {item.section}
-                </p>
+              {showSection && (
+                <div className="pt-6 pb-2 px-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+                    {item.section}
+                  </p>
+                </div>
               )}
               <Link
                 href={item.href}
                 onClick={onNavigate}
-                className={cx(
-                  'mb-0.5 flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-semibold transition-colors',
-                  collapsed && 'justify-center px-0',
+                className={`group relative flex items-center gap-3.5 rounded-xl px-3 py-3 text-[14px] font-semibold transition-all duration-300 ${
+                  collapsed ? 'justify-center' : 'justify-start'
+                } ${
                   active
-                    ? 'bg-(--accent) text-(--accent-text)'
-                    : 'text-(--text-secondary) hover:bg-(--bg-main) hover:text-(--text-primary)'
-                )}
-                title={item.label}
+                    ? 'text-white'
+                    : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                }`}
+                title={collapsed ? item.label : undefined}
               >
-                <span className="shrink-0">{item.icon}</span>
-                {!collapsed && <span>{item.label}</span>}
+                {/* Active Indicator Background */}
+                {active && (
+                  <motion.div 
+                    layoutId="active-sidebar-pill"
+                    className="absolute inset-0 rounded-xl bg-indigo-500/10 border border-indigo-500/20 shadow-[inset_0_0_20px_rgba(99,102,241,0.05)]" 
+                    transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+                  />
+                )}
+                
+                {/* Active Left Line */}
+                {active && !collapsed && (
+                  <motion.div 
+                    layoutId="active-sidebar-line"
+                    className="absolute left-0 top-1/4 bottom-1/4 w-[3px] rounded-r-full bg-indigo-500 drop-shadow-[0_0_8px_rgba(99,102,241,0.8)]"
+                  />
+                )}
+                
+                <span className={`relative z-10 shrink-0 transition-transform duration-300 ${active ? 'text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.4)]' : 'group-hover:scale-110'}`}>
+                  {item.icon}
+                </span>
+                
+                {!collapsed && (
+                  <span className="relative z-10 truncate">{item.label}</span>
+                )}
               </Link>
             </React.Fragment>
           )
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="border-t border-(--border) p-3">
-        {/* Theme cycle */}
+      {/* Footer Area */}
+      <div className="p-4 space-y-1.5 border-t border-white/5 bg-zinc-950/30">
         <button
-          onClick={cycleTheme}
-          className={cx(
-            'mb-2 flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-semibold text-(--text-secondary) transition-colors hover:bg-(--bg-main) hover:text-(--text-primary)',
-            collapsed && 'justify-center px-0'
-          )}
-          title="Toggle theme"
+          className={`w-full flex items-center gap-3.5 rounded-xl px-3 py-3 text-[14px] font-semibold text-zinc-400 hover:text-white hover:bg-white/5 transition-all ${
+            collapsed ? 'justify-center' : 'justify-start'
+          }`}
+          title="Settings"
         >
-          <span className="shrink-0">{themeIcons[theme]}</span>
-          {!collapsed && <span>{theme === 'light' ? 'Dark' : theme === 'dark' ? 'High contrast' : 'Light'}</span>}
+          <Settings size={20} className="shrink-0" />
+          {!collapsed && <span>Settings</span>}
         </button>
-
-        {/* Guardian chip */}
-        {!collapsed && (
-          <div className="mb-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--accent) text-[11px] font-extrabold text-(--accent-text)">
-              {initials}
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-[12px] font-bold text-(--text-primary)">{guardian.name}</p>
-              <p className="text-[10px] capitalize text-(--text-muted)">{guardian.role}</p>
-            </div>
-          </div>
-        )}
 
         <button
           onClick={() => {
             clearAuth()
             router.push('/')
           }}
-          className={cx(
-            'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] font-semibold text-(--text-secondary) transition-colors hover:bg-(--bg-main) hover:text-(--text-primary)',
-            collapsed && 'justify-center px-0'
-          )}
+          className={`w-full flex items-center gap-3.5 rounded-xl px-3 py-3 text-[14px] font-semibold text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 hover:border hover:border-rose-500/20 transition-all ${
+            collapsed ? 'justify-center' : 'justify-start'
+          }`}
           title="Sign out"
         >
-          <LogOut size={15} className="shrink-0" />
+          <LogOut size={20} className="shrink-0" />
           {!collapsed && <span>Sign out</span>}
         </button>
       </div>

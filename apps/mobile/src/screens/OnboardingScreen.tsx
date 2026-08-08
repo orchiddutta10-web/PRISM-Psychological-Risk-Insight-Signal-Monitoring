@@ -117,6 +117,7 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
 
   // Phase 8: Trial Conversion States
@@ -217,7 +218,13 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
 
       ws.onclose = () => {
         console.log("WebSocket chat connection closed. Retrying in 3 seconds...");
-        setTimeout(connectWebSocket, 3000);
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+        }
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          connectWebSocket();
+        }, 3000);
       };
 
       wsRef.current = ws;
@@ -227,6 +234,11 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   };
 
   const disconnectWebSocket = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     if (wsRef.current) {
       wsRef.current.onclose = null;
       wsRef.current.close();
