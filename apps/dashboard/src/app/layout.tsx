@@ -7,11 +7,7 @@ export const metadata: Metadata = {
   description: 'Privacy-first consensual behavioural monitoring for teen well-being.',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="antialiased">

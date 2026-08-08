@@ -17,7 +17,11 @@ const TITLES: Record<string, { eyebrow: string; title: string }> = {
   '/signals': { eyebrow: 'Telemetry', title: 'Signals' },
   '/alerts': { eyebrow: 'Notifications', title: 'Alert Inbox' },
   '/companion': { eyebrow: 'AI Ecosystem', title: 'Companion AI' },
+  '/devices': { eyebrow: 'Management', title: 'Devices & Identity' },
+  '/guardian': { eyebrow: 'Governance', title: 'Guardian Policies' },
+  '/overview/audit': { eyebrow: 'Governance', title: 'Audit Log' },
   '/prism-node': { eyebrow: 'Hardware', title: 'PRISM Node' },
+  '/codebase': { eyebrow: 'System', title: 'Codebase' },
 }
 
 export function Topbar({ onMenuClick, wsStatus, unreadAlerts }: TopbarProps) {
@@ -48,14 +52,17 @@ export function Topbar({ onMenuClick, wsStatus, unreadAlerts }: TopbarProps) {
 
       <div className="flex-1" />
 
-      {/* Global Search (Visual Stub) */}
-      <div className="hidden lg:flex items-center gap-3 px-4 py-2 w-72 bg-zinc-900/50 border border-white/5 rounded-xl text-sm text-zinc-400 transition-all hover:border-white/10 hover:bg-zinc-900 shadow-inner cursor-pointer group">
-        <Search size={16} className="group-hover:text-white transition-colors" />
-        <span className="flex-1 group-hover:text-zinc-300 transition-colors font-medium">Search the ecosystem...</span>
-        <kbd className="hidden sm:flex items-center justify-center font-sans text-[10px] font-bold text-zinc-500 bg-zinc-800 px-2 py-1 rounded shadow-sm border border-white/5 group-hover:text-zinc-300 transition-colors">
-          ⌘K
-        </kbd>
-      </div>
+      {/* Command palette trigger */}
+      <button
+        type="button"
+        onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+        className="group hidden w-72 items-center gap-3 rounded-xl border border-white/5 bg-zinc-900/50 px-4 py-2 text-left text-sm text-zinc-400 shadow-inner transition-all hover:border-white/10 hover:bg-zinc-900 lg:flex"
+        aria-label="Open PRISM search"
+      >
+        <Search size={16} className="transition-colors group-hover:text-white" />
+        <span className="flex-1 font-medium transition-colors group-hover:text-zinc-300">Search the ecosystem...</span>
+        <kbd className="hidden items-center justify-center rounded border border-white/5 bg-zinc-800 px-2 py-1 font-sans text-[10px] font-bold text-zinc-500 shadow sm:flex">⌘K</kbd>
+      </button>
 
       {/* Connection Status Badge */}
       <div

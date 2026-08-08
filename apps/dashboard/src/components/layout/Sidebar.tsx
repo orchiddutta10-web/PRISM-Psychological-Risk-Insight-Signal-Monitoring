@@ -6,7 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Activity, Bell, MessageCircle, HeartPulse,
-  LogOut, ChevronLeft, ChevronRight, Settings
+  LogOut, ChevronLeft, ChevronRight, Settings, Cpu, Shield,
+  Users, FileText, Code, TerminalSquare
 } from 'lucide-react'
 import { Logo } from '../ui/Logo'
 import { clearAuth } from '../../lib/api'
@@ -19,11 +20,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Command Center', href: '/overview', icon: <LayoutDashboard size={20} /> },
-  { label: 'Telemetry', href: '/signals', icon: <Activity size={20} /> },
-  { label: 'Alert Inbox', href: '/alerts', icon: <Bell size={20} /> },
-  { label: 'Companion AI', href: '/companion', icon: <MessageCircle size={20} /> },
-  { label: 'PRISM Node', href: '/prism-node', icon: <HeartPulse size={20} />, section: 'Hardware' },
+  { label: 'Command Center', href: '/overview', icon: <LayoutDashboard size={20} />, section: 'Core Platform' },
+  { label: 'Alert Triage', href: '/alerts', icon: <Bell size={20} /> },
+  { label: 'Devices & Identity', href: '/devices', icon: <Cpu size={20} /> },
+  { label: 'Signals & Telemetry', href: '/signals', icon: <Activity size={20} /> },
+  { label: 'AI Companion', href: '/companion', icon: <MessageCircle size={20} /> },
+  { label: 'Guardian Policies', href: '/guardian', icon: <Shield size={20} />, section: 'Governance' },
+  { label: 'Audit Log', href: '/overview/audit', icon: <FileText size={20} /> },
+  { label: 'PRISM Node', href: '/prism-node', icon: <HeartPulse size={20} />, section: 'System' },
+  { label: 'Codebase', href: '/codebase', icon: <Code size={20} /> },
 ]
 
 interface SidebarProps {

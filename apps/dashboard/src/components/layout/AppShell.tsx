@@ -8,6 +8,8 @@ import { Topbar } from './Topbar'
 import { NotificationPanel, type NotifAlert } from './NotificationPanel'
 import { ShellProvider } from './shell-context'
 import { getGuardian, getToken } from '../../lib/api'
+import { CommandPalette } from '../CommandPalette'
+import { PresentationModeToggle, ScenarioSwitcher } from '../DemoControls'
 
 interface AppShellProps {
   children: React.ReactNode
@@ -37,8 +39,8 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
   const markRead = useCallback((id: string) => {
     setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, read: true } : a)))
   }, [])
-
   const unread = alerts.filter((a) => !a.read).length
+  const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === 'true'
 
   return (
     <ShellProvider value={{ openAlerts, guardian }}>
@@ -59,7 +61,7 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
           transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
           className="hidden lg:block h-full shrink-0 relative z-10 border-r border-white/5 bg-zinc-950/50 backdrop-blur-3xl shadow-[4px_0_24px_rgba(0,0,0,0.2)]"
         >
-          <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} guardian={guardian} />
+          <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} guardian={guardian} />
         </motion.div>
 
         {/* Mobile drawer overlay */}
@@ -95,15 +97,26 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
             wsStatus={wsStatus}
             unreadAlerts={unread}
           />
+          {demoMode && (
+            <div className="hidden items-center justify-end gap-3 border-b border-white/5 bg-zinc-950/40 px-6 py-2 lg:flex">
+              <ScenarioSwitcher />
+              <PresentationModeToggle />
+            </div>
+          )}
           <main className="flex-1 overflow-y-auto relative z-0 scroll-smooth">
             <motion.div 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1, ease: 'easeOut' }}
-              className="max-w-7xl mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8"
+              className="max-w-[1440px] mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8"
             >
               {children}
             </motion.div>
+            {demoMode && (
+              <footer className="border-t border-white/5 px-6 py-4 text-center text-xs text-zinc-500">
+                PRISM is operating in demonstration mode. Displayed telemetry is simulated for evaluation.
+              </footer>
+            )}
           </main>
         </div>
 
@@ -114,6 +127,7 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
           onClose={() => setAlertsOpen(false)}
           onRead={markRead}
         />
+        <CommandPalette />
       </div>
     </ShellProvider>
   )
