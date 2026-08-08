@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "PRISM API Service"
     ENV: str = os.getenv("ENV", "development")
+    DEMO_MODE: bool = os.getenv("DEMO_MODE", "True").lower() in ("true", "1", "yes")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./prism.db")
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     JWT_SECRET: str = os.getenv(
@@ -34,10 +35,7 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Security Hardening Failure: Default JWT_SECRET is active in production mode."
                 )
-            if (
-                self.ENCRYPTION_KEY
-                == "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI="
-            ):
+            if self.ENCRYPTION_KEY == "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI=":
                 raise ValueError(
                     "Security Hardening Failure: Default ENCRYPTION_KEY is active in production mode."
                 )

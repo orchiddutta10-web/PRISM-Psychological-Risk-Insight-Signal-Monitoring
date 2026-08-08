@@ -85,7 +85,9 @@ class ConnectivityMonitor:
 
     def start(self) -> None:
         self._running = True
-        self._thread = threading.Thread(target=self._probe_loop, name="connectivity-probe", daemon=True)
+        self._thread = threading.Thread(
+            target=self._probe_loop, name="connectivity-probe", daemon=True
+        )
         self._thread.start()
         logger.info("Connectivity monitor started (state=%s)", self._state)
 
@@ -146,18 +148,29 @@ class ConnectivityMonitor:
 
             old_state = self._state
 
-            if self._state == self.STATE_ONLINE and self._consecutive_failures >= self._failures_to_offline:
+            if (
+                self._state == self.STATE_ONLINE
+                and self._consecutive_failures >= self._failures_to_offline
+            ):
                 self._state = self.STATE_OFFLINE
                 self._last_change_time = time.time()
-                logger.info("Connectivity lost — %d consecutive failures", self._consecutive_failures)
+                logger.info(
+                    "Connectivity lost — %d consecutive failures",
+                    self._consecutive_failures,
+                )
                 for cb in self._on_offline_callbacks:
                     self._safe_call(cb)
 
-            elif self._state == self.STATE_OFFLINE and self._consecutive_successes >= self._successes_to_online:
+            elif (
+                self._state == self.STATE_OFFLINE
+                and self._consecutive_successes >= self._successes_to_online
+            ):
                 self._state = self.STATE_ONLINE
                 duration = time.time() - self._last_change_time
                 self._last_change_time = time.time()
-                logger.info("Connectivity restored — offline for %.0f seconds", duration)
+                logger.info(
+                    "Connectivity restored — offline for %.0f seconds", duration
+                )
                 for cb in self._on_online_callbacks:
                     self._safe_call(cb)
 

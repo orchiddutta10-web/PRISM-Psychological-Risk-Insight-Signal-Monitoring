@@ -8,8 +8,9 @@ import {
   CheckCircle, MessageCircle, Activity,
 } from 'lucide-react-native';
 import { Colors, Spacing, Radius, Typography } from '../theme';
+import { API_BASE_URL } from '../config/network';
 
-const API = 'http://localhost:8000/api/v1/guardian';
+const API = `${API_BASE_URL}/guardian`;
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   stable: { label: 'Stable', color: '#059669', bg: '#ECFDF5' },

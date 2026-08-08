@@ -11,8 +11,10 @@ from typing import Optional, Dict, Any
 
 try:
     import cv2
+
     HAS_CV2 = True
 except ImportError:
+    cv2 = None
     HAS_CV2 = False
 
 import numpy as np
@@ -23,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 # MediaPipe indices for key landmarks (https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/face_mesh.md)
 # Eye contours (left / right)
-LEFT_EYE = [33, 133, 157, 158, 159, 160, 161, 173]       # upper + lower left eye
-RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 466]      # upper + lower right eye
+LEFT_EYE = [33, 133, 157, 158, 159, 160, 161, 173]  # upper + lower left eye
+RIGHT_EYE = [362, 263, 387, 386, 385, 384, 398, 466]  # upper + lower right eye
 LEFT_EYE_TOP = 159
 LEFT_EYE_BOTTOM = 145
 RIGHT_EYE_TOP = 386
@@ -35,7 +37,44 @@ MOUTH_BOTTOM = 14
 MOUTH_LEFT = 61
 MOUTH_RIGHT = 291
 # Face boundary for bbox
-FACE_OVAL = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109]
+FACE_OVAL = [
+    10,
+    338,
+    297,
+    332,
+    284,
+    251,
+    389,
+    356,
+    454,
+    323,
+    361,
+    288,
+    397,
+    365,
+    379,
+    378,
+    400,
+    377,
+    152,
+    148,
+    176,
+    149,
+    150,
+    136,
+    172,
+    58,
+    132,
+    93,
+    234,
+    127,
+    162,
+    21,
+    54,
+    103,
+    67,
+    109,
+]
 
 
 class FaceFeatureExtractor:
@@ -52,6 +91,7 @@ class FaceFeatureExtractor:
     def __init__(self):
         self._confidence: float = config.MEDIAPIPE_FACE_CONFIDENCE
         self._model_selection: int = config.MEDIAPIPE_FACE_MODEL
+        self._max_faces: int = 1
         self._face_mesh = None
         self._scale: float = config.FACE_SCALE
         self._ready: bool = False
@@ -62,17 +102,22 @@ class FaceFeatureExtractor:
         """Initialize MediaPipe Face Mesh."""
         try:
             import mediapipe.python.solutions.face_mesh as mp_face_mesh
+
             self._mp_face = mp_face_mesh
             self._face_mesh = self._mp_face.FaceMesh(
                 static_image_mode=False,
                 max_num_faces=self._max_faces,
-                refine_landmarks=True,    # enables iris + lip detail landmarks
+                refine_landmarks=True,  # enables iris + lip detail landmarks
                 min_detection_confidence=self._confidence,
                 min_tracking_confidence=self._confidence,
                 model_selection=self._model_selection,
             )
             self._ready = True
-            logger.info("MediaPipe Face Mesh initialized (model=%d, confidence=%.2f)", self._model_selection, self._confidence)
+            logger.info(
+                "MediaPipe Face Mesh initialized (model=%d, confidence=%.2f)",
+                self._model_selection,
+                self._confidence,
+            )
         except Exception as e:
             logger.error("Failed to initialize MediaPipe Face Mesh: %s", e)
             self._ready = False
@@ -145,7 +190,12 @@ class FaceFeatureExtractor:
         scale_y = 1.0 / self._scale
 
         # Extract landmark coordinates as (N, 3) numpy array
-        pts = np.array([[lm.x * w * scale_x, lm.y * h * scale_y, lm.z * w * scale_x] for lm in landmarks.landmark])
+        pts = np.array(
+            [
+                [lm.x * w * scale_x, lm.y * h * scale_y, lm.z * w * scale_x]
+                for lm in landmarks.landmark
+            ]
+        )
 
         # ── Eye Openness ──────────────────────────────────────────
         left_eye_height = self._distance(pts[LEFT_EYE_TOP], pts[LEFT_EYE_BOTTOM])
@@ -178,9 +228,13 @@ class FaceFeatureExtractor:
         face_height = self._distance(forehead, chin)
         face_width = self._distance(left_face, right_face)
 
-        head_yaw = np.degrees(np.arctan2(nose_tip[0] - face_mid[0], nose_tip[2] - face_mid[2]))
+        head_yaw = np.degrees(
+            np.arctan2(nose_tip[0] - face_mid[0], nose_tip[2] - face_mid[2])
+        )
         head_pitch = np.degrees(np.arctan2(nose_tip[1] - face_mid[1], face_height))
-        head_roll = np.degrees(np.arctan2(right_face[1] - left_face[1], right_face[0] - left_face[0]))
+        head_roll = np.degrees(
+            np.arctan2(right_face[1] - left_face[1], right_face[0] - left_face[0])
+        )
 
         # ── Mouth Openness ────────────────────────────────────────
         mouth_height = self._distance(pts[MOUTH_TOP], pts[MOUTH_BOTTOM])
@@ -193,7 +247,9 @@ class FaceFeatureExtractor:
         lip_corner_left_y = pts[61][1]
         lip_corner_right_y = pts[291][1]
         lip_center_y = pts[13][1]
-        lip_pull = (lip_center_y - (lip_corner_left_y + lip_corner_right_y) / 2.0) / max(face_height, 1.0)
+        lip_pull = (
+            lip_center_y - (lip_corner_left_y + lip_corner_right_y) / 2.0
+        ) / max(face_height, 1.0)
         smile_coefficient = max(0.0, min(lip_pull * 5.0, 1.0))
 
         # ── Face Bounding Box ─────────────────────────────────────
@@ -225,7 +281,7 @@ class FaceFeatureExtractor:
             # Ratio of iris position between corners (0 = left, 1 = right roughly)
             eye_width = abs(left_eye_inner_x - left_eye_outer_x) + 1e-6
             gaze_ratio = abs(left_iris_x - left_eye_outer_x) / eye_width
-            
+
             if gaze_ratio < 0.35:
                 approx_gaze = "left"
             elif gaze_ratio > 0.65:

@@ -268,7 +268,11 @@ def dashboard_summary(
     # Determine which device(s) to query
     if device_id:
         auth.verify_guardian_device_access(current_user, device_id, db)
-        devices = [db.query(models.ChildDevice).filter(models.ChildDevice.id == device_id).first()]
+        devices = [
+            db.query(models.ChildDevice)
+            .filter(models.ChildDevice.id == device_id)
+            .first()
+        ]
     else:
         devices = (
             db.query(models.ChildDevice)
@@ -355,9 +359,7 @@ def list_alerts(
     )
     device_ids = [str(d.id) for d in devices]
 
-    query = db.query(models.Alert).filter(
-        models.Alert.device_id.in_(device_ids)
-    )
+    query = db.query(models.Alert).filter(models.Alert.device_id.in_(device_ids))
     if severity:
         query = query.filter(models.Alert.severity_tier == severity)
 

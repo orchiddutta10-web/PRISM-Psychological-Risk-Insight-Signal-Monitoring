@@ -17,9 +17,9 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # Drift thresholds (prototype-appropriate)
-SCORE_DRIFT_AMBER = 0.20   # 20% shift → amber alert
-SCORE_DRIFT_RED = 0.40     # 40% shift → red alert
-CONFIDENCE_DROP = 0.30     # 30% confidence drop → investigate
+SCORE_DRIFT_AMBER = 0.20  # 20% shift → amber alert
+SCORE_DRIFT_RED = 0.40  # 40% shift → red alert
+CONFIDENCE_DROP = 0.30  # 30% confidence drop → investigate
 FEATURE_DRIFT_FLAG = 0.25  # 25% shift in any modality → flag
 
 WINDOW_7D = 7
@@ -84,7 +84,7 @@ class DriftMonitor:
             db.query(_m.RiskScoreV2)
             .join(_m.BehaviorWindow, _m.RiskScoreV2.window_id == _m.BehaviorWindow.id)
             .filter(
-                _m.BehaviorWindow.user_id == subject_id,
+                _m.BehaviorWindow.subject_id == subject_id,
                 _m.BehaviorWindow.start_ts >= cutoff,
             )
             .order_by(_m.BehaviorWindow.start_ts.asc())
@@ -115,7 +115,9 @@ class DriftMonitor:
             score_drift.get("shift_pct", 0),
             confidence_drift.get("shift_pct", 0),
         )
-        max_feat = feature_drift.get("shift_pct", 0) if isinstance(feature_drift, dict) else 0
+        max_feat = (
+            feature_drift.get("shift_pct", 0) if isinstance(feature_drift, dict) else 0
+        )
 
         if score_drift.get("alert") == "red" or max_drift > SCORE_DRIFT_RED:
             alert = "red"
@@ -186,11 +188,11 @@ class DriftMonitor:
         historical_factors = set()
 
         for s in scores[-WINDOW_7D:]:
-            for f in (s.contributing_factors or []):
+            for f in s.contributing_factors or []:
                 recent_factors.add(f)
 
         for s in scores[:-WINDOW_7D] if len(scores) > WINDOW_7D else scores:
-            for f in (s.contributing_factors or []):
+            for f in s.contributing_factors or []:
                 historical_factors.add(f)
 
         if not historical_factors:
@@ -246,7 +248,7 @@ class DriftMonitor:
         windows = (
             db.query(_m.BehaviorWindow)
             .filter(
-                _m.BehaviorWindow.user_id == subject_id,
+                _m.BehaviorWindow.subject_id == subject_id,
                 _m.BehaviorWindow.start_ts >= cutoff,
             )
             .all()

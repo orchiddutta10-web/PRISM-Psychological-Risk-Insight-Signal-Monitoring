@@ -23,6 +23,29 @@ out/
 *.tsbuildinfo
 **/*.tsbuildinfo
 
+# Playwright / test artifacts
+apps/dashboard/playwright-report/
+apps/dashboard/test-results/
+**/playwright-report/
+**/test-results/
+
+# ML runtime artifacts
+**/mlruns/
+**/mlflow.db
+**/chroma_db/
+services/api/coverage.xml
+services/api/.coverage
+
+# Local scratch / session dumps
+checkpoint.json
+errors.csv
+output.csv
+runs.json
+runs2.json
+login_resp.json
+job_logs.txt
+prism_edge.tar.gz
+
 # Python cache & testing
 .pytest_cache/
 .coverage
@@ -44,6 +67,9 @@ dmypy.json
 .env.local
 .env.*.local
 .flake8
+
+# ESP32 firmware secrets
+prism_edge/prism_pulse/secrets.h
 
 # Databases (local dev only)
 *.db

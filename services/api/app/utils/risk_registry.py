@@ -139,7 +139,12 @@ def check_event_for_risks(db: Session, device_id: str, modality: str, value: dic
 
         for reg in registry_entries:
             matched = False
-            if reg.match_type == "keyword" and reg.match_value in search_query.lower() or reg.match_type == "domain" and reg.match_value in url.lower():
+            if (
+                reg.match_type == "keyword"
+                and reg.match_value in search_query.lower()
+                or reg.match_type == "domain"
+                and reg.match_value in url.lower()
+            ):
                 matched = True
 
             if matched:

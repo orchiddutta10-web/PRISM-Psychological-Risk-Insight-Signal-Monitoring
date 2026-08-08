@@ -29,9 +29,12 @@ FIRMWARE_CPP = """
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// ---- WiFi Config ----
-const char* WIFI_SSID = "PRISM-Node";
-const char* WIFI_PASS = "PrismEdge2024";
+// ---- WiFi Config (from gitignored secrets.h) ----
+#include "secrets.h"
+
+#ifndef WIFI_SSID
+#error "secrets.h missing — copy secrets.example.h and fill in your values"
+#endif
 
 // ---- Edge Bridge Config ----
 const char* BRIDGE_HOST = "192.168.4.1";  // Pi's hotspot IP
@@ -73,7 +76,7 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
   
   // Connect WiFi
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[WiFi] Connecting to " + String(WIFI_SSID));
   
   int attempts = 0;
@@ -163,7 +166,7 @@ void loop() {
   // ---- WiFi Reconnect ----
   if (!wifiConnected && millis() - lastWiFiAttempt > WIFI_RETRY_MS) {
     lastWiFiAttempt = millis();
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     int retry = 0;
     while (WiFi.status() != WL_CONNECTED && retry < 10) {
       delay(300);

@@ -1,6 +1,7 @@
 """
 Tests for offline_queue.py — OfflineQueue and SyncEngine.
 """
+
 import json
 import os
 import tempfile
@@ -15,11 +16,14 @@ import pytest
 
 # Add prism_edge to path
 import sys
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from prism_edge.config import (
-    OFFLINE_SYNC_BATCH_SIZE, OFFLINE_SYNC_MAX_RETRIES,
-    OFFLINE_SYNC_PURGE_HOURS, OFFLINE_SYNC_PURGE_AGGRESSIVE,
+    OFFLINE_SYNC_BATCH_SIZE,
+    OFFLINE_SYNC_MAX_RETRIES,
+    OFFLINE_SYNC_PURGE_HOURS,
+    OFFLINE_SYNC_PURGE_AGGRESSIVE,
 )
 from prism_edge.offline_queue import OfflineQueue, SyncEngine
 
@@ -44,7 +48,9 @@ def temp_db():
 class TestOfflineQueue:
     def test_insert_and_get_pending(self, temp_db):
         ts = datetime.now(timezone.utc).isoformat()
-        row_id = temp_db.insert(ts, "esp32_pulse", "dev-001", {"bpm": 72, "g_force": 1.05})
+        row_id = temp_db.insert(
+            ts, "esp32_pulse", "dev-001", {"bpm": 72, "g_force": 1.05}
+        )
         assert row_id is not None
         assert row_id > 0
 
@@ -103,7 +109,9 @@ class TestOfflineQueue:
         for i in range(3):
             r = temp_db.insert(
                 ts_base.replace(microsecond=i * 1000).isoformat(),
-                "esp32_pulse", "dev-001", {"seq": i},
+                "esp32_pulse",
+                "dev-001",
+                {"seq": i},
             )
         temp_db.mark_synced(r)
 
@@ -137,8 +145,13 @@ class TestOfflineQueue:
     def test_numpy_serialization(self, temp_db):
         try:
             import numpy as np
+
             ts = datetime.now(timezone.utc).isoformat()
-            payload = {"value": np.float64(3.14), "count": np.int32(42), "arr": np.array([1, 2, 3])}
+            payload = {
+                "value": np.float64(3.14),
+                "count": np.int32(42),
+                "arr": np.array([1, 2, 3]),
+            }
             row_id = temp_db.insert(ts, "test", "dev-001", payload)
             assert row_id is not None
         except ImportError:
@@ -160,17 +173,24 @@ class TestSyncEngine:
             "batch_id": str(uuid.uuid4()),
             "accepted": 1,
             "rejected": 0,
-            "results": [{"row_index": 0, "status": "synced", "cloud_id": str(uuid.uuid4())}],
+            "results": [
+                {"row_index": 0, "status": "synced", "cloud_id": str(uuid.uuid4())}
+            ],
         }
         return session
 
     def test_sync_drains_pending(self, temp_db, mock_connectivity, mock_session):
         ts = datetime.now(timezone.utc).isoformat()
-        row_id = temp_db.insert(ts, "esp32_pulse", "dev-001", {"bpm": 72, "g_force": 1.05})
+        row_id = temp_db.insert(
+            ts, "esp32_pulse", "dev-001", {"bpm": 72, "g_force": 1.05}
+        )
 
         engine = SyncEngine(
-            temp_db, mock_connectivity,
-            "http://localhost:8000", "fake-jwt", "dev-001",
+            temp_db,
+            mock_connectivity,
+            "http://localhost:8000",
+            "fake-jwt",
+            "dev-001",
         )
         engine._session = mock_session
         engine._running = False  # Don't loop
@@ -191,8 +211,11 @@ class TestSyncEngine:
         row_id = temp_db.insert(ts, "esp32_pulse", "dev-001", {"bpm": 72})
 
         engine = SyncEngine(
-            temp_db, mock_connectivity,
-            "http://localhost:8000", "fake-jwt", "dev-001",
+            temp_db,
+            mock_connectivity,
+            "http://localhost:8000",
+            "fake-jwt",
+            "dev-001",
         )
         engine._session = mock_session
         engine._running = False
@@ -211,8 +234,11 @@ class TestSyncEngine:
         row_id = temp_db.insert(ts, "esp32_pulse", "dev-001", {"bpm": 72})
 
         engine = SyncEngine(
-            temp_db, mock_connectivity,
-            "http://localhost:8000", "fake-jwt", "dev-001",
+            temp_db,
+            mock_connectivity,
+            "http://localhost:8000",
+            "fake-jwt",
+            "dev-001",
         )
         engine._session = mock_session
         engine._running = False
@@ -232,8 +258,11 @@ class TestSyncEngine:
         temp_db.insert(ts, "esp32_pulse", "dev-001", {"bpm": 72})
 
         engine = SyncEngine(
-            temp_db, mock_connectivity,
-            "http://localhost:8000", "fake-jwt", "dev-001",
+            temp_db,
+            mock_connectivity,
+            "http://localhost:8000",
+            "fake-jwt",
+            "dev-001",
         )
         engine._session = mock_session
         engine._running = True
@@ -252,6 +281,7 @@ class TestSyncEngine:
     def test_corrupted_json_handled(self, temp_db, mock_connectivity, mock_session):
         """Insert corrupted payload directly then try to sync."""
         import sqlite3
+
         ts = datetime.now(timezone.utc).isoformat()
         # Insert via raw SQL with bad JSON
         conn = sqlite3.connect(str(temp_db._db_path))
@@ -263,8 +293,11 @@ class TestSyncEngine:
         conn.close()
 
         engine = SyncEngine(
-            temp_db, mock_connectivity,
-            "http://localhost:8000", "fake-jwt", "dev-001",
+            temp_db,
+            mock_connectivity,
+            "http://localhost:8000",
+            "fake-jwt",
+            "dev-001",
         )
         engine._session = mock_session
         engine._running = False

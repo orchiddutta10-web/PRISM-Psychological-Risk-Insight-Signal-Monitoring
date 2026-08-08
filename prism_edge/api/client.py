@@ -62,12 +62,16 @@ class ApiClient:
     def start(self) -> None:
         self._running = True
         self._session = requests.Session()
-        self._session.headers.update({
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._jwt}",
-        })
+        self._session.headers.update(
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._jwt}",
+            }
+        )
 
-        self._thread = threading.Thread(target=self._loop, name="api-writer", daemon=True)
+        self._thread = threading.Thread(
+            target=self._loop, name="api-writer", daemon=True
+        )
         self._thread.start()
         logger.info("API client started → %s%s", self._base_url, self._ingest_endpoint)
 
@@ -116,12 +120,17 @@ class ApiClient:
             return
 
         import numpy as np
+
         class NumpyEncoder(json.JSONEncoder):
             def default(self, obj):
-                if isinstance(obj, np.integer): return int(obj)
-                if isinstance(obj, np.floating): return float(obj)
-                if isinstance(obj, np.bool_): return bool(obj)
-                if isinstance(obj, np.ndarray): return obj.tolist()
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                if isinstance(obj, np.floating):
+                    return float(obj)
+                if isinstance(obj, np.bool_):
+                    return bool(obj)
+                if isinstance(obj, np.ndarray):
+                    return obj.tolist()
                 return super(NumpyEncoder, self).default(obj)
 
         data = json.dumps(payload, cls=NumpyEncoder)
@@ -148,13 +157,24 @@ class ApiClient:
                     self._on_failure(payload, timestamp, source, permanent=True)
                     return
                 else:
-                    logger.warning("API returned %d (attempt %d/%d)", resp.status_code, attempt, self._max_retries)
+                    logger.warning(
+                        "API returned %d (attempt %d/%d)",
+                        resp.status_code,
+                        attempt,
+                        self._max_retries,
+                    )
             except requests.exceptions.Timeout:
-                logger.warning("API timeout (attempt %d/%d)", attempt, self._max_retries)
+                logger.warning(
+                    "API timeout (attempt %d/%d)", attempt, self._max_retries
+                )
             except requests.exceptions.ConnectionError:
-                logger.warning("API unreachable (attempt %d/%d)", attempt, self._max_retries)
+                logger.warning(
+                    "API unreachable (attempt %d/%d)", attempt, self._max_retries
+                )
             except Exception as e:
-                logger.warning("API send error: %s (attempt %d/%d)", e, attempt, self._max_retries)
+                logger.warning(
+                    "API send error: %s (attempt %d/%d)", e, attempt, self._max_retries
+                )
 
             if attempt < self._max_retries:
                 time.sleep(backoff)
@@ -164,7 +184,10 @@ class ApiClient:
 
     def _queue_to_sqlite(self, payload: dict, timestamp: str, source: str) -> None:
         if self._offline_queue is None:
-            logger.warning("No offline queue configured — payload dropped (seq=%d)", payload.get("sequence", 0))
+            logger.warning(
+                "No offline queue configured — payload dropped (seq=%d)",
+                payload.get("sequence", 0),
+            )
             return
         self._offline_queue.insert(
             timestamp=timestamp,
@@ -174,9 +197,14 @@ class ApiClient:
             sequence=payload.get("sequence", 0),
         )
 
-    def _on_failure(self, payload: dict, timestamp: str, source: str, permanent: bool) -> None:
+    def _on_failure(
+        self, payload: dict, timestamp: str, source: str, permanent: bool
+    ) -> None:
         self._consecutive_failures += 1
         if permanent:
-            logger.warning("Permanent failure — payload discarded (seq=%d)", payload.get("sequence"))
+            logger.warning(
+                "Permanent failure — payload discarded (seq=%d)",
+                payload.get("sequence"),
+            )
         else:
             self._queue_to_sqlite(payload, timestamp, source)

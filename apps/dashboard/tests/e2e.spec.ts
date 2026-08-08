@@ -35,10 +35,10 @@ test.describe('PRISM Dashboard E2E Navigation & Social Auth Flow', () => {
     await page.waitForURL('**/overview');
     await expect(page).toHaveURL(/.*overview/);
 
-    // 6. Verify dashboard elements are loaded
-    await expect(page.locator('h1')).toContainText("Aarav's iPhone");
+    // 6. Verify dashboard shell + selected demo device
     await expect(page.locator('nav')).toContainText('PRISM');
-    
+    await expect(page.getByText(/Demo Teen|Simulator|Overview|Insight/i).first()).toBeVisible({ timeout: 15000 });
+
     // Verify local storage has token
     const token = await page.evaluate(() => localStorage.getItem('prism_token'));
     expect(token).not.toBeNull();

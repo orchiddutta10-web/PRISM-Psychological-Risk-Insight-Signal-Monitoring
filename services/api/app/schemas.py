@@ -248,10 +248,9 @@ class ChatMessageResponse(BaseModel):
 
 class SensorReadingIngest(BaseModel):
     """Unified ingest for sensor readings (bpm, g_force from ESP32)."""
+
     device_id: str
-    metric_type: str = Field(
-        ..., pattern=r"^(bpm|g_force|temperature)$"
-    )
+    metric_type: str = Field(..., pattern=r"^(bpm|g_force|temperature)$")
     value: float
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -268,6 +267,7 @@ class SensorReadingResponse(BaseModel):
 
 class VisionFeatureIngest(BaseModel):
     """Ingest for RPi camera-derived vision features."""
+
     device_id: str
     blink_rate_bpm: float = Field(..., ge=0, le=200)
     is_slouching: bool = False
@@ -286,6 +286,7 @@ class VisionFeatureResponse(BaseModel):
 
 class AudioFeatureIngest(BaseModel):
     """Ingest for RPi microphone-derived audio features."""
+
     device_id: str
     speech_segments: float = Field(..., ge=0)
     silence_ratio: float = Field(..., ge=0, le=1)
@@ -304,6 +305,7 @@ class AudioFeatureResponse(BaseModel):
 
 class PhoneEventIngest(BaseModel):
     """Ingest for Android phone behavioural events."""
+
     device_id: str
     event_type: str = Field(
         ..., pattern=r"^(SCREEN_ON|SCREEN_OFF|APP_USAGE|APP_INSTALL)$"
@@ -327,12 +329,14 @@ class PhoneEventResponse(BaseModel):
 
 class FusionAnalyzeRequest(BaseModel):
     """Trigger fusion analysis for a device."""
+
     device_id: str
     persist: bool = True
 
 
 class DashboardSummaryResponse(BaseModel):
     """Aggregated dashboard summary for a guardian."""
+
     device_id: str | None = None
     insight_score: float | None = None
     tier_label: str | None = None
@@ -344,6 +348,7 @@ class DashboardSummaryResponse(BaseModel):
 
 class AlertListResponse(BaseModel):
     """Cross-device alert list with pagination."""
+
     alerts: list[dict]
     total: int
     unread: int
@@ -362,7 +367,9 @@ class IngestionResponse(BaseModel):
 
 class BatchEventItem(BaseModel):
     timestamp: datetime
-    source: str = Field(..., description="Event source type: esp32_pulse, edge_behaviour, etc.")
+    source: str = Field(
+        ..., description="Event source type: esp32_pulse, edge_behaviour, etc."
+    )
     payload: dict[str, Any] = Field(..., description="Original single-event payload")
 
 

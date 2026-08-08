@@ -217,7 +217,7 @@ def legacy_health():
 
 
 # Creating a sub-router for internal endpoints to match the requested path
-internal_router = APIRouter(prefix="/api/internal", tags=["internal"])
+internal_router = APIRouter(prefix="/api/v1/internal", tags=["internal"])
 
 
 @internal_router.get(
@@ -324,6 +324,55 @@ def trigger_worker_jobs(
     return {"status": "completed", "events_purged": purged}
 
 
+# ── Aria WebSocket AI helper ───────────────────────────────────────
+
+
+async def _generate_aria_ws_response(text: str) -> str:
+    """Generate an Aria response for the WebSocket chat.
+
+    Uses Gemini when GEMINI_API_KEY is set; otherwise falls back to
+    simple keyword-matched replies so the app works offline.
+    """
+    import os
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        try:
+            import google.generativeai as genai
+            from app.utils.companion_engine import _build_system_prompt
+
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(
+                "gemini-2.0-flash",
+                system_instruction=_build_system_prompt(
+                    "Aria", "Guardian-facing assistant. Helpful, concise, reassuring."
+                ),
+            )
+            response = model.generate_content(text)
+            return response.text.strip()
+        except Exception as e:
+            import logging
+
+            logging.getLogger(__name__).warning("Aria WS Gemini fallback: %s", e)
+
+    # ── Offline fallback ──────────────────────────────────────────
+    lower = text.lower()
+    if "plan" in lower or "price" in lower:
+        return (
+            "The Family Safety Plan gives you full access to live risk "
+            "reports, bedtime anomaly alerts, and weekly behavioral digests."
+        )
+    if "sleep" in lower or "bedtime" in lower:
+        return (
+            "I've saved their normal bedtime as part of the baseline. "
+            "Any late-night phone usage out of the ordinary will be safely flagged."
+        )
+    return (
+        "I've logged that. I am constantly monitoring the baseline "
+        "thresholds to keep your child supported."
+    )
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
     """
@@ -392,16 +441,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
                             f"guardian_events:{sub_id}", json.dumps(payload)
                         )
 
-                        # 2. Trigger mock Aria response after 1 second
+                        # 2. Generate Aria response (real AI or fallback)
                         import asyncio
 
-                        await asyncio.sleep(1.0)
+                        await asyncio.sleep(0.3)
 
-                        aria_text = "I've logged that. I am constantly monitoring the baseline thresholds to keep your child supported."
-                        if "plan" in text.lower() or "price" in text.lower():
-                            aria_text = "The Family Safety Plan gives you full access to live risk reports, bedtime anomaly alerts, and weekly behavioral digests."
-                        elif "sleep" in text.lower() or "bedtime" in text.lower():
-                            aria_text = "I've saved their normal bedtime as part of the baseline. Any late-night phone usage out of the ordinary will be safely flagged."
+                        aria_text = await _generate_aria_ws_response(text)
 
                         aria_msg = models.ChatMessage(
                             guardian_id=sub_id, sender="aria", aria_utterance=aria_text
@@ -518,6 +563,37 @@ async def trigger_demo_scenario(
 ):
     """Trigger a guided demo scenario (A, B, or C) from the dashboard for stakeholder replay."""
     auth.verify_guardian_device_access(current_guardian, req.device_id, db)
+
+    # Automatically seed baselines if they don't exist
+    existing = (
+        db.query(models.BaselineProfile)
+        .filter(models.BaselineProfile.device_id == req.device_id)
+        .count()
+    )
+    if existing == 0:
+        b1 = models.BaselineProfile(
+            device_id=req.device_id,
+            signal_type="location",
+            rolling_mean=15000,
+            rolling_variance=0.5,
+            source="demo_seed",
+        )
+        b2 = models.BaselineProfile(
+            device_id=req.device_id,
+            signal_type="typing",
+            rolling_mean=1.0,
+            rolling_variance=0.1,
+            source="demo_seed",
+        )
+        b3 = models.BaselineProfile(
+            device_id=req.device_id,
+            signal_type="app_usage",
+            rolling_mean=1.5,
+            rolling_variance=0.2,
+            source="demo_seed",
+        )
+        db.add_all([b1, b2, b3])
+        db.commit()
 
     if req.scenario == "A":
         # Late-night usage spike

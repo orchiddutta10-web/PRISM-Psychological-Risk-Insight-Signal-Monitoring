@@ -56,13 +56,19 @@ def _get_numpy_encoder():
     if NumpyEncoder is None:
         try:
             import numpy as np
+
             class _NumpyEncoder(json.JSONEncoder):
                 def default(self, obj):
-                    if isinstance(obj, np.integer): return int(obj)
-                    if isinstance(obj, np.floating): return float(obj)
-                    if isinstance(obj, np.bool_): return bool(obj)
-                    if isinstance(obj, np.ndarray): return obj.tolist()
+                    if isinstance(obj, np.integer):
+                        return int(obj)
+                    if isinstance(obj, np.floating):
+                        return float(obj)
+                    if isinstance(obj, np.bool_):
+                        return bool(obj)
+                    if isinstance(obj, np.ndarray):
+                        return obj.tolist()
                     return super().default(obj)
+
             NumpyEncoder = _NumpyEncoder
         except ImportError:
             NumpyEncoder = json.JSONEncoder
@@ -141,7 +147,9 @@ class OfflineQueue:
                     (timestamp, source, device_id),
                 ).fetchone()
                 if existing:
-                    logger.debug("Offline queue: duplicate skipped (id=%d)", existing["id"])
+                    logger.debug(
+                        "Offline queue: duplicate skipped (id=%d)", existing["id"]
+                    )
                     return existing["id"]
 
                 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
@@ -223,7 +231,12 @@ class OfflineQueue:
                     (error, error_code, now, row_id),
                 )
                 conn.commit()
-                logger.critical("Permanent failure: row=%d error=%s code=%d", row_id, error, error_code)
+                logger.critical(
+                    "Permanent failure: row=%d error=%s code=%d",
+                    row_id,
+                    error,
+                    error_code,
+                )
             finally:
                 conn.close()
 
@@ -255,12 +268,13 @@ class OfflineQueue:
 
     def purge_synced(self, older_than_hours: int = 24) -> int:
         from datetime import timedelta
+
         with self._lock:
             conn = self._get_conn()
             try:
-                cutoff = (datetime.now(timezone.utc) - timedelta(hours=older_than_hours)).strftime(
-                    "%Y-%m-%dT%H:%M:%S.%f"
-                )
+                cutoff = (
+                    datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+                ).strftime("%Y-%m-%dT%H:%M:%S.%f")
                 cursor = conn.execute(
                     "DELETE FROM offline_queue WHERE sync_status='synced' AND created_at < ?",
                     (cutoff,),
@@ -365,11 +379,15 @@ class SyncEngine:
         self._queue.reset_stale_syncing()
         self._running = True
         self._session = requests.Session()
-        self._session.headers.update({
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._jwt}",
-        })
-        self._thread = threading.Thread(target=self._loop, name="sync-engine", daemon=True)
+        self._session.headers.update(
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self._jwt}",
+            }
+        )
+        self._thread = threading.Thread(
+            target=self._loop, name="sync-engine", daemon=True
+        )
         self._thread.start()
         logger.info("SyncEngine started (batch_size=%d)", self._batch_size)
 
@@ -407,7 +425,12 @@ class SyncEngine:
         batch_id = str(uuid.uuid4())
 
         pending_count = sum(1 for s in self._queue.count_by_status().values())
-        logger.info("Sync batch %s: %d records, %d total pending", batch_id, len(records), pending_count)
+        logger.info(
+            "Sync batch %s: %d records, %d total pending",
+            batch_id,
+            len(records),
+            pending_count,
+        )
 
         events = []
         for i, rec in enumerate(records):
@@ -416,12 +439,14 @@ class SyncEngine:
             except json.JSONDecodeError:
                 self._queue.mark_permanent_fail(rec["id"], "Corrupted JSON payload", 0)
                 continue
-            events.append({
-                "row_index": i,
-                "timestamp": rec["timestamp"],
-                "source": rec["source"],
-                "payload": payload,
-            })
+            events.append(
+                {
+                    "row_index": i,
+                    "timestamp": rec["timestamp"],
+                    "source": rec["source"],
+                    "payload": payload,
+                }
+            )
 
         if not events:
             return
@@ -430,7 +455,11 @@ class SyncEngine:
             "batch_id": batch_id,
             "device_id": self._device_id,
             "events": [
-                {"timestamp": e["timestamp"], "source": e["source"], "payload": e["payload"]}
+                {
+                    "timestamp": e["timestamp"],
+                    "source": e["source"],
+                    "payload": e["payload"],
+                }
                 for e in events
             ],
         }
@@ -458,29 +487,42 @@ class SyncEngine:
                             err = result.get("error", "rejected")
                             code = result.get("code", "unknown")
                             rec = records[rec_index]
-                            if rec["retry_count"] >= rec.get("max_retries", self._max_retries):
+                            if rec["retry_count"] >= rec.get(
+                                "max_retries", self._max_retries
+                            ):
                                 self._queue.mark_permanent_fail(rid, err, 400)
                             else:
                                 self._queue.mark_failed(rid, err, 400)
 
-                logger.info("Sync batch %s complete: accepted=%d rejected=%d", batch_id, accepted, rejected)
+                logger.info(
+                    "Sync batch %s complete: accepted=%d rejected=%d",
+                    batch_id,
+                    accepted,
+                    rejected,
+                )
 
             elif resp.status_code == 401:
                 for rid in row_ids:
-                    self._queue.mark_permanent_fail(rid, "Authentication rejected (401)", 401)
+                    self._queue.mark_permanent_fail(
+                        rid, "Authentication rejected (401)", 401
+                    )
                 logger.error("Sync batch %s: permanent auth failure", batch_id)
                 self._notify_status("ERROR")
 
             elif resp.status_code == 400:
                 for rid in row_ids:
-                    self._queue.mark_permanent_fail(rid, f"Bad request: {resp.text[:200]}", 400)
+                    self._queue.mark_permanent_fail(
+                        rid, f"Bad request: {resp.text[:200]}", 400
+                    )
                 logger.error("Sync batch %s: permanent bad request", batch_id)
 
             else:
                 err_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
                 for rec in records:
                     if rec["retry_count"] >= rec.get("max_retries", self._max_retries):
-                        self._queue.mark_permanent_fail(rec["id"], err_msg, resp.status_code)
+                        self._queue.mark_permanent_fail(
+                            rec["id"], err_msg, resp.status_code
+                        )
                     else:
                         self._queue.mark_failed(rec["id"], err_msg, resp.status_code)
                 logger.warning("Sync batch %s failed: %s", batch_id, err_msg)
@@ -509,7 +551,11 @@ class SyncEngine:
         if total > self._purge_aggressive:
             deleted = self._queue.purge_synced(older_than_hours=1)
             if deleted:
-                logger.info("Aggressive purge: deleted %d synced records (queue=%d)", deleted, total)
+                logger.info(
+                    "Aggressive purge: deleted %d synced records (queue=%d)",
+                    deleted,
+                    total,
+                )
         else:
             self._queue.purge_synced(older_than_hours=self._purge_hours)
 

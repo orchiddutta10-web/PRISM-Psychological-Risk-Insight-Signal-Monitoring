@@ -13,6 +13,7 @@ import {
   InsightExplanationCard, WeeklySummaryCard,
   RecommendationCard,
 } from '../components';
+import { TokenManager } from '../services/api';
 import InsightDetailScreen from './InsightDetailScreen';
 import DailyBriefScreen from './DailyBriefScreen';
 import PatternHistoryScreen from './PatternHistoryScreen';
@@ -43,10 +44,12 @@ const WEEKLY_TREND = [
 export default function HomeScreen() {
   const [subScreen, setSubScreen] = useState<SubScreen>('home');
   const [refreshing, setRefreshing] = useState(false);
+  const [token, setToken] = useState<string>('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    TokenManager.getToken().then(t => setToken(t || ''));
   }, []);
 
   const getGreeting = () => {
@@ -83,7 +86,7 @@ export default function HomeScreen() {
     return <PersonalBaselineScreen onBack={() => setSubScreen('home')} />;
   }
   if (subScreen === 'guardian') {
-    return <GuardianDashboardScreen onBack={() => setSubScreen('home')} token={localStorage.getItem('prism_token') || ''} />;
+    return <GuardianDashboardScreen onBack={() => setSubScreen('home')} token={token} />;
   }
 
   // ── Main Home (AI Briefing) ─────────────────────────────────

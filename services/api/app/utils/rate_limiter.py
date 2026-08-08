@@ -22,7 +22,9 @@ def check_in_memory_limit(ip: str, path: str, limit: int = 5, period: int = 60) 
         _MEM_LIMITS[key] = timestamps
         # Prevent unbounded memory growth: periodically purge stale entries
         if len(_MEM_LIMITS) > 10000:
-            stale = [k for k, v in _MEM_LIMITS.items() if not v or now - max(v) > period * 10]
+            stale = [
+                k for k, v in _MEM_LIMITS.items() if not v or now - max(v) > period * 10
+            ]
             for k in stale:
                 del _MEM_LIMITS[k]
         return True
