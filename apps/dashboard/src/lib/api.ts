@@ -1,33 +1,44 @@
-/**
- * Shared API client for the PRISM Guardian Dashboard.
- *
- * All pages should route through this module so the API origin,
- * auth headers, and response mapping live in exactly one place.
- *
- * The dashboard talks to the FastAPI backend either:
- *   - through the Next.js rewrite proxy at /api/v1 (default, same-origin), or
- *   - directly when NEXT_PUBLIC_API_URL is set (e.g. http://localhost:8000/api/v1)
- */
+/** Shared API client and auth helpers for the PRISM Guardian Dashboard. */
 
 function normalizeApiBase(raw?: string | null): string {
   if (!raw || raw.trim() === '') return '/api/v1'
   const trimmed = raw.replace(/\/$/, '')
   if (trimmed.endsWith('/api/v1')) return trimmed
-  // Allow either full origin or already-qualified /api/v1 base.
   if (/^https?:\/\//i.test(trimmed)) return `${trimmed}/api/v1`
   return trimmed
 }
 
 export const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL)
 
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem('prism_token')
+}
+
+export function getGuardian(): { full_name?: string; role?: string; id?: string } | null {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem('prism_guardian')
+  if (!raw) return null
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function clearAuth(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem('prism_token')
+  window.localStorage.removeItem('prism_guardian')
+  window.localStorage.removeItem('prism_selected_device')
+}
+
 /** Builds an absolute ws(s):// URL for the live events socket. */
 export function buildWsUrl(path: string, token: string): string {
   const api = process.env.NEXT_PUBLIC_API_URL
   let base: string
   if (api && /^https?:\/\//i.test(api)) {
-    // Normalize so we always end at .../api/v1 regardless of env shape.
-    const normalized = normalizeApiBase(api).replace(/^http/, 'ws')
-    base = normalized
+    base = normalizeApiBase(api).replace(/^http/, 'ws')
   } else {
     base = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:8000/api/v1`
   }
@@ -39,7 +50,6 @@ export function authHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
 }
 
-/** Fetch JSON with the guardian JWT attached. Throws on non-2xx. */
 export async function apiFetch<T = any>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -57,7 +67,6 @@ export async function apiFetch<T = any>(path: string, token: string, init: Reque
   return res.json()
 }
 
-/** Same as apiFetch but tolerates failure — returns the fallback instead of throwing. */
 export async function apiFetchSafe<T>(path: string, token: string, fallback: T, init: RequestInit = {}): Promise<T> {
   try {
     return await apiFetch<T>(path, token, init)
@@ -65,8 +74,6 @@ export async function apiFetchSafe<T>(path: string, token: string, fallback: T, 
     return fallback
   }
 }
-
-/* ── Shared domain types (match FastAPI response schemas) ────────────── */
 
 export interface ChildDevice {
   id: string
@@ -105,9 +112,6 @@ export interface IngestionHealth {
   active_modalities: Record<string, 'real' | 'synthetic' | 'inactive' | string>
 }
 
-/* ── Presentation helpers ────────────────────────────────────────────── */
-
-/** "3 min ago" style relative time. */
 export function timeAgo(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return 'unknown'
@@ -122,14 +126,12 @@ export function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString()
 }
 
-/** Map backend severity tiers to the dashboard's high/medium/low vocabulary. */
 export function severityOf(tier: string): 'high' | 'medium' | 'low' {
   if (tier === 'red') return 'high'
   if (tier === 'amber') return 'medium'
   return 'low'
 }
 
-/** Human risk label for a 0–100 aggregate score. */
 export function riskLabel(score: number): string {
   if (score >= 70) return 'Elevated Concern'
   if (score >= 40) return 'Mild Deviation'

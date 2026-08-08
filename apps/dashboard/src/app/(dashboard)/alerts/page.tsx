@@ -77,10 +77,10 @@ export default function AlertsPage() {
   const visible = filter === 'unread' ? alerts.filter(a => !a.read) : alerts
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6 p-6 md:p-8">
       
       {/* Header / Toolbar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-[#1C1C1E] p-4 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm">
+      <div className="flex flex-col items-start justify-between gap-4 rounded-2xl border border-white/10 bg-white/[0.06] p-4 shadow-2xl backdrop-blur-xl sm:flex-row sm:items-center">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Bell size={18} className="text-gray-500" />
@@ -123,7 +123,7 @@ export default function AlertsPage() {
           <p>Loading alerts...</p>
         </div>
       ) : visible.length === 0 ? (
-        <div className="bg-white dark:bg-[#1C1C1E] border border-gray-200 dark:border-gray-800 rounded-2xl p-12 text-center shadow-sm">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.06] p-12 text-center shadow-2xl backdrop-blur-xl">
           <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center mx-auto mb-6">
             <Inbox className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
           </div>
@@ -146,7 +146,7 @@ export default function AlertsPage() {
             return (
               <div 
                 key={a.id} 
-                className={`flex flex-col sm:flex-row gap-4 p-5 bg-white dark:bg-[#1C1C1E] border border-gray-200 dark:border-gray-800 rounded-xl shadow-sm transition-opacity ${
+                className={`flex flex-col sm:flex-row gap-4 rounded-2xl border border-white/10 bg-white/[0.06] p-5 shadow-xl backdrop-blur-xl transition-all hover:-translate-y-0.5 hover:border-white/20 ${
                   a.read ? 'opacity-60' : 'opacity-100'
                 } border-l-4 ${sev.border}`}
               >
@@ -206,7 +206,7 @@ export default function AlertsPage() {
       )}
 
       {/* Privacy footer */}
-      <div className="mt-8 flex gap-3 items-start p-4 bg-gray-50 dark:bg-[#1A1A1C] border border-gray-200 dark:border-[#2C2C2E] rounded-xl text-gray-500 dark:text-gray-400">
+      <div className="mt-8 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-gray-500 shadow-inner backdrop-blur-md dark:text-gray-400">
         <ShieldCheck size={20} className="shrink-0 text-gray-400 dark:text-gray-500" />
         <p className="text-xs leading-relaxed">
           Alerts are non-diagnostic behavioral signals only. They never contain message content, audio, or clinical labels —
