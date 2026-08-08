@@ -6,10 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 from app import models
 from app.database import SessionLocal
+from app.utils.auth import get_password_hash
 from app.utils.risk_registry import seed_registry
-from passlib.context import CryptContext
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +66,7 @@ def seed_demo_data_if_needed():
                         id=str(uuid.uuid4()),
                         full_name=g_data["name"],
                         email=g_data["email"],
-                        password_hash=pwd_context.hash(
-                            "password"
-                        ),  # standard password for demo
+                        password_hash=get_password_hash("password"),  # standard password for demo
                         role="guardian",
                     )
                     db.add(g)
