@@ -7,6 +7,7 @@ artifacts. The route layer (authz, RBAC, response shape) and the
 risk-engine wiring (RiskScore persistence, alert aggregation) are what's
 under test.
 """
+
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -47,19 +48,51 @@ CALM_SIGNAL = {
 
 # Canned evaluate_signal output — mirrors the trained-model behavior.
 SIGNAL_RESULT_STRESSED = {
-    "stress": {"score": 1.0, "flagged": True, "threshold": 0.6,
-               "factors": ["Stress signal elevated (100%)."]},
-    "cognitive_load": {"score": 0.66, "flagged": True, "threshold": 0.6,
-                       "factors": ["Cognitive load signal elevated (66%)."]},
-    "typing_fatigue": {"score": 0.25, "flagged": False, "threshold": 0.6, "factors": []},
-    "typing_stability": {"score": 0.27, "flagged": True, "threshold": 0.6,
-                         "factors": ["Typing stability dropped."]},
+    "stress": {
+        "score": 1.0,
+        "flagged": True,
+        "threshold": 0.6,
+        "factors": ["Stress signal elevated (100%)."],
+    },
+    "cognitive_load": {
+        "score": 0.66,
+        "flagged": True,
+        "threshold": 0.6,
+        "factors": ["Cognitive load signal elevated (66%)."],
+    },
+    "typing_fatigue": {
+        "score": 0.25,
+        "flagged": False,
+        "threshold": 0.6,
+        "factors": [],
+    },
+    "typing_stability": {
+        "score": 0.27,
+        "flagged": True,
+        "threshold": 0.6,
+        "factors": ["Typing stability dropped."],
+    },
 }
 SIGNAL_RESULT_CALM = {
     "stress": {"score": 0.0, "flagged": False, "threshold": 0.6, "factors": []},
-    "cognitive_load": {"score": 0.16, "flagged": False, "threshold": 0.6, "factors": []},
-    "typing_fatigue": {"score": 0.16, "flagged": False, "threshold": 0.6, "factors": []},
-    "typing_stability": {"score": 0.58, "flagged": False, "threshold": 0.6, "factors": []},
+    "cognitive_load": {
+        "score": 0.16,
+        "flagged": False,
+        "threshold": 0.6,
+        "factors": [],
+    },
+    "typing_fatigue": {
+        "score": 0.16,
+        "flagged": False,
+        "threshold": 0.6,
+        "factors": [],
+    },
+    "typing_stability": {
+        "score": 0.58,
+        "flagged": False,
+        "threshold": 0.6,
+        "factors": [],
+    },
 }
 
 TREND_RESULT_STRESSED = {
@@ -68,8 +101,10 @@ TREND_RESULT_STRESSED = {
     "mental_risk_score": 0.7,
     "confidence": 0.9,
     "flagged": True,
-    "factors": ["Behavioral pattern consistent across 8 sessions.",
-                "Behavioral screening signal, not a diagnosis."],
+    "factors": [
+        "Behavioral pattern consistent across 8 sessions.",
+        "Behavioral screening signal, not a diagnosis.",
+    ],
 }
 TREND_RESULT_CALM = {
     "anxiety_trend": 0.0,
@@ -85,11 +120,17 @@ def _register(email: str, role: str = "guardian"):
     """Register guardian + device, returns (guardian_token, device_id, device_jwt)."""
     r = client.post(
         "/api/v1/auth/register",
-        json={"full_name": "Test Guardian", "email": email,
-              "password": "password123", "role": role},
+        json={
+            "full_name": "Test Guardian",
+            "email": email,
+            "password": "password123",
+            "role": role,
+        },
     )
     assert r.status_code == 201
-    r = client.post("/api/v1/auth/login", json={"email": email, "password": "password123"})
+    r = client.post(
+        "/api/v1/auth/login", json={"email": email, "password": "password123"}
+    )
     token = r.json()["access_token"]
     r = client.post(
         "/api/v1/auth/device",
@@ -104,11 +145,13 @@ def _register(email: str, role: str = "guardian"):
 
 def test_behavioral_signal_persists_all_dimensions():
     """A typing event persists 5 RiskScores (4 dims + mental risk)."""
-    with patch("app.utils.behavioral_ai.evaluate_signal",
-               return_value=SIGNAL_RESULT_STRESSED), \
-         patch("app.utils.behavioral_ai.evaluate_trend",
-               return_value=TREND_RESULT_STRESSED):
+    with patch(
+        "app.utils.behavioral_ai.evaluate_signal", return_value=SIGNAL_RESULT_STRESSED
+    ), patch(
+        "app.utils.behavioral_ai.evaluate_trend", return_value=TREND_RESULT_STRESSED
+    ):
         from app.utils.ml_engine import evaluate_behavioral_ai_model
+
         db = TestingSessionLocal()
         _, device_id, _ = _register("beh1@example.com")
         scores = evaluate_behavioral_ai_model(device_id, STRESSED_SIGNAL, db)
@@ -116,8 +159,10 @@ def test_behavioral_signal_persists_all_dimensions():
 
     names = {s.model_name for s in scores}
     assert names == {
-        "behavioral_stress", "behavioral_cognitive_load",
-        "behavioral_typing_fatigue", "behavioral_typing_stability",
+        "behavioral_stress",
+        "behavioral_cognitive_load",
+        "behavioral_typing_fatigue",
+        "behavioral_typing_stability",
         "behavioral_mental_risk",
     }
     mental = next(s for s in scores if s.model_name == "behavioral_mental_risk")
@@ -128,11 +173,11 @@ def test_behavioral_signal_persists_all_dimensions():
 
 def test_behavioral_signal_calm_not_flagged():
     """A calm typing event produces no flagged signal scores."""
-    with patch("app.utils.behavioral_ai.evaluate_signal",
-               return_value=SIGNAL_RESULT_CALM), \
-         patch("app.utils.behavioral_ai.evaluate_trend",
-               return_value=TREND_RESULT_CALM):
+    with patch(
+        "app.utils.behavioral_ai.evaluate_signal", return_value=SIGNAL_RESULT_CALM
+    ), patch("app.utils.behavioral_ai.evaluate_trend", return_value=TREND_RESULT_CALM):
         from app.utils.ml_engine import evaluate_behavioral_ai_model
+
         db = TestingSessionLocal()
         _, device_id, _ = _register("beh2@example.com")
         scores = evaluate_behavioral_ai_model(device_id, CALM_SIGNAL, db)
@@ -158,15 +203,17 @@ def test_risk_engine_runs_behavioral_on_typing():
     )
     assert r.status_code in (200, 201)
 
-    with patch.object(behavioral_ai, "evaluate_signal",
-                      return_value=SIGNAL_RESULT_CALM), \
-         patch.object(behavioral_ai, "evaluate_trend",
-                      return_value=TREND_RESULT_CALM):
+    with patch.object(
+        behavioral_ai, "evaluate_signal", return_value=SIGNAL_RESULT_CALM
+    ), patch.object(behavioral_ai, "evaluate_trend", return_value=TREND_RESULT_CALM):
         r = client.post(
             "/api/v1/events/ingest",
             headers={"Authorization": f"Bearer {device_jwt}"},
-            json={"device_id": device_id, "signal_type": "typing",
-                  "metadata": CALM_SIGNAL},
+            json={
+                "device_id": device_id,
+                "signal_type": "typing",
+                "metadata": CALM_SIGNAL,
+            },
         )
     assert r.status_code == 200
 
@@ -174,8 +221,10 @@ def test_risk_engine_runs_behavioral_on_typing():
     db = TestingSessionLocal()
     count = (
         db.query(models.RiskScore)
-        .filter(models.RiskScore.device_id == device_id,
-                models.RiskScore.model_name.like("behavioral_%"))
+        .filter(
+            models.RiskScore.device_id == device_id,
+            models.RiskScore.model_name.like("behavioral_%"),
+        )
         .count()
     )
     db.close()
@@ -206,8 +255,11 @@ def test_behavioral_insights_returns_dimensions():
     # Seed a behavioral mental-risk score directly (matches test_api pattern).
     db = TestingSessionLocal()
     score = models.RiskScore(
-        device_id=device_id, model_name="behavioral_mental_risk",
-        score=0.72, threshold=0.6, flagged=True,
+        device_id=device_id,
+        model_name="behavioral_mental_risk",
+        score=0.72,
+        threshold=0.6,
+        flagged=True,
     )
     score.contributing_factors = [
         "Behavioral pattern consistent across 8 sessions.",
@@ -225,8 +277,13 @@ def test_behavioral_insights_returns_dimensions():
     body = r.json()
     assert body["device_id"] == device_id
     dims = {d["name"] for d in body["dimensions"]}
-    assert dims == {"stress", "cognitive_load", "typing_fatigue",
-                    "typing_stability", "mental_risk"}
+    assert dims == {
+        "stress",
+        "cognitive_load",
+        "typing_fatigue",
+        "typing_stability",
+        "mental_risk",
+    }
     mental = next(d for d in body["dimensions"] if d["name"] == "mental_risk")
     assert mental["score"] == 0.72
     assert mental["flagged"] is True

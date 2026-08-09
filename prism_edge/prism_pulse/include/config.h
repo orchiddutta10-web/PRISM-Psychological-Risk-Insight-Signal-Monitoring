@@ -14,11 +14,11 @@
 #endif
 
 #ifndef PRISM_API_URL
-#define PRISM_API_URL "http://192.168.180.97:8081"
+#define PRISM_API_URL "http://10.167.54.97:8081"
 #endif
 
 #ifndef ESP32_BRIDGE_URL
-#define ESP32_BRIDGE_URL "http://192.168.180.97:8081"
+#define ESP32_BRIDGE_URL "http://10.167.54.97:8081"
 #endif
 
 #ifndef DEVICE_JWT

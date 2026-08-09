@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, FlatList, ActivityIndicator, Alert } from 'react-native';
 import { ApiClient } from '../services/api';
+import { recordKeyPress } from '../services/TelemetryService';
 
 interface Persona {
   id: string;
@@ -200,6 +201,10 @@ export default function CompanionScreen({ onBackToDashboard }: { onBackToDashboa
           placeholderTextColor="#666"
           value={inputText}
           onChangeText={setInputText}
+          onKeyPress={(e) => {
+            const isBackspace = e.nativeEvent.key === 'Backspace';
+            recordKeyPress(isBackspace);
+          }}
           editable={!loading && !loadingSession}
         />
         <TouchableOpacity 

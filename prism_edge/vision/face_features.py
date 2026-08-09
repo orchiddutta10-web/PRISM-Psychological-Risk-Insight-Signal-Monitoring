@@ -61,18 +61,22 @@ class FaceFeatureExtractor:
         """Initialize MediaPipe Face Mesh."""
         try:
             import mediapipe as mp
-            self._face_mesh = mp.solutions.face_mesh.FaceMesh(
-                static_image_mode=False,
-                max_num_faces=1,
-                refine_landmarks=True,    # enables iris + lip detail landmarks
-                min_detection_confidence=self._confidence,
-                min_tracking_confidence=self._confidence,
-                model_selection=self._model_selection,
-            )
-            self._ready = True
-            logger.info("MediaPipe Face Mesh initialized (model=%d, confidence=%.2f)", self._model_selection, self._confidence)
+            if hasattr(mp, 'solutions'):
+                self._face_mesh = mp.solutions.face_mesh.FaceMesh(
+                    static_image_mode=False,
+                    max_num_faces=1,
+                    refine_landmarks=True,
+                    min_detection_confidence=self._confidence,
+                    min_tracking_confidence=self._confidence,
+                    model_selection=self._model_selection,
+                )
+                self._ready = True
+                logger.info("MediaPipe Face Mesh initialized (model=%d, confidence=%.2f)", self._model_selection, self._confidence)
+            else:
+                logger.warning("MediaPipe %s lacks solutions module — face features disabled", mp.__version__)
+                self._ready = False
         except Exception as e:
-            logger.error("Failed to initialize MediaPipe Face Mesh: %s", e)
+            logger.warning("Face Mesh not available: %s", e)
             self._ready = False
 
     def stop(self) -> None:

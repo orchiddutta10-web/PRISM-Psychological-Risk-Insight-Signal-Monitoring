@@ -8,8 +8,8 @@ Supports two backends selected via settings.MEDICAL_LLM_PROVIDER:
 All LangChain imports are lazy so the app boots and existing tests stay
 hermetic even when the optional RAG dependencies are not installed.
 """
+
 import logging
-import os
 
 from app.config import settings
 

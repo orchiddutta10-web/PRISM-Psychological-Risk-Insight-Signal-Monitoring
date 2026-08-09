@@ -44,7 +44,9 @@ class Settings(BaseSettings):
     def __init__(self, **values):
         super().__init__(**values)
         if not self.JWT_SECRET or not self.ENCRYPTION_KEY:
-            raise ValueError("Required secrets (JWT_SECRET, ENCRYPTION_KEY) must be provided in the environment or .env file.")
+            raise ValueError(
+                "Required secrets (JWT_SECRET, ENCRYPTION_KEY) must be provided in the environment or .env file."
+            )
 
 
 settings = Settings()

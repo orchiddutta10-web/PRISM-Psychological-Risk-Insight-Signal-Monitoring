@@ -38,7 +38,10 @@ def run_baseline_aggregation(db: Session):
                             values.append(float(v))
                 except (json.JSONDecodeError, TypeError, ValueError) as e:
                     import logging
-                    logging.warning(f"Failed to parse metadata for event {event.id}: {e}")
+
+                    logging.warning(
+                        f"Failed to parse metadata for event {event.id}: {e}"
+                    )
                     continue
 
             if not values:

@@ -25,7 +25,7 @@ export default function PRISMNodeScreen({ deviceId, onBackToBehavior }: PRISMNod
 
   // Simulate real-time streams
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (isConnected) {
       interval = setInterval(() => {
         setSyncStatus('syncing');

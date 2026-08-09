@@ -7,6 +7,7 @@ app.utils.medical_rag.kb_stats with canned responses — the same way conftest
 mocks Redis. The route layer (authz, RBAC, crisis gate, response shape) is
 what's actually under test here.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
@@ -247,7 +248,9 @@ def test_medical_ingest_requires_admin():
 
 def test_medical_ingest_admin_allowed():
     """guardian-admin → 200 with kb stats."""
-    token, _, _ = _register_guardian_and_device("med5@example.com", role="guardian-admin")
+    token, _, _ = _register_guardian_and_device(
+        "med5@example.com", role="guardian-admin"
+    )
     with patch(
         "app.routes.medical.rebuild_kb",
         return_value={"docs": 3, "chunks": 42, "vector_ready": True},

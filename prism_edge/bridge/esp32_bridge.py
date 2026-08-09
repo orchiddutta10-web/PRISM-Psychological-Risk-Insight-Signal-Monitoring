@@ -13,8 +13,11 @@ import logging
 import threading
 import time
 from typing import Any, Dict, Optional
+import json
 
 from prism_edge import config
+from prism_edge import db
+
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +85,11 @@ def _create_app():
                 "g_force": g_force,
                 "alert_status": alert_status,
             }
+            
+        device_id = payload.get("device_id", "esp32_pulse_node")
+        db.register_device(device_id, "wearable")
+        db.update_device_status(device_id)
+        
         logger.debug("ESP32 pulse: bpm=%s g=%.2f status=%s",
                       payload.get("bpm"), payload.get("g_force"), payload.get("alert_status"))
         return jsonify({"status": "accepted"})
@@ -101,6 +109,46 @@ def _create_app():
             resp = jsonify({"status": "ok", "data": data})
         resp.headers.add('Access-Control-Allow-Origin', '*')
         return resp
+
+    @app.route("/api/v1/pair", methods=["POST", "OPTIONS"])
+    def pair_device():
+        if request.method == "OPTIONS":
+            return "", 200
+        data = request.get_json(force=True, silent=True) or {}
+        device_id = data.get("device_id")
+        device_type = data.get("device_type", "mobile")
+        guardian_id = data.get("guardian_id")
+        
+        if not device_id:
+            return jsonify({"status": "error", "message": "Missing device_id"}), 400
+            
+        db.register_device(device_id, device_type, guardian_id)
+        return jsonify({"status": "success", "message": "Device paired successfully"})
+
+    @app.route("/api/v1/mobile/telemetry", methods=["POST", "OPTIONS"])
+    def mobile_telemetry():
+        if request.method == "OPTIONS":
+            return "", 200
+            
+        payload = request.get_json(force=True, silent=True)
+        if not payload or "device_id" not in payload:
+            return jsonify({"status": "error", "message": "Invalid payload"}), 400
+            
+        device_id = payload["device_id"]
+        db.update_device_status(device_id, battery_level=payload.get("battery_level"))
+        db.save_telemetry(device_id, payload)
+        
+        # Also store in shared state for immediate ML/packer access
+        with state_lock:
+            shared_state["mobile_telemetry"] = payload
+            
+        return jsonify({"status": "accepted"})
+
+    @app.route("/api/v1/devices", methods=["GET"])
+    def list_devices():
+        devices = db.get_all_devices()
+        return jsonify({"status": "ok", "devices": devices})
+
 
     @app.route("/camera/status", methods=["GET"])
     def camera_status():

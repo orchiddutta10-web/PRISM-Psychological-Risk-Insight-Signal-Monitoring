@@ -36,3 +36,6 @@ python-json-logger>=2.0.0
 
 # System health monitoring (CPU, RAM, temp)
 psutil>=5.9.0
+
+# UART Communication for ESP32
+pyserial>=3.5

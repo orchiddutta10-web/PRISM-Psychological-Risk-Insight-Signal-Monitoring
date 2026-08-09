@@ -28,6 +28,7 @@ same statistical/heuristic logic used by the rest of the risk engine so the
 pipeline never crashes — matching the "graceful degradation" pattern of the
 vision modules on the edge node.
 """
+
 import json
 import logging
 import os
@@ -37,7 +38,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-RESOURCES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources")
+RESOURCES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources"
+)
 MODELS_DIR = os.path.join(RESOURCES_DIR, "behavioral_ai")
 
 # Output dimensions (see module docstring). Order must match the training script.
@@ -209,7 +212,9 @@ def _fallback_signal_scores(metadata: dict) -> dict:
         "stress": round(stress, 3),
         "cognitive_load": round(cognitive_load, 3),
         "typing_fatigue": round(typing_fatigue, 3),
-        "typing_stability": round(1.0 - stability_anomaly, 3),  # stability = inverse anomaly
+        "typing_stability": round(
+            1.0 - stability_anomaly, 3
+        ),  # stability = inverse anomaly
     }
 
 
@@ -228,7 +233,11 @@ def evaluate_signal(metadata: dict) -> dict:
     results = {}
 
     # Classifier dimensions: predict_proba[:, 1] → risk probability.
-    for dim, threshold in (("stress", 0.6), ("cognitive_load", 0.6), ("typing_fatigue", 0.6)):
+    for dim, threshold in (
+        ("stress", 0.6),
+        ("cognitive_load", 0.6),
+        ("typing_fatigue", 0.6),
+    ):
         model = _models.get(dim)
         if model is not None:
             try:
@@ -268,7 +277,9 @@ def evaluate_signal(metadata: dict) -> dict:
             risk = 1.0 / (1.0 + np.exp(-((median - raw) * 4.0)))
             risk = round(max(0.0, min(1.0, risk)), 3)
         except Exception as e:
-            logger.warning("Behavioral model typing_stability inference failed: %s", str(e))
+            logger.warning(
+                "Behavioral model typing_stability inference failed: %s", str(e)
+            )
             risk = 1.0 - fallback["typing_stability"]
     else:
         risk = 1.0 - fallback["typing_stability"]
@@ -312,8 +323,12 @@ def evaluate_trend(recent_scores: list[dict]) -> dict:
     # Feature vector: mean + std + slope over the window for each dimension.
     arr = np.array(
         [
-            [s.get("stress", 0.0), s.get("cognitive_load", 0.0),
-             s.get("typing_fatigue", 0.0), s.get("typing_stability", 0.0)]
+            [
+                s.get("stress", 0.0),
+                s.get("cognitive_load", 0.0),
+                s.get("typing_fatigue", 0.0),
+                s.get("typing_stability", 0.0),
+            ]
             for s in recent_scores
         ]
     )
@@ -324,15 +339,21 @@ def evaluate_trend(recent_scores: list[dict]) -> dict:
     stds = arr.std(axis=0)
     # Slope: linear regression coefficient via least squares.
     x = np.arange(len(arr), dtype=float)
-    slopes = np.array([
-        np.polyfit(x, arr[:, i], 1)[0] if np.std(arr[:, i]) > 0 else 0.0
-        for i in range(arr.shape[1])
-    ])
+    slopes = np.array(
+        [
+            np.polyfit(x, arr[:, i], 1)[0] if np.std(arr[:, i]) > 0 else 0.0
+            for i in range(arr.shape[1])
+        ]
+    )
     features = np.concatenate([means, stds, slopes]).reshape(1, -1)
 
     # Try the trained trend models; fall back to a transparent weighted rule.
-    anxiety = _trend_from_model("anxiety_trend", features, _fallback_trend(means, slopes, "anxiety"))
-    depression = _trend_from_model("depression_trend", features, _fallback_trend(means, slopes, "depression"))
+    anxiety = _trend_from_model(
+        "anxiety_trend", features, _fallback_trend(means, slopes, "anxiety")
+    )
+    depression = _trend_from_model(
+        "depression_trend", features, _fallback_trend(means, slopes, "depression")
+    )
 
     # Mental Risk Score: weighted ensemble (matches training script weights).
     # means = [stress, cognitive_load, fatigue, stability]; use instability.

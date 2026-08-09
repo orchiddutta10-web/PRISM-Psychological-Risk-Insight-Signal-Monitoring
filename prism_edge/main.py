@@ -105,6 +105,17 @@ def main() -> None:
     bridge_thread = start_bridge(shared_state, state_lock, camera=camera)
     _pipelines["bridge"] = bridge_thread
 
+    # ── 2.5 Start ESP32 UART Listener (Option B) ───────────────────
+    try:
+        from prism_edge.bridge.uart_listener import UARTListener
+        uart_port = config.UART_PORT
+        uart_baud = config.UART_BAUD
+        uart_listener = UARTListener(shared_state, state_lock, port=uart_port, baudrate=uart_baud)
+        uart_listener.start()
+        _pipelines["uart"] = uart_listener
+    except Exception as e:
+        logger.warning(f"Failed to start UART listener: {e}")
+
     # ── 3. Start Vision Pipeline ────────────────────────────────────
     if camera is not None:
         vision_thread = threading.Thread(
@@ -129,10 +140,16 @@ def main() -> None:
     _pipelines["packer"] = packer
 
     # ── 6. Start API Client (Writer) ───────────────────────────────
-    from prism_edge.api.client import ApiClient
-    api_client = ApiClient(tx_queue)
-    api_client.start()
-    _pipelines["api"] = api_client
+    # Skip API client when no JWT is configured — avoids infinite
+    # connection retries burning CPU when the API server isn't running.
+    api_client = None
+    if config.API_DEVICE_JWT:
+        from prism_edge.api.client import ApiClient
+        api_client = ApiClient(tx_queue)
+        api_client.start()
+        _pipelines["api"] = api_client
+    else:
+        logger.warning("API_DEVICE_JWT not set — API client skipped; bridge-only mode")
 
     logger.info("All pipelines started — running")
 
@@ -153,7 +170,10 @@ def main() -> None:
             last_health_log = now
             from prism_edge.utils.health_monitor import get_health_snapshot
             health = get_health_snapshot()
-            api_connected = "connected" if api_client.connected else f"disconnected ({api_client.consecutive_failures} failures)"
+            if api_client:
+                api_connected = "connected" if api_client.connected else f"disconnected ({api_client.consecutive_failures} failures)"
+            else:
+                api_connected = "skipped"
             logger.info(
                 "Health: CPU=%.1f%% RAM=%.1f%% Temp=%.1f°C API=%s Queue=%d",
                 health["cpu_percent"], health["ram_percent"],

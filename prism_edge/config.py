@@ -69,6 +69,10 @@ ESP32_BRIDGE_HOST: str = os.getenv("PRISM_ESP32_BRIDGE_HOST", "0.0.0.0").strip()
 ESP32_BRIDGE_PORT: int = int(os.getenv("PRISM_ESP32_BRIDGE_PORT", "8081"))
 ESP32_BRIDGE_TOKEN: str = os.getenv("PRISM_ESP32_BRIDGE_TOKEN", "").strip()
 
+# ── UART ──────────────────────────────────────────────────────────────
+UART_PORT: str = os.getenv("PRISM_UART_PORT", "/dev/ttyUSB0").strip()
+UART_BAUD: int = int(os.getenv("PRISM_UART_BAUD", "115200"))
+
 # ── Reliability ───────────────────────────────────────────────────────
 RECONNECT_TIMEOUT_SEC: float = float(os.getenv("PRISM_RECONNECT_TIMEOUT_SEC", "30.0"))
 RETRY_INTERVAL_SEC: float = float(os.getenv("PRISM_RETRY_INTERVAL_SEC", "5.0"))

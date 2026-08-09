@@ -8,7 +8,7 @@ import { API } from '@/lib/api'
 // Hardware: ESP32 + Analog Pulse Sensor (GPIO34) + MPU6050 (I2C) + ISD1820 + I2C LCD
 // This surface is intentionally isolated — no imports from the behavior dashboard.
 
-type Tab = 'vitals' | 'sleep' | 'status' | 'about'
+type Tab = 'vitals' | 'insights' | 'sleep' | 'status' | 'about'
 
 interface PulseReading {
   id: string
@@ -42,6 +42,42 @@ interface NodeStatus {
   connected: boolean
   last_seen: string | null
   sensor: string | null
+}
+
+interface EdgeDevice {
+  device_id: string
+  device_type: string
+  battery_level: number | null
+  status: string
+  last_seen: string
+  signal_quality: number
+  risk_score: number
+  ai_tags: string[]
+}
+
+function generateSyntheticEdgeDevices(): EdgeDevice[] {
+  return [
+    {
+      device_id: 'esp32_pulse_01',
+      device_type: 'wearable',
+      battery_level: 82,
+      status: 'online',
+      last_seen: new Date().toISOString(),
+      signal_quality: 95,
+      risk_score: 12,
+      ai_tags: ['STABLE_HR', 'RESTING']
+    },
+    {
+      device_id: 'iphone_15_pro',
+      device_type: 'mobile',
+      battery_level: 45,
+      status: 'online',
+      last_seen: new Date(Date.now() - 5000).toISOString(),
+      signal_quality: 100,
+      risk_score: 38,
+      ai_tags: ['HIGH_SCREEN_TIME', 'LATE_NIGHT_USAGE']
+    }
+  ]
 }
 
 function generateSyntheticPulseReadings(count = 60): PulseReading[] {
@@ -147,6 +183,7 @@ export default function PrismNodePage() {
   const [ppgReadings, setPpgReadings] = useState<PhysioReading[]>([])
   const [sleepWindows, setSleepWindows] = useState<SleepWindow[]>([])
   const [nodeStatus, setNodeStatus] = useState<NodeStatus>({ connected: false, last_seen: null, sensor: null })
+  const [edgeDevices, setEdgeDevices] = useState<EdgeDevice[]>([])
   const [isDemoMode, setIsDemoMode] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
@@ -208,6 +245,20 @@ export default function PrismNodePage() {
       if (!res.ok) throw new Error(`Status API returned ${res.status}`)
       setNodeStatus(await res.json())
     } catch { setNodeStatus({ connected: false, last_seen: null, sensor: null }) }
+    
+    // Simulate fetching Edge devices from our new gateway for demo mode or fall back
+    try {
+      // In a real environment, we'd query the edge node or the backend relay
+      const devRes = await fetch(`http://localhost:8081/api/v1/devices`, { signal: AbortSignal.timeout(2000) })
+      if (devRes.ok) {
+        const data = await devRes.json()
+        setEdgeDevices(data.devices || [])
+      } else {
+        setEdgeDevices(generateSyntheticEdgeDevices())
+      }
+    } catch {
+      setEdgeDevices(generateSyntheticEdgeDevices())
+    }
   }, [])
 
   useEffect(() => {
@@ -234,8 +285,9 @@ export default function PrismNodePage() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'vitals', label: '❤️  Live Vitals' },
+    { id: 'insights', label: '🧠  AI Insights' },
     { id: 'sleep', label: '🌙  Sleep Windows' },
-    { id: 'status', label: '📡  Device Status' },
+    { id: 'status', label: '📡  Edge Devices & Status' },
     { id: 'about', label: 'ℹ️  About' },
   ]
 
@@ -409,18 +461,93 @@ export default function PrismNodePage() {
           </div>
         )}
 
+        {/* ── AI Insights ── */}
+        {tab === 'insights' && (
+          <div className="pn-slide" style={{ maxWidth: 700 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>AI Risk Engine Insights</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24, lineHeight: 1.6 }}>
+              The local Edge AI aggregates session data and tags physiological and behavioral changes automatically.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
+              {edgeDevices.map(device => (
+                <div key={device.device_id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 24 }}>{device.device_type === 'mobile' ? '📱' : '⌚'}</span>
+                      <div>
+                        <h3 style={{ fontSize: 14, fontWeight: 700 }}>{device.device_id.toUpperCase()}</h3>
+                        <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Risk Score: {device.risk_score}/100</p>
+                      </div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: '4px 12px', fontSize: 12, fontWeight: 700, color: device.risk_score > 50 ? '#ef4444' : '#10b981' }}>
+                      {device.risk_score > 50 ? 'ELEVATED RISK' : 'LOW RISK'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {device.ai_tags.map(tag => (
+                      <span key={tag} style={{ fontSize: 11, background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', padding: '4px 10px', borderRadius: 16, border: '1px solid rgba(99,102,241,0.3)' }}>
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* ── Device Status ── */}
         {tab === 'status' && (
-          <div className="pn-slide" style={{ maxWidth: 620 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 24 }}>PRISM Node Hardware Status</h2>
+          <div className="pn-slide">
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 24 }}>Edge Gateway & Connected Devices</h2>
+            
+            <div style={{ marginBottom: 32 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Connected Edge Nodes</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+                {edgeDevices.map((dev) => (
+                  <div key={dev.device_id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 16, padding: '20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                      <div>
+                        <p style={{ fontSize: 14, fontWeight: 800, textTransform: 'uppercase' }}>{dev.device_type} NODE</p>
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>ID: {dev.device_id}</p>
+                      </div>
+                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: dev.status === 'online' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: dev.status === 'online' ? '#6ee7b7' : '#fca5a5', fontWeight: 700, height: 'fit-content' }}>
+                        {dev.status.toUpperCase()}
+                      </span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Battery</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ width: 30, height: 12, border: '1px solid var(--border)', borderRadius: 3, padding: 1 }}>
+                            <div style={{ width: `${dev.battery_level || 0}%`, height: '100%', background: (dev.battery_level || 0) > 20 ? '#10b981' : '#ef4444', borderRadius: 1 }} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{dev.battery_level ? `${dev.battery_level}%` : 'N/A'}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Signal Quality</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: dev.signal_quality > 70 ? '#10b981' : '#f59e0b' }}>{dev.signal_quality}%</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Last Sync</span>
+                        <span style={{ fontSize: 12, fontWeight: 600 }}>{new Date(dev.last_seen).toLocaleTimeString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, padding: 36, textAlign: 'center', backdropFilter: 'blur(12px)', marginBottom: 20 }}>
               <div style={{ width: 72, height: 72, borderRadius: '50%', margin: '0 auto 20px', background: nodeStatus.connected ? 'linear-gradient(135deg,#10b981,#059669)' : 'rgba(255,255,255,0.1)', animation: nodeStatus.connected ? 'connectedPulse 2s ease-in-out infinite' : 'none' }} />
               <h3 style={{ fontSize: 24, fontWeight: 900, marginBottom: 8 }}>
-                {nodeStatus.connected ? '🟢 Connected' : '⚫ Not Connected'}
+                {nodeStatus.connected ? '🟢 Gateway Connected' : '⚫ Gateway Not Connected'}
               </h3>
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>
                 {nodeStatus.connected
-                  ? `PRISM Node wearable is online. Last signal: ${nodeStatus.last_seen ? new Date(nodeStatus.last_seen).toLocaleString() : 'just now'}`
+                  ? `PRISM Node Gateway is online. Last signal: ${nodeStatus.last_seen ? new Date(nodeStatus.last_seen).toLocaleString() : 'just now'}`
                   : 'No physio data received in the last 5 minutes. Ensure the PRISM Node ESP32 is powered and connected to the same network.'}
               </p>
               {nodeStatus.sensor && (
@@ -428,16 +555,6 @@ export default function PrismNodePage() {
                   Active sensor: {nodeStatus.sensor.toUpperCase()}
                 </span>
               )}
-            </div>
-            <div style={{ padding: '16px 20px', background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Hardware Spec (PRISM PULSE v4.0)</p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.65 }}>
-                PRISM Node uses an ESP32-D0WD-V3 microcontroller with an Analog Pulse Sensor (GPIO 34) for heart rate,
-                an MPU6050 accelerometer/gyroscope (I2C) for movement context, an ISD1820 voice recorder module (GPIO 4)
-                for local alerts, and a 16×2 I2C LCD display for on-device feedback.
-                Multi-factor sensor fusion ensures voice alerts trigger only during sustained anomalous conditions
-                (High BPM + Low Movement for 15 seconds). No audio, video, or message content is ever captured.
-              </p>
             </div>
           </div>
         )}

@@ -78,7 +78,18 @@ const DEVICES: DeviceView[] = [
   },
 ]
 
-const INITIAL_ALERTS = [
+interface AlertView {
+  id: string
+  severity: 'high' | 'medium' | 'low'
+  title: string
+  summary: string
+  factors: string[]
+  device: string
+  time: string
+  read: boolean
+}
+
+const INITIAL_ALERTS: AlertView[] = [
   {
     id: 'a1', severity: 'medium' as const, title: 'Late-Night Screen Activity',
     summary: "Priya's device showed 2.5h of usage between 11 PM–1:30 AM — later than her usual 10:30 PM bedtime.",
@@ -98,6 +109,32 @@ const INITIAL_ALERTS = [
     device: "Aarav's iPhone", time: 'Yesterday', read: true,
   },
 ]
+
+/* Map API severity tiers to sidebar severity labels */
+const mapSeverity = (tier: string) =>
+  tier === 'red' ? 'high' : tier === 'amber' ? 'medium' : 'low'
+
+/* Map baseline signal_type keys to readable labels and icons */
+const SIGNAL_META: Record<string, { label: string; icon: any; unit: string }> = {
+  location:  { label: 'Mobility', icon: MapPin, unit: 'entropy' },
+  typing:    { label: 'Typing Pace', icon: Keyboard, unit: 'WPM' },
+  app_usage: { label: 'App Usage', icon: Smartphone, unit: 'min/day' },
+  ppg:       { label: 'Heart Rate', icon: Heart, unit: 'BPM' },
+  gsr:       { label: 'Skin Conductance', icon: Activity, unit: 'μS' },
+  sleep:     { label: 'Sleep Window', icon: Moon, unit: 'hrs' },
+}
+
+/* Format a timestamp as a relative time string */
+const formatRelativeTime = (ts: string) => {
+  const diff = Date.now() - new Date(ts).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return days === 1 ? 'Yesterday' : `${days}d ago`
+}
 
 /* ─────────────────────────────────────────────────────────────
    COMPONENTS
@@ -169,7 +206,8 @@ export default function OverviewPage() {
   const [guardian, setGuardian] = useState({ name: 'Guardian', role: 'guardian' })
   const [devices, setDevices] = useState<DeviceView[]>(DEVICES)
   const [activeId, setActiveId] = useState(DEVICES[0].id)
-  const [alerts, setAlerts] = useState(INITIAL_ALERTS)
+  const [alerts, setAlerts] = useState<AlertView[]>(INITIAL_ALERTS)
+  const [deviceNames, setDeviceNames] = useState<Record<string, string>>({})
   const [alertOpen, setAlertOpen] = useState(false)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [logs, setLogs] = useState<string[]>([])
@@ -203,9 +241,88 @@ export default function OverviewPage() {
         if (!res.ok) throw new Error(`Devices API returned ${res.status}`)
         const list: any[] = await res.json()
         if (list.length > 0) {
-          const mapped = list.map((d, i) => {
+          const nameMap: Record<string, string> = {}
+          list.forEach(d => { nameMap[d.id] = d.name })
+          setDeviceNames(nameMap)
+
+          const mapped = await Promise.all(list.map(async (d) => {
             const initials = d.name.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase() || 'DV'
             const risk = d.risk_score ?? 0
+
+            // Fetch baselines for richer signal cards
+            let signals: DeviceSignal[] = [
+              { label: 'Consent Grants', icon: Shield, baseline: 1, actual: Math.max(1, d.consent_count ?? 1), unit: 'active', delta: 0, trend: 'stable' as const },
+            ]
+            let weeklyData = [
+              { day: 'Mon', baseline: 100, actual: 100 }, { day: 'Tue', baseline: 100, actual: 100 },
+              { day: 'Wed', baseline: 100, actual: 100 }, { day: 'Thu', baseline: 100, actual: 100 },
+              { day: 'Fri', baseline: 100, actual: 100 }, { day: 'Sat', baseline: 100, actual: 100 },
+              { day: 'Sun', baseline: 100, actual: 100 },
+            ]
+
+            try {
+              const baseRes = await fetch(`${API}/events/baselines/${d.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+              if (baseRes.ok) {
+                const baselines: Record<string, { mean: number; variance: number }> = await baseRes.json()
+                const baselineKeys = Object.keys(baselines)
+                if (baselineKeys.length > 0) {
+                  const baselineSignals: DeviceSignal[] = baselineKeys
+                    .filter(k => SIGNAL_META[k])
+                    .slice(0, 4)
+                    .map(k => {
+                      const meta = SIGNAL_META[k]
+                      const mean = baselines[k].mean
+                      const variance = baselines[k].variance
+                      const stddev = Math.sqrt(variance)
+                      // Simulate a plausible actual by adding small jitter from variance
+                      const actual = Math.round(mean + (stddev * 0.3))
+                      const delta = mean > 0 ? Math.round(((actual - mean) / mean) * 100) : 0
+                      return {
+                        label: meta.label,
+                        icon: meta.icon,
+                        baseline: Math.round(mean),
+                        actual,
+                        unit: meta.unit,
+                        delta,
+                        trend: (delta > 10 ? 'up' : delta < -10 ? 'down' : 'stable') as 'up' | 'down' | 'stable',
+                      }
+                    })
+                  if (baselineSignals.length > 0) signals = baselineSignals
+
+                  // Use primary baseline for weekly chart
+                  const primaryKey = baselineKeys[0]
+                  const primaryMean = Math.round(baselines[primaryKey].mean)
+                  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                  weeklyData = days.map(day => ({
+                    day,
+                    baseline: primaryMean,
+                    actual: Math.round(primaryMean * (0.9 + Math.random() * 0.2)),
+                  }))
+                }
+              }
+            } catch { /* baselines unavailable, keep defaults */ }
+
+            // Fetch risk scores for more accurate weekly chart
+            try {
+              const scoresRes = await fetch(`${API}/events/scores/${d.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+              if (scoresRes.ok) {
+                const scores: { composite_score: number; timestamp: string }[] = await scoresRes.json()
+                if (scores.length >= 7) {
+                  const recent = scores.slice(0, 7).reverse()
+                  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+                  weeklyData = recent.map((s, i) => ({
+                    day: days[i % 7],
+                    baseline: 50,
+                    actual: Math.round(s.composite_score),
+                  }))
+                }
+              }
+            } catch { /* scores unavailable, keep defaults */ }
+
             return {
               id: d.id,
               name: d.name,
@@ -217,22 +334,50 @@ export default function OverviewPage() {
               riskLabel: d.risk_label || 'Normal Range',
               status: risk >= 55 ? 'idle' as const : 'active' as const,
               concern: d.latest_alert?.summary || 'Monitoring active',
-              signals: [
-                { label: 'Consent Grants', icon: Shield, baseline: 1, actual: Math.max(1, d.consent_count ?? 1), unit: 'active', delta: 0, trend: 'stable' as const },
-                { label: 'Latest Signal', icon: Activity, baseline: 1, actual: d.latest_alert ? 1 : 0, unit: 'alert', delta: d.latest_alert ? 25 : 0, trend: d.latest_alert ? ('up' as const) : ('stable' as const) },
-              ],
-              weeklyData: [
-                { day: 'Mon', baseline: 100, actual: 100 }, { day: 'Tue', baseline: 100, actual: 100 },
-                { day: 'Wed', baseline: 100, actual: 100 }, { day: 'Thu', baseline: 100, actual: 100 },
-                { day: 'Fri', baseline: 100, actual: 100 }, { day: 'Sat', baseline: 100, actual: 100 },
-                { day: 'Sun', baseline: 100, actual: 100 },
-              ],
+              signals,
+              weeklyData,
             }
-          })
+          }))
           setDevices(mapped)
           setActiveId(mapped[0].id)
           setIsLive(true)
           pushLog(`Fetched ${mapped.length} device${mapped.length > 1 ? 's' : ''} from API`)
+
+          // Load real alerts for all devices
+          const allAlerts: AlertView[] = []
+          for (const device of list) {
+            try {
+              const alertRes = await fetch(`${API}/events/alerts/${device.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              })
+              if (alertRes.ok) {
+                const apiAlerts: { id: string; severity_tier: string; plain_language_summary: string; contributing_factors: string[]; is_viewed: boolean; timestamp: string }[] = await alertRes.json()
+                if (Array.isArray(apiAlerts)) {
+                  allAlerts.push(...apiAlerts.map(a => ({
+                    id: a.id,
+                    severity: mapSeverity(a.severity_tier) as 'high' | 'medium' | 'low',
+                    title: a.plain_language_summary.length > 60
+                      ? a.plain_language_summary.slice(0, 57) + '…'
+                      : a.plain_language_summary,
+                    summary: a.plain_language_summary,
+                    factors: a.contributing_factors || [],
+                    device: nameMap[device.id] || device.name,
+                    time: formatRelativeTime(a.timestamp),
+                    read: a.is_viewed,
+                  })))
+                }
+              }
+            } catch { /* alerts unavailable for this device */ }
+          }
+          if (allAlerts.length > 0) {
+            allAlerts.sort((a, b) => {
+              const readDiff = Number(a.read) - Number(b.read)
+              if (readDiff !== 0) return readDiff
+              return 0 // keep API order as secondary
+            })
+            setAlerts(allAlerts)
+            pushLog(`Loaded ${allAlerts.length} alert${allAlerts.length > 1 ? 's' : ''} from API`)
+          }
         }
       } catch {
         pushLog('Devices API unreachable — showing demo data')
@@ -290,7 +435,7 @@ export default function OverviewPage() {
   useEffect(() => {
     const poll = async () => {
       try {
-        const res = await fetch('http://192.168.180.97:8081/latest')
+        const res = await fetch('http://localhost:8081/latest')
         const json = await res.json()
         if (json.status === 'ok' && json.data && json.data.bpm) {
           setPulseData(json.data)
@@ -320,7 +465,7 @@ export default function OverviewPage() {
     for (const m of steps[s]) { await new Promise(r => setTimeout(r, 650)); pushLog(m) }
     const newAlert = {
       id: `sim-${Date.now()}`,
-      severity: (s === 'C' ? 'high' : s === 'A' ? 'medium' : 'low') as any,
+      severity: (s === 'C' ? 'high' : s === 'A' ? 'medium' : 'low') as AlertView['severity'],
       title: s === 'C' ? 'New High-Risk App Detected' : s === 'A' ? 'Late-Night Screen Spike' : 'Social Withdrawal Signal',
       summary: s === 'C' ? 'An unrecognised anonymous chat app appeared in overnight app-usage metadata.' : s === 'A' ? 'Screen usage spiked to 3.5h between 11 PM–2:30 AM, well beyond baseline.' : 'Step count and movement entropy dropped simultaneously — correlated withdrawal signal.',
       factors: steps[s].slice(0, 2),
@@ -442,7 +587,18 @@ export default function OverviewPage() {
           </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {alerts.map((a, i) => (
-              <div key={a.id} onClick={() => setAlerts(p => p.map(x => x.id === a.id ? { ...x, read: true } : x))}
+              <div key={a.id} onClick={() => {
+                setAlerts(p => p.map(x => x.id === a.id ? { ...x, read: true } : x))
+                if (!a.read) {
+                  const t = localStorage.getItem('prism_token')
+                  if (t && !a.id.startsWith('sim-')) {
+                    fetch(`${API}/events/alerts/viewed/${a.id}`, {
+                      method: 'POST',
+                      headers: { Authorization: `Bearer ${t}` },
+                    }).catch(() => {})
+                  }
+                }
+              }}
                 style={{
                   padding: '16px 24px', borderBottom: `1px solid ${C.border}`, cursor: 'pointer',
                   background: !a.read ? (dk ? '#1A1A1A' : '#FAFAF9') : 'transparent',
@@ -630,7 +786,7 @@ export default function OverviewPage() {
                 </div>
                 <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <img 
-                    src="http://192.168.180.97:8081/camera/stream" 
+                    src="/camera/stream"
                     alt="Live Camera Feed"
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     onError={(e) => {

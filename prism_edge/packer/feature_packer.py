@@ -106,20 +106,29 @@ class FeaturePacker:
 
         health = get_health_snapshot()
 
+        raw_features = {
+            "face": face,
+            "pose": pose,
+            "motion": motion,
+            "voice": voice,
+            "esp32_pulse": esp32_pulse,
+            "system_health": health,
+        }
+        
+        # Phase 11: Local AI Integration - Clean, normalize, engineer, sessionize
+        from prism_edge.packer.preprocessor import FeaturePreprocessor
+        if not hasattr(self, "_preprocessor"):
+            self._preprocessor = FeaturePreprocessor()
+            
+        processed_features = self._preprocessor.process(raw_features)
+
         return {
             "subject_id": self._subject_id,
             "timestamp": now.isoformat(),
             "modality": "edge_behaviour",
             "confidence": confidence,
             "sequence": self._seq,
-            "value": {
-                "face": face,
-                "pose": pose,
-                "motion": motion,
-                "voice": voice,
-                "esp32_pulse": esp32_pulse,
-                "system_health": health,
-            },
+            "value": processed_features,
             "edge_version": self._version,
             "device_type": self._device_type,
         }

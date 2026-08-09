@@ -1,9 +1,9 @@
 import json
 import math
-from datetime import datetime
 from sqlalchemy.orm import Session
 from app import models
 from app.utils.redis_client import get_redis_client
+from app.utils.push_service import send_push_notification
 
 
 async def publish_alert_to_websockets(guardian_id: str, alert_data: dict):
@@ -561,3 +561,11 @@ async def aggregate_alerts(device_id: str, db: Session):
         "timestamp": alert.timestamp.isoformat(),
     }
     await publish_alert_to_websockets(str(device.guardian_id), alert_payload)
+
+    # Send push notification to guardian
+    await send_push_notification(
+        user_id=str(device.guardian_id),
+        title=f"PRISM Alert ({severity.upper()})",
+        body=summary,
+        data=alert_payload,
+    )

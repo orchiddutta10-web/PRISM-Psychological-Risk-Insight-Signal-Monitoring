@@ -10,7 +10,11 @@ from app.config import settings
 
 # Shared in-memory SQLite engine/session (defined once in conftest.py so all
 # test files see the same tables instead of fighting over Base.metadata).
-from app.tests.conftest import engine, TestingSessionLocal, override_get_db  # noqa: F401
+from app.tests.conftest import (
+    engine,
+    TestingSessionLocal,
+    override_get_db,
+)  # noqa: F401
 
 app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)

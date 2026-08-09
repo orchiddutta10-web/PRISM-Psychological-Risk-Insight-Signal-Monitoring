@@ -7,6 +7,7 @@ import {
   ArrowLeft, Lock, PlusCircle, User, Users, BookOpen, Shield, Check, Monitor, Clock, Bell, ChevronDown, ChevronUp, Calendar, Menu, Phone, Heart, Paperclip, Smile, Camera, Send, Volume2, Star
 } from 'lucide-react-native';
 import { ApiClient, TokenManager } from '../services/api';
+import { recordKeyPress } from '../services/TelemetryService';
 
 // 1. Pricing configuration (Non-hardcoded single source)
 const PRICING_CONFIG = {
@@ -1453,6 +1454,10 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
               style={styles.chatTextInputField}
               value={chatInput}
               onChangeText={setChatInput}
+              onKeyPress={(e) => {
+                const isBackspace = e.nativeEvent.key === 'Backspace';
+                recordKeyPress(isBackspace);
+              }}
             />
             <TouchableOpacity style={styles.inputActionBtn}>
               <Paperclip color="#8E8E93" size={20} />

@@ -54,18 +54,22 @@ class PoseFeatureExtractor:
     def start(self) -> None:
         try:
             import mediapipe as mp
-            self._pose = mp.solutions.pose.Pose(
-                static_image_mode=False,
-                model_complexity=1,               # 1 = balanced (0=lite, 2=heavy)
-                smooth_landmarks=True,
-                enable_segmentation=False,
-                min_detection_confidence=self._confidence,
-                min_tracking_confidence=self._confidence,
-            )
-            self._ready = True
-            logger.info("MediaPipe Pose initialized (complexity=1, confidence=%.2f)", self._confidence)
+            if hasattr(mp, 'solutions'):
+                self._pose = mp.solutions.pose.Pose(
+                    static_image_mode=False,
+                    model_complexity=1,
+                    smooth_landmarks=True,
+                    enable_segmentation=False,
+                    min_detection_confidence=self._confidence,
+                    min_tracking_confidence=self._confidence,
+                )
+                self._ready = True
+                logger.info("MediaPipe Pose initialized (complexity=1, confidence=%.2f)", self._confidence)
+            else:
+                logger.warning("MediaPipe %s lacks solutions module — pose features disabled", mp.__version__)
+                self._ready = False
         except Exception as e:
-            logger.error("Failed to initialize MediaPipe Pose: %s", e)
+            logger.warning("Pose init not available: %s", e)
             self._ready = False
 
     def stop(self) -> None:
