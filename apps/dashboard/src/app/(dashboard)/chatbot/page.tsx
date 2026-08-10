@@ -19,6 +19,12 @@ function resolveApiBase(): string {
 
 const API = resolveApiBase()
 
+function logCompanionApiError(endpoint: string, status?: number, detail?: unknown) {
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('[PRISM Companion API]', { endpoint, status, detail })
+  }
+}
+
 // ── Types ──────────────────────────────────────────────────────────
 
 interface Message {
@@ -26,6 +32,12 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
+}
+
+interface NovaChatResponse {
+  conversation_id: string
+  message: { id: string; role: 'assistant'; content: string; timestamp: string }
+  crisis_flag: boolean
 }
 
 interface Persona {
@@ -126,27 +138,6 @@ I'm connected to the PRISM multimodal neural engine. I can synthesize behavioura
 
 How shall we proceed?`
 
-function generateRAGResponse(query: string, ragResults: RAGResult | null, moodData: MoodEntry[] | null): string {
-  const lower = query.toLowerCase()
-  if (ragResults && ragResults.results.length > 0 && (lower.includes('history') || lower.includes('past') || lower.includes('previous'))) {
-    return `Accessing memory banks... Found **${ragResults.results_count}** relevant temporal nodes. Most recent log: "${ragResults.results[0].message.slice(0, 150)}..." Shall I expand this cognitive thread?`
-  }
-  if (moodData && moodData.length > 0 && (lower.includes('mood') || lower.includes('sentiment') || lower.includes('how is'))) {
-    const last = moodData[moodData.length - 1]
-    return `Analyzing biometric sentiment... The dominant emotional vector today is **${last.dominant_sentiment}** (${last.message_count} data points). Temporal patterns over ${moodData.length} days indicate stabilization. Would you like a granular breakdown?`
-  }
-  if (lower.includes('persona') || lower.includes('companion') || lower.includes('which')) {
-    return `The engine supports **5 adaptive architectures**: Direct Coach (CBT), The Listener (Reflective), The Strategist (Solutions), The Clinician (Intake), and The Mentor (Motivational). All operate within a secure, non-diagnostic sandbox. Initialize a new persona via the command module to observe behavioral shifts.`
-  }
-  if (lower.includes('risk') || lower.includes('score') || lower.includes('signal')) {
-    return `Insight Scores are synthesized from a 5-vector matrix: Phone Behavior (35%), Visual Engagement (25%), Physiological (20%), Vocal (10%), and Registry (10%). All algorithmic conclusions are transparently mapped to human-readable factors.`
-  }
-  if (lower.includes('privacy') || lower.includes('data') || lower.includes('consent')) {
-    return `**Protocol Alpha**: Metadata only. Content payload (text, audio, video) is instantly dropped. Monitored vectors: telemetry, cadence, heart rate. All data streams are E2E encrypted.`
-  }
-  return ''
-}
-
 // ── Components ─────────────────────────────────────────────────────
 
 function NeuralBackground() {
@@ -203,16 +194,19 @@ function LivingAICore({ activeColor, isThinking }: { activeColor: string, isThin
 
 function TypingIndicator({ color }: { color: string }) {
   return (
-    <div className="flex gap-1.5 px-2 py-1">
-      {[0, 1, 2].map((i) => (
-        <motion.div
-          key={i}
-          animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
-          transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
-          className="w-1.5 h-1.5 rounded-full"
-          style={{ backgroundColor: color }}
-        />
-      ))}
+    <div className="flex items-center gap-3 px-1 py-1" aria-label="NOVA is thinking">
+      <div className="flex gap-1.5" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <motion.div
+            key={i}
+            animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
+            transition={{ duration: 1, repeat: Infinity, delay: i * 0.2 }}
+            className="w-1.5 h-1.5 rounded-full motion-reduce:animate-none"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
+      <span className="text-xs text-white/45">NOVA is thinking through your request…</span>
     </div>
   )
 }
@@ -269,6 +263,8 @@ export default function ChatbotPage() {
   const [activePersona, setActivePersona] = useState('coach')
   const [isLoading, setIsLoading] = useState(false)
   const [token, setToken] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [ragResults, setRagResults] = useState<RAGResult | null>(null)
   const [moodData, setMoodData] = useState<MoodEntry[] | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -282,11 +278,27 @@ export default function ChatbotPage() {
     if (!storedToken) { router.push('/'); return }
     setToken(storedToken)
     fetchPersonas()
-    
-    // Staggered intro message for dramatic effect
-    setTimeout(() => {
-      setMessages([{ id: 'intro', role: 'assistant', content: INTRO_MESSAGE, timestamp: new Date() }])
-    }, 400)
+    const storedConversation = localStorage.getItem('nova_conversation_id')
+    if (storedConversation) {
+      fetch(`${API}/nova/conversations/${storedConversation}`, {
+        headers: { Authorization: `Bearer ${storedToken}` },
+      }).then(async res => {
+        if (!res.ok) throw new Error(String(res.status))
+        const data = await res.json()
+        setConversationId(data.conversation_id)
+        setMessages(data.messages.map((message: { id: string; role: 'user' | 'assistant'; content: string; timestamp: string }) => ({
+          ...message,
+          timestamp: new Date(message.timestamp),
+        })))
+      }).catch(() => {
+        localStorage.removeItem('nova_conversation_id')
+        setMessages([{ id: 'intro', role: 'assistant', content: INTRO_MESSAGE, timestamp: new Date() }])
+      })
+    } else {
+      setTimeout(() => {
+        setMessages([{ id: 'intro', role: 'assistant', content: INTRO_MESSAGE, timestamp: new Date() }])
+      }, 400)
+    }
   }, [router])
 
   useEffect(() => {
@@ -313,7 +325,11 @@ export default function ChatbotPage() {
         setRagResults(data)
         return data
       }
-    } catch {}
+      const detail = await res.json().catch(() => ({}))
+      logCompanionApiError('/companion/rag/search', res.status, detail)
+    } catch (error) {
+      logCompanionApiError('/companion/rag/search', undefined, error instanceof Error ? error.message : error)
+    }
     return null
   }, [token])
 
@@ -328,7 +344,11 @@ export default function ChatbotPage() {
         setMoodData(data.daily_mood || [])
         return data.daily_mood || []
       }
-    } catch {}
+      const detail = await res.json().catch(() => ({}))
+      logCompanionApiError('/companion/mood/timeline', res.status, detail)
+    } catch (error) {
+      logCompanionApiError('/companion/mood/timeline', undefined, error instanceof Error ? error.message : error)
+    }
     return null
   }, [token])
 
@@ -336,46 +356,60 @@ export default function ChatbotPage() {
     setActivePersona(id)
   }
 
-  const handleSend = async () => {
-    const trimmed = input.trim()
-    if (!trimmed || isLoading) return
+  const handleSend = async (messageOverride?: string) => {
+    const trimmed = (messageOverride ?? input).trim()
+    const authToken = token ?? localStorage.getItem('prism_token')
+    if (!trimmed || isLoading || !authToken) return
 
     const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: trimmed, timestamp: new Date() }
-    setMessages(prev => [...prev, userMsg])
+    const typingId = `typing-${Date.now()}`
+    setMessages(prev => [...prev, userMsg, { id: typingId, role: 'assistant', content: '…', timestamp: new Date() }])
     setInput('')
     setIsLoading(true)
+    setErrorMessage(null)
+    void Promise.all([fetchRAGSearch(trimmed), fetchMoodTimeline()])
 
-    const [rag, mood] = await Promise.all([fetchRAGSearch(trimmed), fetchMoodTimeline()])
-    
-    const typingId = `typing-${Date.now()}`
-    setMessages(prev => [...prev, { id: typingId, role: 'assistant', content: '…', timestamp: new Date() }])
-
-    let response = generateRAGResponse(trimmed, rag, mood)
-    if (!response) {
-      try {
-        const res = await fetch(`${API}/companion/simulate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ persona_id: activePersona, message: trimmed }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          response = data.response
-        }
-      } catch (err) {}
-      
-      if (!response) {
-        response = `Sensors indicate a disruption. I am processing your input... please hold or rephrase.`
+    try {
+      const res = await fetch(`${API}/nova/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ conversation_id: conversationId, message: trimmed, persona_id: activePersona }),
+      })
+      if (res.status === 401) {
+        localStorage.removeItem('prism_token')
+        router.push('/')
+        return
       }
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}))
+        const detail = typeof errorBody.detail === 'string' ? errorBody.detail : null
+        if (res.status === 429) throw new Error(detail || 'NOVA is receiving many requests. Please try again shortly.')
+        if (res.status === 503) throw new Error(detail || 'NOVA AI is not configured on the backend yet.')
+        if (res.status >= 500) throw new Error(detail || 'NOVA is temporarily unavailable. Please try again.')
+        throw new Error(detail || 'NOVA could not process that message.')
+      }
+      const data: NovaChatResponse = await res.json()
+      const assistantContent = data.message?.content?.trim()
+      if (!data.conversation_id || !data.message?.id || !assistantContent) {
+        throw new Error('NOVA returned an empty response. Please try again.')
+      }
+      setConversationId(data.conversation_id)
+      localStorage.setItem('nova_conversation_id', data.conversation_id)
+      setMessages(prev => prev.map(message => message.id === typingId ? {
+        id: data.message.id,
+        role: 'assistant',
+        content: assistantContent,
+        timestamp: new Date(data.message.timestamp),
+      } : message))
+    } catch (error) {
+      const message = error instanceof TypeError
+        ? 'The PRISM backend is unavailable. Check your connection and try again.'
+        : error instanceof Error ? error.message : 'NOVA could not respond right now.'
+      setErrorMessage(message)
+      setMessages(prev => prev.filter(item => item.id !== typingId))
+    } finally {
+      setIsLoading(false)
     }
-
-    // Replace typing indicator with real response
-    setMessages(prev => prev.map(m =>
-      m.id === typingId
-        ? { ...m, content: response }
-        : m
-    ))
-    setIsLoading(false)
   }
 
   const personaList = personas.length > 0 ? personas : DEFAULT_PERSONAS
@@ -430,6 +464,19 @@ export default function ChatbotPage() {
             .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
           `}} />
           <div className="flex-1 overflow-y-auto px-6 py-8 flex flex-col gap-8 scroll-smooth custom-scrollbar">
+            {messages.length <= 1 && !isLoading && (
+              <div className="max-w-3xl mx-auto w-full rounded-3xl border border-white/10 bg-white/[0.035] px-5 py-4 shadow-[0_16px_50px_rgba(0,0,0,0.18)]">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10 text-sm" aria-hidden="true">✦</div>
+                  <div>
+                    <p className="m-0 text-sm font-semibold text-white">A calmer way to understand your patterns</p>
+                    <p className="mt-1.5 m-0 max-w-2xl text-xs leading-relaxed text-white/45">
+                      Ask about your wellbeing, or request an explanation of authorized PRISM observations. NOVA keeps data-backed observations separate from general guidance.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <AnimatePresence initial={false}>
               {messages.map((msg, idx) => {
                 const isUser = msg.role === 'user'
@@ -441,7 +488,7 @@ export default function ChatbotPage() {
                     initial={{ opacity: 0, y: 20, scale: 0.95 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    className={`flex gap-4 max-w-3xl ${isUser ? 'self-end flex-row-reverse' : 'self-start'}`}
+                    className={`flex gap-4 max-w-3xl motion-reduce:transition-none ${isUser ? 'self-end flex-row-reverse' : 'self-start'}`}
                   >
                     <div className="shrink-0 mt-1">
                       {isUser ? (
@@ -481,7 +528,8 @@ export default function ChatbotPage() {
                       )}
                       
                       {!isTyping && (
-                        <div className="text-[10px] opacity-40 mt-3 font-medium tracking-wide">
+                        <div className="mt-3 flex items-center gap-2 text-[10px] font-medium tracking-wide opacity-40">
+                          {!isUser && <span className="rounded-full border border-white/15 px-2 py-0.5 uppercase tracking-[0.14em]">NOVA response</span>}
                           {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           {!isUser && ` · ${activeCfg.display}`}
                         </div>
@@ -499,13 +547,13 @@ export default function ChatbotPage() {
             <div className="max-w-4xl mx-auto">
               {/* Smart chips */}
               <div className="flex gap-3 mb-4 overflow-x-auto pb-2 hide-scrollbar">
-                {['Synthesize risk report', 'Extract mood patterns', 'System status', 'Privacy protocol'].map((s, i) => (
+                {['Summarize my recent PRISM data', 'What factors are contributing to my current risk?', 'How can I improve my sleep?', 'Help me plan one next step'].map((s, i) => (
                   <motion.button 
                     key={s}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 + i * 0.1 }}
-                    onClick={() => { setInput(s); setTimeout(() => handleSend(), 100) }} 
+                    onClick={() => { setInput(s); void handleSend(s) }} 
                     disabled={isLoading}
                     className="px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-xs text-white/70 font-medium whitespace-nowrap transition-colors backdrop-blur-md"
                   >
@@ -513,6 +561,12 @@ export default function ChatbotPage() {
                   </motion.button>
                 ))}
               </div>
+
+              {errorMessage && (
+                <div className="mb-3 rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200" role="alert">
+                  {errorMessage}
+                </div>
+              )}
 
               {/* Glass Input */}
               <div className="relative group">
@@ -532,7 +586,7 @@ export default function ChatbotPage() {
                     className="flex-1 bg-transparent border-none text-white placeholder-white/30 text-[15px] outline-none py-3 focus:ring-0"
                   />
                   <button
-                    onClick={handleSend}
+                    onClick={() => { void handleSend() }}
                     disabled={isLoading || !input.trim()}
                     className="w-12 h-12 rounded-2xl flex items-center justify-center transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     style={{ 

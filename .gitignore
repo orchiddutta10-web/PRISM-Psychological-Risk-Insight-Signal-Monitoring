@@ -64,8 +64,12 @@ dmypy.json
 
 # Environment & secrets
 .env
+**/.env
 .env.local
+**/.env.local
 .env.*.local
+**/.env.*.local
+services/api/.env
 .flake8
 
 # ESP32 firmware secrets

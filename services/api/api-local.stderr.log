@@ -1,0 +1,16 @@
+INFO:     Started server process [16860]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:50617 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NWE3NmViOS1kOTcxLTRiYmItOTkxZS1lZmJhY2RkNTYyYTkiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODYzNTA3NDV9.v7U4nIKmloLKtvgWANx3wy611iMj4RCmsni9dksiZK4" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:51019 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiY2ZiMmY0OC05NGM2LTQ5MjUtOTkyYy0yZWQ1ZDFlNTVhNDMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODYzNTczMzd9.Q7IYL7_U4N_rPJ7C60MI0wIdkdEubrb31eRaAQvHPw8" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:51093 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiY2ZiMmY0OC05NGM2LTQ5MjUtOTkyYy0yZWQ1ZDFlNTVhNDMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODYzNTc2MzR9.NzI3hT-7IwSaHBZZLbfp74qFAZ0zdEgynlpiEArPGqM" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52092 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiY2ZiMmY0OC05NGM2LTQ5MjUtOTkyYy0yZWQ1ZDFlNTVhNDMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODYzNjEyNzV9.iI2F-It7CrNEFyvC0bn0Q0YU2yIpkdDn1PukLpdcemE" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52483 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2NWE3NmViOS1kOTcxLTRiYmItOTkxZS1lZmJhY2RkNTYyYTkiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODYzNjMxMDB9.bm_bctYbR3biBcMUEBirNXAq4TQ1OpR4yKtbgrBG4tc" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52611 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiY2ZiMmY0OC05NGM2LTQ5MjUtOTkyYy0yZWQ1ZDFlNTVhNDMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODYzNjMzNTN9.5Yj58PswC_PoE8XDpb6se0tcwBbwGCN5opiiYI72psY" [accepted]
+INFO:     connection open

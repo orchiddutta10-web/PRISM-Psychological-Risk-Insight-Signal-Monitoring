@@ -1,20 +1,343 @@
+import hashlib
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app import models
 from app.database import get_db
 from app.utils import audit, auth
+from app.utils.rate_limiter import rate_limit
 from app.utils.companion_engine import (
+    CRISIS_RESPONSE,
     DISCLOSURE_BANNER,
     PERSONAS,
+    _raise_crisis_alert,
+    check_crisis,
     handle_companion_message,
 )
 from app.utils.text_screening import screen_text
+from app.services.nova_ai_service import NovaProviderError, NovaProviderUnavailable, NovaTurn, generate_response
 
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
+nova_router = APIRouter(prefix="/api/v1/nova", tags=["NOVA"])
+
+
+class NovaChatRequest(BaseModel):
+    conversation_id: str | None = None
+    message: str
+    persona_id: str = "listener"
+
+
+class NovaMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: str
+
+
+def _safe_id(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def _guardian_device_ids(db: Session, guardian: models.Guardian) -> list[str]:
+    return [
+        row.id
+        for row in db.query(models.ChildDevice.id)
+        .filter(models.ChildDevice.guardian_id == guardian.id)
+        .all()
+    ]
+
+
+def _nova_session(db: Session, guardian: models.Guardian, conversation_id: str | None, persona_id: str):
+    device_ids = _guardian_device_ids(db, guardian)
+    if not device_ids:
+        device = (
+            db.query(models.ChildDevice)
+            .filter(
+                models.ChildDevice.guardian_id == guardian.id,
+                models.ChildDevice.name == "NOVA Web Companion",
+            )
+            .first()
+        )
+        if not device:
+            device = models.ChildDevice(
+                guardian_id=guardian.id,
+                name="NOVA Web Companion",
+                platform="web",
+                device_token=f"nova-web-{guardian.id}",
+            )
+            db.add(device)
+            db.commit()
+            db.refresh(device)
+        device_ids = [device.id]
+    if conversation_id:
+        session = (
+            db.query(models.CompanionSession)
+            .filter(
+                models.CompanionSession.id == conversation_id,
+                models.CompanionSession.subject_id.in_(device_ids),
+            )
+            .first()
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return session
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="No PRISM device is linked to this account")
+    if persona_id not in PERSONAS:
+        raise HTTPException(status_code=400, detail="Invalid persona ID")
+    session = models.CompanionSession(
+        subject_id=device_ids[0], persona_id=persona_id, channel="nova-web"
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def _nova_context(db: Session, device_ids: list[str]) -> str | None:
+    if not device_ids:
+        return "Authorized PRISM observations: no linked devices or observations are available."
+
+    try:
+        sections: list[str] = []
+        risk_rows = (
+            db.query(models.RiskScore)
+            .filter(models.RiskScore.device_id.in_(device_ids))
+            .order_by(models.RiskScore.timestamp.desc())
+            .limit(5)
+            .all()
+        )
+        factors = []
+        for row in risk_rows:
+            factors.extend(row.contributing_factors[:3])
+        if factors:
+            sections.append("Recent explainable risk factors: " + "; ".join(dict.fromkeys(factors)))
+
+        v2_risk_rows = (
+            db.query(models.RiskScoreV2, models.BehaviorWindow)
+            .join(
+                models.BehaviorWindow,
+                models.RiskScoreV2.window_id == models.BehaviorWindow.id,
+            )
+            .filter(models.BehaviorWindow.subject_id.in_(device_ids))
+            .order_by(models.BehaviorWindow.end_ts.desc())
+            .limit(5)
+            .all()
+        )
+        logging.getLogger(__name__).info(
+            "NOVA PRISM context rows: devices=%s legacy_risk_rows=%s v2_risk_rows=%s",
+            len(device_ids),
+            len(risk_rows),
+            len(v2_risk_rows),
+        )
+        if v2_risk_rows:
+            sections.append(
+                "Recent PRISM risk assessments: "
+                + "; ".join(
+                    f"score={risk.score_value:g} level={risk.risk_level} "
+                    f"window={window.start_ts.isoformat()} to {window.end_ts.isoformat()} "
+                    f"factors={', '.join(risk.contributing_factors[:3]) or 'none recorded'}"
+                    for risk, window in v2_risk_rows
+                )
+            )
+
+        baselines = (
+            db.query(models.BaselineProfile)
+            .filter(models.BaselineProfile.device_id.in_(device_ids))
+            .order_by(models.BaselineProfile.updated_at.desc())
+            .limit(12)
+            .all()
+        )
+        if baselines:
+            sections.append(
+                "Configured PRISM baselines: "
+                + "; ".join(
+                    f"{row.signal_type} mean={row.rolling_mean:g} variance={row.rolling_variance:g}"
+                    for row in baselines
+                )
+            )
+
+        physio = (
+            db.query(models.PhysioReading)
+            .filter(models.PhysioReading.subject_id.in_(device_ids))
+            .order_by(models.PhysioReading.timestamp.desc())
+            .limit(10)
+            .all()
+        )
+        if physio:
+            sections.append(
+                "Recent physiological readings: "
+                + "; ".join(f"{row.sensor_type} value={row.value:g} variance={row.variance:g}" for row in physio)
+            )
+
+        sleep = (
+            db.query(models.SleepWindow)
+            .filter(models.SleepWindow.subject_id.in_(device_ids))
+            .order_by(models.SleepWindow.estimated_start.desc())
+            .limit(5)
+            .all()
+        )
+        if sleep:
+            sections.append(
+                "Recent sleep windows: "
+                + "; ".join(
+                    f"{row.estimated_start.isoformat()} to {row.estimated_end.isoformat()} confidence={row.confidence:g}"
+                    for row in sleep
+                )
+            )
+
+        typing = (
+            db.query(models.TypingSession)
+            .filter(models.TypingSession.device_id.in_(device_ids))
+            .order_by(models.TypingSession.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        if typing:
+            sections.append(
+                "Recent typing summaries: "
+                + "; ".join(
+                    f"wpm={row.wpm:g} hold_ms={row.avg_hold_time_ms:g} flight_ms={row.avg_flight_time_ms:g} error_rate={row.error_rate:g}"
+                    for row in typing
+                )
+            )
+    except SQLAlchemyError:
+        logging.getLogger(__name__).exception(
+            "NOVA PRISM context query failed for authorized device count=%s",
+            len(device_ids),
+        )
+        raise NovaProviderError("NOVA PRISM context is unavailable")
+
+    if not sections:
+        return "Authorized PRISM observations: no observations are currently available for the linked devices."
+    return "Authorized recent PRISM observations: " + "\n".join(sections)
+
+
+def _nova_history(db: Session, session_id: str) -> list[NovaTurn]:
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.session_id == session_id)
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .limit(40)
+        .all()
+    )
+    return [NovaTurn(role=row.role, content=row.message) for row in rows]
+
+
+def _nova_message(row: models.ConversationMemory) -> dict:
+    return {
+        "id": row.id,
+        "role": row.role,
+        "content": row.message,
+        "timestamp": row.timestamp.isoformat() if row.timestamp else "",
+    }
+
+
+@nova_router.post("/chat", dependencies=[Depends(rate_limit)])
+def nova_chat(
+    req: NovaChatRequest,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
+
+    session = _nova_session(db, guardian, req.conversation_id, req.persona_id)
+    device_ids = _guardian_device_ids(db, guardian)
+    logging.getLogger(__name__).info(
+        "NOVA authenticated scope: guardian=%s devices=%s device_hashes=%s",
+        _safe_id(guardian.id),
+        len(device_ids),
+        [_safe_id(device_id) for device_id in device_ids],
+    )
+    history = _nova_history(db, session.id)
+    user_memory = models.ConversationMemory(
+        subject_id=session.subject_id,
+        session_id=session.id,
+        message=message,
+        role="user",
+    )
+    db.add(user_memory)
+    db.commit()
+
+    if check_crisis(message):
+        session.crisis_flag = True
+        db.commit()
+        _raise_crisis_alert(db, session)
+        response_text = CRISIS_RESPONSE
+    else:
+        try:
+            response_text = generate_response(
+                history + [NovaTurn(role="user", content=message)],
+                _nova_context(db, device_ids),
+                session.persona_id,
+            )
+        except NovaProviderUnavailable as exc:
+            db.delete(user_memory)
+            db.commit()
+            raise HTTPException(status_code=503, detail="NOVA AI is not configured") from exc
+        except NovaProviderError as exc:
+            db.delete(user_memory)
+            db.commit()
+            raise HTTPException(status_code=502, detail="NOVA could not respond right now") from exc
+        except Exception as exc:
+            db.delete(user_memory)
+            db.commit()
+            raise HTTPException(status_code=502, detail="NOVA could not respond right now") from exc
+
+    assistant_memory = models.ConversationMemory(
+        subject_id=session.subject_id,
+        session_id=session.id,
+        message=response_text,
+        role="assistant",
+    )
+    db.add(assistant_memory)
+    audit.log_audit_event(
+        db,
+        action="NOVA conversation accessed",
+        guardian_id=guardian.id,
+        device_id=session.subject_id,
+    )
+    db.commit()
+    db.refresh(assistant_memory)
+    return {
+        "conversation_id": session.id,
+        "message": _nova_message(assistant_memory),
+        "crisis_flag": session.crisis_flag,
+    }
+
+
+@nova_router.get("/conversations/{conversation_id}")
+def get_nova_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    session = _nova_session(db, guardian, conversation_id, "listener")
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.session_id == session.id)
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .limit(100)
+        .all()
+    )
+    audit.log_audit_event(
+        db,
+        action="NOVA conversation history accessed",
+        guardian_id=guardian.id,
+        device_id=session.subject_id,
+    )
+    return {
+        "conversation_id": session.id,
+        "persona_id": session.persona_id,
+        "messages": [_nova_message(row) for row in rows],
+    }
 
 
 class CompanionSessionCreate(BaseModel):

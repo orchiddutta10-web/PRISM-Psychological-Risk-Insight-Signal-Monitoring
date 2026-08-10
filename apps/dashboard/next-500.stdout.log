@@ -1,0 +1,50 @@
+
+> prism-dashboard@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.5.21
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.90.31:3000
+
+ ✓ Starting...
+ ✓ Ready in 3.9s
+ ○ Compiling /companion/chat ...
+ ✓ Compiled /companion/chat in 13.1s (1649 modules)
+ GET /companion/chat 200 in 15480ms
+ GET /companion/chat 200 in 16828ms
+ ✓ Compiled in 3.8s (759 modules)
+ ○ Compiling / ...
+ ✓ Compiled / in 1522ms (1656 modules)
+ GET / 200 in 1930ms
+ GET / 200 in 119ms
+ ○ Compiling /_not-found ...
+ ✓ Compiled /_not-found in 2.3s (1094 modules)
+ GET /companion/cha 404 in 2847ms
+ ○ Compiling /companion/chat ...
+ ✓ Compiled /companion/chat in 558ms (903 modules)
+ GET /companion/chat 200 in 1635ms
+ GET / 200 in 140ms
+ ○ Compiling /overview ...
+ ✓ Compiled /overview in 2.2s (1706 modules)
+ GET /overview 200 in 2495ms
+ GET / 200 in 138ms
+ GET /overview 200 in 143ms
+ ○ Compiling /signals ...
+ ✓ Compiled /signals in 3.1s (1700 modules)
+ GET /signals 200 in 3509ms
+ ○ Compiling /companion ...
+ ✓ Compiled /companion in 1793ms (1713 modules)
+ GET /companion 200 in 2201ms
+ GET /companion/chat 200 in 91ms
+ GET /companion/chat 200 in 385ms
+ ✓ Compiled in 1707ms (1715 modules)
+ GET / 200 in 260ms
+ GET /companion/chat 200 in 94ms
+ ✓ Compiled in 1312ms (1715 modules)
+ GET / 200 in 312ms
+ GET /companion/chat 200 in 325ms
+ GET / 500 in 483ms
+ ✓ Compiled in 1088ms (1715 modules)
+ GET / 200 in 566ms
+ GET /companion/chat 200 in 1268ms
+[?25h
