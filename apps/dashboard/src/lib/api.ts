@@ -105,6 +105,20 @@ export interface RiskScore {
   timestamp: string
 }
 
+export interface InsightScoreResponse {
+  subject_id: string
+  insight_score: number
+  tier_label: string
+  tier_summary: string
+  anomaly_score: number
+  modality_scores: Record<string, number>
+  fusion_score: number
+  contributing_factors: string[]
+  confidence: number
+  colab_ml_risk_level?: string | null
+  colab_ml_score?: number | null
+}
+
 export type BaselineMap = Record<string, { mean: number; variance: number }>
 
 export interface IngestionHealth {

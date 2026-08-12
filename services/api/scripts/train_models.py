@@ -772,6 +772,11 @@ def train_behavioural_regression():
 if __name__ == "__main__":
     import argparse
 
+    print("WARNING: This synthetic training script has been DEPRECATED.")
+    print("The 79-feature synthetic models are not compatible with the production 57-feature Colab artifacts.")
+    print("Execution blocked to prevent overwriting the authoritative models.")
+    sys.exit(1)
+
     parser = argparse.ArgumentParser(description="PRISM ML Model Training")
     parser.add_argument(
         "--notebook",

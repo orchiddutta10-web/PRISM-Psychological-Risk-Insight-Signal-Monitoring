@@ -52,9 +52,9 @@ try:
     scaler = joblib.load(os.path.join(RESOURCES_DIR, "prism_behavioural_scaler.joblib"))
     meta = json.load(open(os.path.join(RESOURCES_DIR, "prism_classifier_meta.json")))
     check(
-        "Classifier loads",
-        True,
-        f"{clf.n_features_in_} features, {len(clf.classes_)} classes",
+        "Classifier loads (Feature count = 57)",
+        clf.n_features_in_ == 57,
+        f"Expected 57 features, Actual {clf.n_features_in_} features, {len(clf.classes_)} classes",
     )
     check("Scaler loads", True)
     check("Metadata loads", True, f"F1={meta['f1_macro']}")

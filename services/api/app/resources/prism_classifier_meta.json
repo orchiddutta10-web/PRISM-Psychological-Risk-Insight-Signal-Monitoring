@@ -10,5 +10,5 @@
   },
   "train_samples": 292,
   "test_samples": 73,
-  "n_features": 79
+  "n_features": 57
 }

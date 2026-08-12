@@ -158,6 +158,45 @@ def read_root():
     }
 
 
+@app.get("/health")
+def health_check():
+    """Liveness probe: basic API responsiveness."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness_check():
+    """Readiness probe: database connectivity and ML service loaded."""
+    from sqlalchemy import text
+    from app.services.colab_ml_service import ColabMLService
+
+    db_ok = False
+    ml_ok = False
+
+    # Check DB
+    try:
+        session = SessionLocal()
+        session.execute(text("SELECT 1"))
+        session.close()
+        db_ok = True
+    except Exception as e:
+        logging.getLogger(__name__).error("Readiness DB check failed: %s", e)
+
+    # Check ML Service
+    try:
+        ml_service = ColabMLService()
+        if ml_service.classifier is not None and ml_service.regressor is not None and ml_service.scaler is not None:
+            ml_ok = True
+    except Exception as e:
+        logging.getLogger(__name__).error("Readiness ML check failed: %s", e)
+
+    if db_ok and ml_ok:
+        return {"status": "ready"}
+
+    from fastapi import HTTPException
+    raise HTTPException(status_code=503, detail={"status": "not ready", "db": db_ok, "ml": ml_ok})
+
+
 # Register routers
 app.include_router(auth.router)
 app.include_router(consent.router)
