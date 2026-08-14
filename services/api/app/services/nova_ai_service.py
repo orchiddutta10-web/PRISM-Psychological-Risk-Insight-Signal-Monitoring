@@ -43,8 +43,19 @@ class NovaTurn:
     content: str
 
 
+ACTION_INSTRUCTIONS = {
+    "risk_report": "Return a concise structured report with exactly these labeled sections: Current risk information, Important observed signals, Recent trend, Possible concerns, Recommended next step. State clearly when authorized data is insufficient.",
+    "mood_patterns": "Return a concise structured analysis with exactly these labeled sections: Observed patterns, Relevant time period, Supporting signals, Confidence and limitations. Describe signals only; never diagnose or label a mental illness.",
+    "system_status": "Return a concise status report covering API, database, AI service, telemetry, device connection, and last synchronization. Use only status facts in AUTHORIZED PRISM CONTEXT and say unavailable when a fact was not supplied.",
+    "privacy_protocol": "Explain what NOVA can access in this authorized request, what data is unavailable, how guardian/device authorization scopes access, and that PRISM is an early-warning system rather than a medical diagnostic tool.",
+}
+
+
 def _build_prompt(
-    history: list[NovaTurn], context: str | None, persona_id: str = "listener"
+    history: list[NovaTurn],
+    context: str | None,
+    persona_id: str = "listener",
+    action: str | None = None,
 ) -> str:
     persona = PERSONAS.get(persona_id, PERSONAS["listener"])
     lines = [
@@ -52,6 +63,8 @@ def _build_prompt(
         f"\nACTIVE NOVA PERSONA: {persona['display_name']} — {persona['description']}",
         "Adapt your tone and advice to this persona while preserving all NOVA safety rules.",
     ]
+    if action:
+        lines.append(f"\nREQUESTED NOVA QUICK ACTION: {ACTION_INSTRUCTIONS[action]}")
     if context:
         lines.append(f"\nAUTHORIZED PRISM CONTEXT:\n{context}")
     lines.append("\nCONVERSATION:\n")
@@ -146,12 +159,15 @@ def _log_usage(response: httpx.Response, prompt: str) -> None:
 
 
 def generate_response(
-    history: list[NovaTurn], context: str | None = None, persona_id: str = "listener"
+    history: list[NovaTurn],
+    context: str | None = None,
+    persona_id: str = "listener",
+    action: str | None = None,
 ) -> str:
     if not settings.GEMINI_API_KEY:
         raise NovaProviderUnavailable("NOVA AI provider is not configured")
 
-    prompt = _build_prompt(history, context, persona_id)
+    prompt = _build_prompt(history, context, persona_id, action)
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 500},

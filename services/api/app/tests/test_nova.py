@@ -77,6 +77,75 @@ def test_nova_context_includes_owned_v2_risk_and_excludes_other_guardian():
     assert other_token != token
 
 
+def test_nova_quick_actions_forward_action_and_authorized_context():
+    token, device_id = _setup_guardian(email="nova-actions@example.com", device_token="nova-actions-tok")
+    db = TestingSessionLocal()
+    now = datetime.now(timezone.utc)
+    window = models.BehaviorWindow(
+        subject_id=device_id,
+        start_ts=now - timedelta(days=1),
+        end_ts=now,
+        total_active_mins=90,
+        sleep_hours_proxy=6,
+    )
+    risk = models.RiskScoreV2(window=window, score_value=64, risk_level="MEDIUM")
+    risk.contributing_factors = ["sleep disruption"]
+    db.add_all([window, risk])
+    db.commit()
+    db.close()
+
+    captured = {}
+
+    def fake_generate(history, context=None, persona_id="listener", action=None):
+        captured["context"] = context
+        captured["action"] = action
+        return "Structured NOVA action response."
+
+    with patch("app.routes.companion.generate_response", side_effect=fake_generate):
+        response = client.post(
+            "/api/v1/nova/chat",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"message": "Synthesize my current PRISM risk report.", "action": "risk_report"},
+        )
+
+    assert response.status_code == 200
+    assert captured["action"] == "risk_report"
+    assert "score=64" in captured["context"]
+    assert "sleep disruption" in captured["context"]
+
+
+def test_nova_rejects_invalid_action():
+    token, _ = _setup_guardian(email="nova-invalid-action@example.com", device_token="nova-invalid-action-tok")
+    response = client.post(
+        "/api/v1/nova/chat",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"message": "Do something", "action": "invented_action"},
+    )
+    assert response.status_code == 422
+    assert "Invalid NOVA quick action" in response.json()["detail"] or response.json()["detail"]
+
+
+def test_nova_without_linked_device_returns_no_device_error():
+    client.post(
+        "/api/v1/auth/register",
+        json={"full_name": "NOVA No Device", "email": "nova-no-device@example.com", "password": "password123"},
+    )
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "nova-no-device@example.com", "password": "password123"},
+    )
+    token = login.json()["access_token"]
+    with patch("app.routes.companion.generate_response") as generate:
+        response = client.post(
+            "/api/v1/nova/chat",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"message": "Hello"},
+        )
+    assert response.status_code == 404
+    assert "No linked PRISM device" in response.json()["detail"]
+    generate.assert_not_called()
+
+
 def test_nova_provider_uses_configured_gemini_model():
     captured = {}
 
@@ -109,6 +178,18 @@ def test_nova_prompt_includes_selected_persona_and_context():
     assert "PRISM observations" in prompt
     assert "General guidance" in prompt
     assert "Never invent" in prompt
+
+
+def test_nova_prompt_contains_each_quick_action_contract():
+    prompts = {
+        action: _build_prompt([NovaTurn(role="user", content="Run this")], "Authorized context", action=action)
+        for action in ("risk_report", "mood_patterns", "system_status", "privacy_protocol")
+    }
+    assert "Current risk information" in prompts["risk_report"]
+    assert "Confidence and limitations" in prompts["mood_patterns"]
+    assert "last synchronization" in prompts["system_status"]
+    assert "early-warning system rather than a medical diagnostic tool" in prompts["privacy_protocol"]
+    assert all("AUTHORIZED PRISM CONTEXT:" in prompt for prompt in prompts.values())
 
 
 def _setup_guardian(email="nova@example.com", device_token="nova-tok"):
@@ -162,7 +243,7 @@ def test_nova_new_existing_conversation_and_history():
     assert len(history.json()["messages"]) == 4
 
 
-def test_nova_creates_web_companion_for_guardian_without_device():
+def test_nova_requires_linked_device_for_guardian_without_device():
     client.post(
         "/api/v1/auth/register",
         json={
@@ -176,14 +257,15 @@ def test_nova_creates_web_companion_for_guardian_without_device():
         json={"email": "nova-web@example.com", "password": "password123"},
     )
     token = login.json()["access_token"]
-    with patch("app.routes.companion.generate_response", return_value="Hello from NOVA"):
+    with patch("app.routes.companion.generate_response") as generate:
         response = client.post(
             "/api/v1/nova/chat",
             headers={"Authorization": f"Bearer {token}"},
             json={"message": "Hello", "persona_id": "coach"},
         )
-    assert response.status_code == 200
-    assert response.json()["message"]["content"] == "Hello from NOVA"
+    assert response.status_code == 404
+    assert "No linked PRISM device" in response.json()["detail"]
+    generate.assert_not_called()
 
 
 def test_nova_rejects_empty_and_unauthorized():
