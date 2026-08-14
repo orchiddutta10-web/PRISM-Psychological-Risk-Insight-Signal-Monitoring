@@ -241,6 +241,8 @@ class AuditLogEntry(Base):
     audit_detail_json = Column(
         Text, nullable=False
     )  # Immutable audit metadata (not user content)
+    prev_hash = Column(String, nullable=True)
+    entry_hash = Column(String, nullable=False, default=generate_uuid)
 
     @property
     def context(self) -> dict:

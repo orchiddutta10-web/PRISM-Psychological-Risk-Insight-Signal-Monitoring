@@ -58,8 +58,6 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 )
                 actor_id = payload.get("sub")
             except Exception as e:
-                import logging
-
                 logging.getLogger(__name__).warning(
                     "Failed to decode JWT for audit middleware: %s", str(e)
                 )

@@ -52,8 +52,9 @@ export function authHeaders(token: string): HeadersInit {
 
 export async function apiFetch<T = any>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: 'no-store',
     ...init,
-    headers: { ...authHeaders(token), ...(init.headers || {}) },
+    headers: { ...authHeaders(token), 'Cache-Control': 'no-cache', ...(init.headers || {}) },
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))

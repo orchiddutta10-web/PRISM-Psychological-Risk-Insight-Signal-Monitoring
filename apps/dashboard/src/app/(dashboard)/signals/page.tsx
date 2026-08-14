@@ -39,9 +39,11 @@ export default function SignalsPage() {
 
   const load = useCallback(async (token: string) => {
     const devices = await apiFetchSafe<ChildDevice[]>('/auth/devices', token, [])
+    console.log("DEVICES_FETCHED:", JSON.stringify(devices))
     if (!devices.length) { setRows([]); setLoading(false); return }
     const selected = localStorage.getItem('prism_selected_device')
     const device = devices.find(d => d.id === selected) ?? devices[0]
+    console.log("SELECTED_DEVICE:", JSON.stringify(device))
     setDeviceName(device.name)
 
     const [baselines, scores, health] = await Promise.all([
@@ -49,6 +51,8 @@ export default function SignalsPage() {
       apiFetchSafe<RiskScore[]>(`/events/scores/${device.id}`, token, []),
       apiFetchSafe<IngestionHealth>('/internal/ingestion/health', token, null as any),
     ])
+    console.log("BASELINES_FETCHED:", JSON.stringify(baselines))
+    console.log("SCORES_FETCHED:", JSON.stringify(scores))
 
     setRows(MODALITIES.map(m => {
       const bl = baselines[m.key]
@@ -116,6 +120,7 @@ export default function SignalsPage() {
       <button onClick={() => router.push('/overview')} className="flex items-center gap-2 text-xs font-bold text-gray-500 hover:text-indigo-500 transition-colors mb-8 group bg-transparent border-0">
         <ArrowLeft size={14} className="group-hover:-translate-x-1 transition-transform" /> Back to Mission Control
       </button>
+
 
       {loading ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-400 gap-4">

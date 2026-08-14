@@ -96,6 +96,9 @@ def list_guardian_devices(
     current_guardian: models.Guardian = Depends(auth.get_current_user),
 ):
     """List all devices registered under the authenticated guardian."""
+    if current_guardian.role in ["ops", "guardian-admin"]:
+        return db.query(models.ChildDevice).all()
+        
     devices = (
         db.query(models.ChildDevice)
         .filter(models.ChildDevice.guardian_id == current_guardian.id)
