@@ -19,6 +19,7 @@ export interface ConsentRecord {
 
 export const TokenManager = {
   async saveToken(token: string) {
+<<<<<<< HEAD
     try {
       await SecureStore.setItemAsync('prism_jwt_token', token);
     } catch {
@@ -38,6 +39,15 @@ export const TokenManager = {
     } catch {
       // Fallback removed to avoid localStorage issues in React Native
     }
+=======
+    await SecureStore.setItemAsync('prism_jwt_token', token);
+  },
+  async getToken() {
+    return await SecureStore.getItemAsync('prism_jwt_token');
+  },
+  async clearToken() {
+    await SecureStore.deleteItemAsync('prism_jwt_token');
+>>>>>>> feature/dashboard-ui
   }
 };
 
@@ -90,27 +100,26 @@ export const ApiClient = {
     }
   },
 
-  async login(email: string, password: string): Promise<{ access_token: string, user: User }> {
-    const data = await this.request('/auth/login', {
+  async post(endpoint: string, body?: Record<string, unknown>, options: RequestInit = {}) {
+    return this.request(endpoint, {
+      ...options,
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
+  },
+
+  async login(email: string, password: string): Promise<{ access_token: string, user: User }> {
+    const data = await this.post('', );
     await TokenManager.saveToken(data.access_token);
     return data;
   },
 
   async sendOTP(phoneNumber: string): Promise<{ status: string, code: string }> {
-    return await this.request('/auth/otp/send', {
-      method: 'POST',
-      body: JSON.stringify({ phone_number: phoneNumber })
-    });
+    return await this.post('', );
   },
 
   async verifyOTP(phoneNumber: string, code: string): Promise<{ is_new_user: boolean, access_token?: string, token_type?: string, user?: User }> {
-    const data = await this.request('/auth/otp/verify', {
-      method: 'POST',
-      body: JSON.stringify({ phone_number: phoneNumber, code })
-    });
+    const data = await this.post('', );
     if (data.access_token) {
       await TokenManager.saveToken(data.access_token);
     }
@@ -118,19 +127,13 @@ export const ApiClient = {
   },
 
   async registerOTP(phoneNumber: string, fullName: string): Promise<{ access_token: string, token_type: string, user: User }> {
-    const data = await this.request('/auth/otp/register', {
-      method: 'POST',
-      body: JSON.stringify({ phone_number: phoneNumber, full_name: fullName })
-    });
+    const data = await this.post('', );
     await TokenManager.saveToken(data.access_token);
     return data;
   },
 
   async registerDevice(name: string, platform: 'android' | 'ios', deviceToken: string): Promise<{ device: { id: string }, device_jwt_token: string }> {
-    const data = await this.request('/auth/device', {
-      method: 'POST',
-      body: JSON.stringify({ name, platform, device_token: deviceToken })
-    });
+    const data = await this.post('', );
     // Store the device JWT token for subsequent telemetry/consent calls
     await TokenManager.saveToken(data.device_jwt_token);
     return data;
@@ -145,14 +148,7 @@ export const ApiClient = {
     
     const results = [];
     for (const update of updates) {
-      const res = await this.request('/consent', {
-        method: 'POST',
-        body: JSON.stringify({
-          signal_type: update.signal_type,
-          granted: update.granted,
-          consent_copy_version: '1.0'
-        })
-      });
+      const res = await this.post('', );
       results.push(res);
     }
     return results;
@@ -178,10 +174,7 @@ export const ApiClient = {
     usual_bedtime: string,
     concerns: string[]
   }) {
-    return await this.request('/events/baselines/seed', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
+    return await this.post('', );
   },
 
   async getChatHistory(): Promise<{

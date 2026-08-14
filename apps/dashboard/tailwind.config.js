@@ -9,13 +9,14 @@ module.exports = {
     extend: {
       colors: {
         prism: {
-          dark: "#FFFFFF",
-          light: "#111111",
-          navy: "#D9D8D4",
-          indigo: "#F6F3EE",
-          sage: "#BFAE98",
-          amber: "#8A8A8A",
-          red: "#4A4A4A",
+          dark: "#0F172A",
+          card: "#1E1B4B",
+          light: "#F8FAFC",
+          navy: "#312E81",
+          indigo: "#6366F1",
+          sage: "#10B981",
+          amber: "#D97706",
+          red: "#DC2626",
         }
       },
       fontFamily: {

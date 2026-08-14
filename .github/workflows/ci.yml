@@ -45,6 +45,9 @@ jobs:
         working-directory: services/api
         env:
           ENV: development
+          # Development-only secrets. Production deployments must use real secrets
+          # via environment variables; config.py refuses to start with these defaults
+          # when ENV=production.
           JWT_SECRET: dev_jwt_secret_must_be_long_and_secure_key_here
           ENCRYPTION_KEY: u_S9vWJc9wD-G39eQv6L2eK5e9f8n7H8J9K0L1M2N3o=
           PYTHONPATH: .

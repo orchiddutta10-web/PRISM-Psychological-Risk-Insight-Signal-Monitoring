@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+=======
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
+>>>>>>> feature/dashboard-ui
 from sqlalchemy.orm import Session
 
 from app import models
@@ -12,12 +16,23 @@ from app.utils.voice_processor import (
 
 router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 
+MAX_AUDIO_BYTES = 10 * 1024 * 1024  # 10 MB
+ALLOWED_AUDIO_TYPES = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+}
+ALLOWED_EXTENSIONS = {".wav", ".mp3"}
+
 
 @router.post("/checkin")
 async def voice_checkin(
     audio: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_device: models.ChildDevice = Depends(auth.get_current_device),
+    request: Request = None,
 ):
     """
     Phase 4: Voice Module Check-in
@@ -40,8 +55,38 @@ async def voice_checkin(
             status_code=403, detail="Active consent for voice modality is not granted."
         )
 
-    # Read uploaded file content in-memory
-    audio_bytes = await audio.read()
+    # Reject oversized bodies by declared Content-Length up front, before any
+    # bytes are read into memory (defense against memory-exhaustion DoS).
+    if request:
+        content_length = request.headers.get("content-length")
+        if content_length and content_length.isdigit() and int(content_length) > MAX_AUDIO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Audio file too large (max 10 MB).",
+            )
+
+    # Read the uploaded file in bounded chunks so memory stays capped even if
+    # the client omits/spoofs Content-Length.
+    audio_bytes = b""
+    while True:
+        chunk = await audio.read(MAX_AUDIO_BYTES + 1)
+        if not chunk:
+            break
+        audio_bytes += chunk
+        if len(audio_bytes) > MAX_AUDIO_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Audio file too large (max 10 MB).",
+            )
+
+    # Allowlist MIME type / extension so only real audio enters the pipeline.
+    content_type = (audio.content_type or "").lower()
+    ext = os.path.splitext(audio.filename or "")[1].lower()
+    if content_type not in ALLOWED_AUDIO_TYPES and ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Unsupported audio type. Use WAV or MP3.",
+        )
 
     # 2. Onboarding Voiceprint Enrollment / Verification Gate
     profile = (
@@ -124,6 +169,25 @@ async def voice_checkin(
     # The voice_retention consent modality is reserved for future use with encrypted
     # feature-vector retention only, not raw audio storage.
 
+<<<<<<< HEAD
+=======
+    persisted = False
+    if retention_consent and retention_consent.is_granted:
+        # Persist raw audio file under a server-generated name — NEVER the
+        # client-provided filename (prevents path traversal / overwrite).
+        upload_dir = "uploads/voice"
+        os.makedirs(upload_dir, exist_ok=True)
+        safe_ext = ALLOWED_AUDIO_TYPES.get(content_type, ".wav")
+        file_path = os.path.join(upload_dir, f"{session.id}{safe_ext}")
+
+        # Reset read head and save
+        await audio.seek(0)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(audio.file, buffer)
+        persisted = True
+
+    # Audit logging
+>>>>>>> feature/dashboard-ui
     audit.log_audit_event(
         db,
         action=f"Voice check-in processed. Emotion: {emotion_label}. Raw audio discarded per privacy policy.",

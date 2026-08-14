@@ -14,10 +14,18 @@ router = APIRouter(prefix="/api/v1/physio", tags=["prism-node"])
 
 
 class PhysioReadingIn(BaseModel):
-    sensor_type: str  # 'gsr' or 'ppg'
+    sensor_type: str = Field(..., pattern=r"^(gsr|ppg)$")  # 'gsr' or 'ppg'
     value: float
     variance: float = 0.0
+<<<<<<< HEAD
     timestamp: datetime | None = None
+=======
+    timestamp: Optional[datetime] = None
+    # Marks demo/synthetic data (defaults to False = real sensor reading).
+    # Mirrors the pulse ingest path so the health cache reports real vs
+    # synthetic accurately.
+    is_synthetic: bool = False
+>>>>>>> feature/dashboard-ui
 
 
 class SleepWindowOut(BaseModel):
@@ -49,7 +57,7 @@ async def ingest_physio(
 ):
     """
     Ingest a single GSR or PPG reading from a PRISM Node wearable.
-    Requires active consent for the 'gsr' modality.
+    Requires active consent for the specific sensor modality ('gsr' or 'ppg').
     """
     consent = (
         db.query(models.ConsentGrant)
@@ -84,8 +92,9 @@ async def ingest_physio(
     # Write status to health cache to avoid database checks on health queries
     try:
         redis_conn = get_redis_client()
+        status_str = "synthetic" if payload.is_synthetic else "real"
         await redis_conn.set(
-            f"prism:health:{payload.sensor_type}", "synthetic", ex=3600
+            f"prism:health:{payload.sensor_type}", status_str, ex=3600
         )
     except Exception as e:
         import logging
@@ -229,9 +238,22 @@ async def ingest_pulse(
 ):
     """
     Ingest a single multi-factor reading from the ESP32 PRISM PULSE node.
-    Stores pulse raw value, BPM, g-force, and alert_status.
-    Triggers risk engine when alert_status indicates a warning or trigger.
+    Requires active consent for the 'pulse' modality.
     """
+    consent = (
+        db.query(models.ConsentGrant)
+        .filter(
+            models.ConsentGrant.subject_id == current_device.id,
+            models.ConsentGrant.modality == "pulse",
+        )
+        .first()
+    )
+    if not consent or consent.is_granted is not True:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Active consent for pulse telemetry not granted.",
+        )
+
     reading = models.PulseMultiFactorReading(
         subject_id=current_device.id,
         ts_ms=payload.ts_ms,

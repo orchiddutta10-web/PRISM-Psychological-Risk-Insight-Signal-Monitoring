@@ -169,6 +169,10 @@ async function flush() {
       foreground_app: 'com.instagram.android'
     });
 
+  } catch (err) {
+    // Flush errors are non-critical — log and retry next cycle
+    console.warn('[TelemetryService] Flush error:', err);
+  } finally {
     // Reset accumulators
     movementMagnitudeSum = 0;
     accelSampleCount = 0;
@@ -177,10 +181,6 @@ async function flush() {
     lastKeyTime = null;
     backspacePresses = 0;
     totalKeyPresses = 0;
-
-  } catch (err) {
-    // Flush errors are non-critical — log and retry next cycle
-    console.warn('[TelemetryService] Flush error:', err);
   }
 }
 
@@ -201,7 +201,7 @@ export async function startTelemetry(deviceId: string): Promise<void> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status === 'granted') {
-      locationSubscription = await Location.watchPositionAsync(
+      const sub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,    // Coarse — avoids precise coordinates
           distanceInterval: MOVEMENT_SEGMENT_THRESHOLD_M,
@@ -216,6 +216,11 @@ export async function startTelemetry(deviceId: string): Promise<void> {
           }
         }
       );
+      if (!isActive) {
+        sub.remove();
+      } else {
+        locationSubscription = sub;
+      }
     }
   } catch (err) {
     console.warn('[TelemetryService] Location permission denied or unavailable:', err);

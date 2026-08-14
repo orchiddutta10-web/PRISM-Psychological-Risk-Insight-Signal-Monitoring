@@ -1,0 +1,13 @@
+# Caddy reverse proxy for PRISM.
+# - DOMAIN defaults to "localhost"; set it to your real domain (and optionally
+#   LETSENCRYPT_EMAIL) in the compose .env to get automatic HTTPS certificates.
+# - /api/* -> FastAPI backend (api:8000)
+# - everything else -> Next.js dashboard (dashboard:3000)
+{$DOMAIN:localhost} {
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy dashboard:3000
+	}
+}

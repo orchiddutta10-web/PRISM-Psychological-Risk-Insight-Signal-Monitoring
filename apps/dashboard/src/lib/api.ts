@@ -52,9 +52,14 @@ export function authHeaders(token: string): HeadersInit {
 
 export async function apiFetch<T = any>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+<<<<<<< HEAD
     cache: 'no-store',
     ...init,
     headers: { ...authHeaders(token), 'Cache-Control': 'no-cache', ...(init.headers || {}) },
+=======
+    ...init,
+    headers: { ...authHeaders(token), ...(init.headers || {}) },
+>>>>>>> feature/dashboard-ui
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -76,6 +81,18 @@ export async function apiFetchSafe<T>(path: string, token: string, fallback: T, 
   }
 }
 
+<<<<<<< HEAD
+=======
+export function getSelectedDevice(): string | null {
+  if (typeof window === 'undefined') return null
+  return window.localStorage.getItem('prism_selected_device')
+}
+
+export function setSelectedDevice(id: string) {
+  window.localStorage.setItem('prism_selected_device', id)
+}
+
+>>>>>>> feature/dashboard-ui
 export interface ChildDevice {
   id: string
   guardian_id: string
@@ -85,6 +102,7 @@ export interface ChildDevice {
   last_seen: string
 }
 
+<<<<<<< HEAD
 export interface BackendAlert {
   id: string
   device_id: string
@@ -95,6 +113,8 @@ export interface BackendAlert {
   timestamp: string
 }
 
+=======
+>>>>>>> feature/dashboard-ui
 export interface RiskScore {
   id: string
   device_id: string
@@ -106,6 +126,7 @@ export interface RiskScore {
   timestamp: string
 }
 
+<<<<<<< HEAD
 export interface InsightScoreResponse {
   subject_id: string
   insight_score: number
@@ -120,6 +141,8 @@ export interface InsightScoreResponse {
   colab_ml_score?: number | null
 }
 
+=======
+>>>>>>> feature/dashboard-ui
 export type BaselineMap = Record<string, { mean: number; variance: number }>
 
 export interface IngestionHealth {

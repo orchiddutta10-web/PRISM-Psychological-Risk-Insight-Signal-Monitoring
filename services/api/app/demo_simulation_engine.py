@@ -16,7 +16,11 @@ SCENARIOS = {
     "2": "Sleep Deprivation",
     "3": "Cyberbullying",
     "4": "Academic Stress",
+<<<<<<< HEAD
     "5": "Persistent Low Mood",
+=======
+    "5": "Depression Risk",
+>>>>>>> feature/dashboard-ui
     "6": "Emergency Escalation",
     "7": "Recovery Progress",
     "8": "Healthy Improvement",

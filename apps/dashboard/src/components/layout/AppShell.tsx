@@ -44,6 +44,7 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
 
   return (
     <ShellProvider value={{ openAlerts, guardian }}>
+<<<<<<< HEAD
       <div className="relative flex h-screen overflow-hidden bg-zinc-950 font-sans text-white selection:bg-indigo-500/30">
         <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
           <div className="absolute -left-[10%] -top-[20%] h-[60%] w-[60%] rounded-full bg-indigo-600/10 blur-[120px] mix-blend-screen animate-pulse" />
@@ -51,15 +52,33 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
         </div>
 
         <motion.div
+=======
+      <div className="flex h-screen bg-zinc-950 text-white font-sans selection:bg-indigo-500/30 overflow-hidden relative">
+        
+        {/* Ambient Animated Mesh Background */}
+        <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-indigo-600/10 blur-[120px] mix-blend-screen animate-pulse duration-[8000ms]" />
+          <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500/10 blur-[150px] mix-blend-screen" />
+          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.15] mix-blend-overlay" />
+        </div>
+
+        {/* Desktop sidebar */}
+        <motion.div 
+>>>>>>> feature/dashboard-ui
           layout
           initial={false}
           animate={{ width: sidebarCollapsed ? 80 : 260 }}
           transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
+<<<<<<< HEAD
           className="relative z-10 hidden h-full shrink-0 border-r border-white/5 bg-zinc-950/50 shadow-[4px_0_24px_rgba(0,0,0,0.2)] backdrop-blur-3xl lg:block"
+=======
+          className="hidden lg:block h-full shrink-0 relative z-10 border-r border-white/5 bg-zinc-950/50 backdrop-blur-3xl shadow-[4px_0_24px_rgba(0,0,0,0.2)]"
+>>>>>>> feature/dashboard-ui
         >
           <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((value) => !value)} guardian={guardian} />
         </motion.div>
 
+<<<<<<< HEAD
         <AnimatePresence>
           {mobileNavOpen && (
             <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
@@ -72,11 +91,31 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
                 aria-hidden="true"
               />
               <motion.div
+=======
+        {/* Mobile drawer overlay */}
+        <AnimatePresence>
+          {mobileNavOpen && (
+            <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+                onClick={() => setMobileNavOpen(false)} 
+                aria-hidden="true" 
+              />
+              <motion.div 
+>>>>>>> feature/dashboard-ui
                 initial={{ x: '-100%' }}
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}
                 transition={{ type: 'spring', bounce: 0, duration: 0.4 }}
+<<<<<<< HEAD
                 className="absolute left-0 top-0 h-full w-[280px] border-r border-white/5 bg-zinc-950/90 shadow-2xl backdrop-blur-3xl"
+=======
+                className="absolute left-0 top-0 h-full w-[280px] bg-zinc-950/90 backdrop-blur-3xl border-r border-white/5 shadow-2xl"
+>>>>>>> feature/dashboard-ui
               >
                 <Sidebar collapsed={false} guardian={guardian} onNavigate={() => setMobileNavOpen(false)} />
               </motion.div>
@@ -84,20 +123,39 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
           )}
         </AnimatePresence>
 
+<<<<<<< HEAD
         <div className="relative z-0 flex min-w-0 flex-1 flex-col">
           <Topbar onMenuClick={() => setMobileNavOpen(true)} wsStatus={wsStatus} unreadAlerts={unread} />
+=======
+        {/* Main Content Area */}
+        <div className="flex min-w-0 flex-1 flex-col relative z-0">
+          <Topbar
+            onMenuClick={() => setMobileNavOpen(true)}
+            wsStatus={wsStatus}
+            unreadAlerts={unread}
+          />
+>>>>>>> feature/dashboard-ui
           {demoMode && (
             <div className="hidden items-center justify-end gap-3 border-b border-white/5 bg-zinc-950/40 px-6 py-2 lg:flex">
               <ScenarioSwitcher />
               <PresentationModeToggle />
             </div>
           )}
+<<<<<<< HEAD
           <main className="relative z-0 flex-1 overflow-y-auto scroll-smooth">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.1, ease: 'easeOut' }}
               className="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-8"
+=======
+          <main className="flex-1 overflow-y-auto relative z-0 scroll-smooth">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.1, ease: 'easeOut' }}
+              className="max-w-[1440px] mx-auto py-8 sm:py-12 px-4 sm:px-6 lg:px-8"
+>>>>>>> feature/dashboard-ui
             >
               {children}
             </motion.div>
@@ -109,7 +167,17 @@ export function AppShell({ children, initialAlerts = [], wsStatus = 'disconnecte
           </main>
         </div>
 
+<<<<<<< HEAD
         <NotificationPanel open={alertsOpen} alerts={alerts} onClose={() => setAlertsOpen(false)} onRead={markRead} />
+=======
+        {/* Alerts Panel */}
+        <NotificationPanel
+          open={alertsOpen}
+          alerts={alerts}
+          onClose={() => setAlertsOpen(false)}
+          onRead={markRead}
+        />
+>>>>>>> feature/dashboard-ui
         <CommandPalette />
       </div>
     </ShellProvider>

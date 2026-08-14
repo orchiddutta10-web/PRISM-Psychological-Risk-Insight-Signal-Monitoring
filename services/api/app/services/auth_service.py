@@ -1,10 +1,16 @@
 import logging
 import random
+<<<<<<< HEAD
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
+=======
+import secrets
+import logging
+from jose import jwt, JWTError
+>>>>>>> feature/dashboard-ui
 
 from app import models, schemas
 from app.config import settings
@@ -12,9 +18,18 @@ from app.utils import audit, auth
 
 logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+
 # In-memory stores for sandbox testing/fallback
-MOCK_OTP_STORE = {}
+# OTP store: phone -> {"code": str, "expires_at": datetime, "attempts": int}
+MOCK_OTP_STORE: dict = {}
 MOCK_MFA_STORE = {}
+# Phones that have successfully verified an OTP since server start. Used to
+# require proof of phone possession before /otp/register. Consumed on use.
+_VERIFIED_PHONES: set = set()
+
+OTP_TTL_SECONDS = 300  # 5 minutes
+OTP_MAX_ATTEMPTS = 5
 
 
 def _store_otp(phone: str, code: str) -> None:
@@ -53,7 +68,7 @@ class AuthService:
             full_name=guardian_in.full_name,
             email=guardian_in.email,
             password_hash=hashed_pwd,
-            role=guardian_in.role or "guardian",
+            role="guardian",
         )
 
         db.add(guardian)
@@ -98,9 +113,22 @@ class AuthService:
                 expires_delta=timedelta(minutes=5),
             )
             code = f"{random.randint(100000, 999999)}"
+<<<<<<< HEAD
             _store_mfa(guardian.id, code)
             logger.info("MFA challenge issued for guardian %s", guardian.email)
             logger.debug("Mock MFA OTP for %s is %s", guardian.email, code)
+=======
+            # Store with expiry + attempt tracking. NEVER print the code to stdout.
+            MOCK_MFA_STORE[guardian.id] = {
+                "code": code,
+                "expires_at": datetime.now(timezone.utc) + timedelta(minutes=5),
+                "attempts": 0,
+            }
+            logger.info(
+                "MFA code generated for guardian %s (delivery channel not configured)",
+                guardian.id,
+            )
+>>>>>>> feature/dashboard-ui
 
             audit.log_audit_event(
                 db,
@@ -150,16 +178,28 @@ class AuthService:
         except JWTError:
             raise HTTPException(status_code=401, detail="Expired or invalid MFA token")
 
-        expected_code = MOCK_MFA_STORE.get(user_id)
-        if not expected_code or payload.otp_code.strip() != expected_code:
+        stored = MOCK_MFA_STORE.get(user_id)
+        now = datetime.now(timezone.utc)
+        invalid = HTTPException(status_code=400, detail="Invalid MFA code")
+
+        if not stored:
+            raise invalid
+        if now > stored["expires_at"]:
+            MOCK_MFA_STORE.pop(user_id, None)
+            raise invalid
+        if stored["attempts"] >= OTP_MAX_ATTEMPTS:
+            MOCK_MFA_STORE.pop(user_id, None)
+            raise invalid
+        if payload.otp_code.strip() != stored["code"]:
+            stored["attempts"] += 1
             audit.log_audit_event(
                 db,
                 action=f"MFA verification failed for guardian ID {user_id}",
                 ip_address=ip_address,
             )
-            raise HTTPException(status_code=400, detail="Invalid MFA code")
+            raise invalid
 
-        # Clean up OTP
+        # One-time use
         MOCK_MFA_STORE.pop(user_id, None)
 
         guardian = (
@@ -191,6 +231,20 @@ class AuthService:
             .first()
         )
         if existing_device:
+            # Ownership guard: a guardian may only re-register their OWN device token.
+            # Replaying another guardian's token must not mint a device JWT.
+            if existing_device.guardian_id != guardian_id:
+                audit.log_audit_event(
+                    db,
+                    action="Device registration REJECTED: device token already registered to another guardian",
+                    guardian_id=guardian_id,
+                    ip_address=ip_address,
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail="Device token already registered to another guardian.",
+                )
+
             existing_device.last_seen = datetime.now(timezone.utc)
             db.commit()
             db.refresh(existing_device)
@@ -226,21 +280,45 @@ class AuthService:
         req: schemas.SendOTPRequest, db: Session, ip_address: str = None
     ) -> dict:
         phone = req.phone_number.strip()
+<<<<<<< HEAD
         # NOTE: In a production deployment, OTP codes would be generated via
         # a real SMS provider (Twilio, etc.) and stored with TTL. This mock
         # implementation uses a short-lived in-memory OTP store for sandbox/demo use only.
         code = str(random.randint(100000, 999999))
         _store_otp(phone, code)
+=======
+        # Always generate a random 6-digit code — never a hardcoded constant.
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        MOCK_OTP_STORE[phone] = {
+            "code": code,
+            "expires_at": datetime.now(timezone.utc)
+            + timedelta(seconds=OTP_TTL_SECONDS),
+            "attempts": 0,
+        }
+>>>>>>> feature/dashboard-ui
 
         audit.log_audit_event(
             db,
             action=f"OTP code sent successfully to phone {phone}",
             ip_address=ip_address,
         )
+<<<<<<< HEAD
         logger.info("OTP sent to phone %s", phone)
         if settings.ENV.lower() != "production":
             logger.debug("Mock OTP for %s is %s", phone, code)
         return {"status": "sent"}
+=======
+
+        # In production the code must NOT be returned in the response or printed;
+        # it would be delivered via a real SMS gateway (not configured yet), so we
+        # log an operator notice instead. In development we return the code so the
+        # demo onboarding flow (which displays the code) keeps working.
+        if settings.ENV.lower() == "production":
+            logger.info("OTP generated for %s (SMS delivery not configured)", phone)
+            return {"status": "sent"}
+        print(f"--- [OTP] Sent {code} to {phone} ---")
+        return {"status": "sent", "code": code}
+>>>>>>> feature/dashboard-ui
 
     @staticmethod
     def verify_otp(
@@ -249,13 +327,47 @@ class AuthService:
         phone = req.phone_number.strip()
         code = req.code.strip()
 
-        if MOCK_OTP_STORE.get(phone) != code:
+        invalid = HTTPException(status_code=400, detail="Invalid OTP code")
+        stored = MOCK_OTP_STORE.get(phone)
+        if not stored:
+            raise invalid
+
+        now = datetime.now(timezone.utc)
+        if now > stored["expires_at"]:
+            MOCK_OTP_STORE.pop(phone, None)
             audit.log_audit_event(
                 db,
-                action=f"OTP verification failed for phone {phone} (code: {code})",
+                action=f"OTP verification failed for phone {phone} (expired code)",
                 ip_address=ip_address,
             )
-            raise HTTPException(status_code=400, detail="Invalid OTP code")
+            raise invalid
+
+        if stored["attempts"] >= OTP_MAX_ATTEMPTS:
+            MOCK_OTP_STORE.pop(phone, None)
+            audit.log_audit_event(
+                db,
+                action=f"OTP verification failed for phone {phone} (max attempts reached)",
+                ip_address=ip_address,
+            )
+            raise invalid
+
+        if stored["code"] != code:
+            stored["attempts"] += 1
+            # Never log the submitted OTP code — it is a credential and would be
+            # persisted permanently in the immutable audit log.
+            audit.log_audit_event(
+                db,
+                action=f"OTP verification failed for phone {phone} (attempt {stored['attempts']})",
+                ip_address=ip_address,
+            )
+            raise invalid
+
+        # One-time use: invalidate the code after a successful verification.
+        MOCK_OTP_STORE.pop(phone, None)
+
+        # Record that this phone was successfully verified, so a subsequent
+        # /otp/register for the same phone has proof of possession.
+        _VERIFIED_PHONES.add(phone)
 
         mapped_email = f"{phone}@prism-otp.org"
         guardian = (
@@ -296,6 +408,16 @@ class AuthService:
         name = req.full_name.strip()
         mapped_email = f"{phone}@prism-otp.org"
 
+        # Require proof of phone possession: the caller must have successfully
+        # verified an OTP for this phone first. The flag is consumed so a single
+        # verification can't be reused to register arbitrary accounts.
+        if phone not in _VERIFIED_PHONES:
+            raise HTTPException(
+                status_code=403,
+                detail="Phone number not verified. Complete OTP verification first.",
+            )
+        _VERIFIED_PHONES.discard(phone)
+
         existing = (
             db.query(models.Guardian)
             .filter(models.Guardian.email == mapped_email)
@@ -304,12 +426,15 @@ class AuthService:
         if existing:
             raise HTTPException(status_code=400, detail="Guardian already registered")
 
-        hashed_pwd = auth.get_password_hash("default_otp_pwd")
+        # Generate a strong random password so OTP-registered guardians never
+        # share a known credential. They authenticate via OTP/JWT going forward.
+        random_password = secrets.token_urlsafe(32)
+        hashed_pwd = auth.get_password_hash(random_password)
         guardian = models.Guardian(
             full_name=name,
             email=mapped_email,
             password_hash=hashed_pwd,
-            role=req.role or "guardian",
+            role="guardian",
         )
         db.add(guardian)
         db.commit()

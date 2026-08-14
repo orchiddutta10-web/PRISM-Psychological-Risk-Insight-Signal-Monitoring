@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Modal, SafeAreaView } from 'react-native';
-import { MapPin, Keyboard, Smartphone, Play, Pause, Settings, RefreshCw, Bell, AlertTriangle, ShieldCheck, X } from 'lucide-react-native';
+import { MapPin, Keyboard, Smartphone, Play, Pause, Settings, RefreshCw, Bell, X } from 'lucide-react-native';
 import { ApiClient, TokenManager } from '../services/api';
+<<<<<<< HEAD
 import { socketService } from '../services/socket';
+=======
+import { AlertDetailModal } from '../components/AlertDetailModal';
+>>>>>>> feature/dashboard-ui
 import {
   startTelemetry,
   pauseTelemetry,
@@ -25,6 +29,9 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
   const [activeAlert, setActiveAlert] = useState<any | null>(null);
   const [showAlertBanner, setShowAlertBanner] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const isMountedRef = useRef(true);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
   // Start real on-device telemetry collection on mount
   useEffect(() => {
@@ -41,18 +48,80 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
   }, [deviceId]);
 
   useEffect(() => {
+<<<<<<< HEAD
     socketService.connect('/events/ws');
 
     const unsubscribe = socketService.subscribe((data) => {
       if (data.severity_tier) {
         setActiveAlert(data);
         setShowAlertBanner(true);
+=======
+    isMountedRef.current = true;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+
+    const connectWs = async () => {
+      if (!isMountedRef.current) return;
+
+      clearReconnectTimer();
+
+      try {
+        const token = await TokenManager.getToken();
+        if (!token || !isMountedRef.current) return;
+
+        const wsUrl = `ws://localhost:8000/api/v1/events/ws?token=${token}`;
+        const socket = new WebSocket(wsUrl);
+        wsRef.current = socket;
+
+        socket.onmessage = (event) => {
+          if (!isMountedRef.current) return;
+
+          try {
+            const data = JSON.parse(event.data);
+            if (data.severity_tier) {
+              setActiveAlert(data);
+              setShowAlertBanner(true);
+            }
+          } catch (e) {
+            console.error('Error parsing device WS message:', e);
+          }
+        };
+
+        socket.onclose = () => {
+          wsRef.current = null;
+          if (!isMountedRef.current) return;
+
+          clearReconnectTimer();
+          reconnectTimerRef.current = setTimeout(() => {
+            reconnectTimerRef.current = null;
+            connectWs();
+          }, 3000);
+        };
+      } catch (err) {
+        console.error('WS Connection error:', err);
+>>>>>>> feature/dashboard-ui
       }
     });
 
     return () => {
+<<<<<<< HEAD
       unsubscribe();
       socketService.disconnect();
+=======
+      isMountedRef.current = false;
+      clearReconnectTimer();
+
+      if (wsRef.current) {
+        const socketToClose = wsRef.current;
+        wsRef.current = null;
+        socketToClose.close();
+      }
+>>>>>>> feature/dashboard-ui
     };
   }, []);
 
@@ -86,7 +155,7 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
       const res = await ApiClient.sendTelemetry(deviceId, signalType, payload);
       if (res.status === 'accepted') {
         setLastTransmitted(new Date().toLocaleTimeString());
-        setTransmissionCount(prev => prev + 1);
+        setTransmissionCount((prev: number) => prev + 1);
         Alert.alert("Success", `Telemetry transmitted. Risk models executed.`);
       }
     } catch (err: any) {
@@ -228,67 +297,12 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
       </ScrollView>
 
       {/* Alert Push Detail Modal Screen */}
-      {activeAlert && (
-        <Modal
-          animationType="slide"
-          transparent={false}
-          visible={detailModalVisible}
-          onRequestClose={() => setDetailModalVisible(false)}
-        >
-          <SafeAreaView style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <View style={styles.flexRow}>
-                <ShieldCheck color="#10B981" size={26} strokeWidth={2} />
-                <Text style={styles.modalHeaderTitle}>PRISM Alert Insight</Text>
-              </View>
-              <TouchableOpacity onPress={() => setDetailModalVisible(false)} style={styles.closeButton}>
-                <X color="#F8FAFC" size={24} strokeWidth={2} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView contentContainerStyle={styles.modalContent}>
-              <View style={[styles.alertBadgeCard, activeAlert.severity_tier === 'red' ? styles.borderRed : styles.borderAmber]}>
-                <AlertTriangle color={activeAlert.severity_tier === 'red' ? '#DC2626' : '#D97706'} size={32} strokeWidth={2} />
-                <Text style={styles.alertDetailTitle}>{activeAlert.plain_language_summary}</Text>
-                <Text style={styles.alertMeta}>Severity: <Text style={activeAlert.severity_tier === 'red' ? styles.textRed : styles.textAmber}>{activeAlert.severity_tier.toUpperCase()}</Text></Text>
-              </View>
-
-              {/* Factors */}
-              <Text style={styles.modalSubHeader}>Contributing Factors</Text>
-              <View style={styles.factorsCard}>
-                {activeAlert.contributing_factors.map((factor: string, idx: number) => (
-                  <Text key={idx} style={styles.factorText}>• {factor}</Text>
-                ))}
-              </View>
-
-              {/* Mini Baseline Comparison Chart */}
-              <Text style={styles.modalSubHeader}>Baseline Comparison Chart</Text>
-              <View style={styles.miniChartCard}>
-                <View style={styles.chartBarRow}>
-                  <Text style={styles.chartLabel}>Baseline Profile</Text>
-                  <View style={styles.chartBarTrack}>
-                    <View style={[styles.chartBarFill, { width: '40%', backgroundColor: '#64748B' }]} />
-                  </View>
-                  <Text style={styles.chartVal}>Normal</Text>
-                </View>
-                <View style={styles.chartBarRow}>
-                  <Text style={styles.chartLabel}>Current Activity</Text>
-                  <View style={styles.chartBarTrack}>
-                    <View style={[styles.chartBarFill, { width: '90%', backgroundColor: activeAlert.severity_tier === 'red' ? '#DC2626' : '#D97706' }]} />
-                  </View>
-                  <Text style={styles.chartVal}>Deviated</Text>
-                </View>
-              </View>
-
-              {/* Conversation Starter */}
-              <Text style={styles.modalSubHeader}>Suggested Conversation Starter</Text>
-              <View style={styles.starterCard}>
-                <Text style={styles.starterText}>"{getConversationStarter()}"</Text>
-              </View>
-            </ScrollView>
-          </SafeAreaView>
-        </Modal>
-      )}
+      <AlertDetailModal 
+        visible={detailModalVisible} 
+        activeAlert={activeAlert} 
+        onClose={() => setDetailModalVisible(false)} 
+        getConversationStarter={getConversationStarter} 
+      />
     </View>
   );
 }
@@ -492,141 +506,5 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontSize: 14,
     fontWeight: '600',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#000000',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderColor: '#222224',
-  },
-  flexRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  modalHeaderTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    marginLeft: 10,
-  },
-  closeButton: {
-    padding: 6,
-  },
-  modalContent: {
-    padding: 24,
-  },
-  alertBadgeCard: {
-    alignItems: 'center',
-    backgroundColor: '#0D0D0E',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1.5,
-    marginBottom: 24,
-  },
-  borderRed: {
-    borderColor: '#DC2626',
-  },
-  borderAmber: {
-    borderColor: '#D97706',
-  },
-  alertDetailTitle: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginTop: 16,
-  },
-  alertMeta: {
-    color: '#8E8E93',
-    fontSize: 13,
-    marginTop: 8,
-  },
-  textRed: {
-    color: '#DC2626',
-    fontWeight: '800',
-  },
-  textAmber: {
-    color: '#D97706',
-    fontWeight: '800',
-  },
-  modalSubHeader: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 12,
-    marginTop: 12,
-  },
-  factorsCard: {
-    backgroundColor: '#0D0D0E',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#222224',
-    padding: 16,
-    marginBottom: 24,
-  },
-  factorText: {
-    color: '#CBD5E1',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 8,
-  },
-  miniChartCard: {
-    backgroundColor: '#0D0D0E',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#222224',
-    padding: 16,
-    marginBottom: 24,
-  },
-  chartBarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  chartLabel: {
-    color: '#CBD5E1',
-    fontSize: 12,
-    width: 100,
-  },
-  chartBarTrack: {
-    flex: 1,
-    height: 12,
-    backgroundColor: '#000000',
-    borderRadius: 6,
-    marginHorizontal: 12,
-    overflow: 'hidden',
-  },
-  chartBarFill: {
-    height: '100%',
-    borderRadius: 6,
-  },
-  chartVal: {
-    color: '#8E8E93',
-    fontSize: 11,
-    width: 60,
-    textAlign: 'right',
-  },
-  starterCard: {
-    backgroundColor: '#0D0D0E',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E6DFD3',
-    padding: 16,
-    marginBottom: 24,
-  },
-  starterText: {
-    color: '#E6DFD3',
-    fontSize: 14,
-    fontStyle: 'italic',
-    lineHeight: 22,
-    textAlign: 'center',
   },
 });

@@ -1,6 +1,10 @@
 import json
+<<<<<<< HEAD
 from datetime import datetime, timezone
 
+=======
+import threading
+>>>>>>> feature/dashboard-ui
 from fastapi import (
     APIRouter,
     Depends,
@@ -22,6 +26,17 @@ from app.utils.risk_registry import check_event_for_risks
 from app.utils.worker import purge_raw_events, run_baseline_aggregation
 
 router = APIRouter(prefix="/api/v1/events", tags=["telemetry"])
+
+# Guards the background worker job so only one runs at a time.
+_worker_lock = threading.Lock()
+
+CHAT_MAX_LENGTH = 500
+
+
+def _sanitize_chat_text(text: str) -> str:
+    """Strip control characters and cap length for stored chat text."""
+    cleaned = "".join(ch for ch in text if ch >= " " or ch in "\t\n\r")
+    return cleaned[:CHAT_MAX_LENGTH]
 
 
 @router.post("/ingest", response_model=schemas.TelemetryResponse)
@@ -152,7 +167,9 @@ async def ingest_unified(
     )
 
     # Fallback to old consent model if new one isn't populated for legacy behavior signals
-    if not consent:
+    # (a ConsentGrant row with is_granted=False is a revoked grant and must NOT
+    # satisfy the check — match the pattern used by voice/physio/pulse).
+    if not consent or consent.is_granted is not True:
         old_consent = (
             db.query(models.ConsentRecord)
             .filter(
@@ -162,12 +179,10 @@ async def ingest_unified(
             .first()
         )
         if not old_consent or old_consent.revoked_at is not None:
-            # Just a warning for demo purposes instead of blocking completely,
-            # or we can block it. Let's block it unless it's a physio signal in dev.
-            if payload.modality not in ["gsr", "ppg"]:
-                raise HTTPException(
-                    status_code=403, detail="Active consent not granted."
-                )
+            # Consent is required for ALL modalities (including gsr/ppg).
+            raise HTTPException(
+                status_code=403, detail="Active consent not granted."
+            )
 
     event = models.UnifiedEvent(
         subject_id=current_device.id,
@@ -305,23 +320,48 @@ async def ingestion_health(db: Session = Depends(get_db)):
 @router.post("/worker/run", status_code=status.HTTP_200_OK)
 def trigger_worker_jobs(
     db: Session = Depends(get_db),
-    current_guardian: models.Guardian = Depends(auth.get_current_user),
+    current_guardian: models.Guardian = Depends(
+        auth.RoleChecker(["ops", "guardian-admin"])
+    ),
 ):
     """
     Manually trigger baseline-aggregation and event-purging.
-    Accessible only to authorized guardians.
+    Runs in a background thread so the request returns immediately; only one
+    worker run executes at a time.
+
+    Restricted to ops/guardian-admin: this operates on ALL devices
+    system-wide (baseline aggregation + raw-event purge), so a plain guardian
+    must not be able to trigger it.
     """
-    run_baseline_aggregation(db)
-    infer_sleep_windows(db)
-    purged = purge_raw_events(db, days=30)
+    if not _worker_lock.acquire(blocking=False):
+        return {"status": "already_running", "events_purged": 0}
 
     audit.log_audit_event(
         db,
-        action=f"Worker run triggered: Baseline profiles updated, sleep windows estimated, {purged} old events purged.",
+        action="Worker run triggered (background): baseline aggregation + sleep estimation + purge started.",
         guardian_id=str(current_guardian.id),
     )
 
-    return {"status": "completed", "events_purged": purged}
+    def _run_job():
+        try:
+            job_db = SessionLocal()
+            try:
+                run_baseline_aggregation(job_db)
+                infer_sleep_windows(job_db)
+                purge_raw_events(job_db, days=30)
+                job_db.commit()
+            finally:
+                job_db.close()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("Background worker job failed")
+        finally:
+            _worker_lock.release()
+
+    threading.Thread(target=_run_job, daemon=True).start()
+
+    return {"status": "accepted", "events_purged": 0}
 
 
 # ── Aria WebSocket AI helper ───────────────────────────────────────
@@ -374,12 +414,20 @@ async def _generate_aria_ws_response(text: str) -> str:
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
+async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for guardians to receive live updates and chat with Aria.
     Connection URL: ws://localhost:8000/api/v1/events/ws?token=<jwt_token>
+    The JWT is validated BEFORE the socket is accepted; invalid tokens are
+    rejected with close code 1008.
+
+    Authorization: the token subject must exist in the database and own the
+    channels it subscribes to. A device token is bound to the device's owning
+    guardian, so it can only subscribe to that device's alerts (and its
+    guardian's alert feed) — never to another family's channels.
     """
-    await websocket.accept()
+    token = websocket.query_params.get("token")
+
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -397,9 +445,51 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
         if not sub_id or token_type not in ["guardian", "device"]:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
+
+        # Authorization: the subject must be a real account, and device tokens
+        # must be bound to the device's owning guardian. This prevents a client
+        # from subscribing to another family's channels by guessing a UUID.
+        # Resolve the DB session through FastAPI's dependency-override map when
+        # present (the test suite overrides get_db with an in-memory DB so the
+        # WS handler sees the same data as the request handlers), falling back
+        # to the production SessionLocal.
+        from app.database import get_db
+        from app.main import app as _app
+
+        db_override = _app.dependency_overrides.get(get_db)
+        db_gen = db_override() if db_override else get_db()
+        try:
+            db = next(db_gen)
+            if token_type == "guardian":
+                guardian = (
+                    db.query(models.Guardian)
+                    .filter(models.Guardian.id == sub_id)
+                    .first()
+                )
+                if not guardian:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    return
+                guardian_id = guardian.id
+            else:
+                device = (
+                    db.query(models.ChildDevice)
+                    .filter(models.ChildDevice.id == sub_id)
+                    .first()
+                )
+                if not device:
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    return
+                guardian_id = str(device.guardian_id)
+        finally:
+            try:
+                next(db_gen, None)
+            except StopIteration:
+                pass
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+
+    await websocket.accept()
 
     redis_conn = get_redis_client()
     pubsub = redis_conn.pubsub()
@@ -408,7 +498,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
     if token_type == "guardian":
         channels.extend([f"guardian_events:{sub_id}", f"guardian_alerts:{sub_id}"])
     else:
-        channels.append(f"device_alerts:{sub_id}")
+        # A device is bound to its owning guardian's alert feed so the child's
+        # own alerts reach the right family — never another guardian's channels.
+        channels.extend(
+            [f"device_alerts:{sub_id}", f"guardian_alerts:{guardian_id}"]
+        )
 
     await pubsub.subscribe(*channels)
 
@@ -420,53 +514,72 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
                     parsed = json.loads(data)
                     text = parsed.get("text")
                     if text and token_type == "guardian":
+                        text = _sanitize_chat_text(text)
                         db = SessionLocal()
-                        # 1. Save guardian message
-                        msg = models.ChatMessage(
-                            guardian_id=sub_id, sender="guardian", aria_utterance=text
-                        )
-                        db.add(msg)
-                        db.commit()
-                        db.refresh(msg)
+                        try:
+                            # 1. Save guardian message
+                            msg = models.ChatMessage(
+                                guardian_id=sub_id, sender="guardian", aria_utterance=text
+                            )
+                            db.add(msg)
+                            db.commit()
+                            db.refresh(msg)
 
-                        payload = {
-                            "id": msg.id,
-                            "guardian_id": sub_id,
-                            "sender": "guardian",
-                            "text": msg.aria_utterance,
-                            "timestamp": msg.timestamp.isoformat(),
-                            "type": "chat_message",
-                        }
-                        await redis_conn.publish(
-                            f"guardian_events:{sub_id}", json.dumps(payload)
-                        )
+                            payload = {
+                                "id": msg.id,
+                                "guardian_id": sub_id,
+                                "sender": "guardian",
+                                "text": msg.aria_utterance,
+                                "timestamp": msg.timestamp.isoformat(),
+                                "type": "chat_message",
+                            }
+                            await redis_conn.publish(
+                                f"guardian_events:{sub_id}", json.dumps(payload)
+                            )
 
+<<<<<<< HEAD
                         # 2. Generate Aria response (real AI or fallback)
                         import asyncio
 
                         await asyncio.sleep(0.3)
 
                         aria_text = await _generate_aria_ws_response(text)
+=======
+                            # 2. Trigger mock Aria response after 1 second
+                            import asyncio
 
-                        aria_msg = models.ChatMessage(
-                            guardian_id=sub_id, sender="aria", aria_utterance=aria_text
-                        )
-                        db.add(aria_msg)
-                        db.commit()
-                        db.refresh(aria_msg)
+                            await asyncio.sleep(1.0)
 
-                        aria_payload = {
-                            "id": aria_msg.id,
-                            "guardian_id": sub_id,
-                            "sender": "aria",
-                            "text": aria_msg.aria_utterance,
-                            "timestamp": aria_msg.timestamp.isoformat(),
-                            "type": "chat_message",
-                        }
-                        await redis_conn.publish(
-                            f"guardian_events:{sub_id}", json.dumps(aria_payload)
-                        )
-                        db.close()
+                            aria_text = "I've logged that. I am constantly monitoring the baseline thresholds to keep your child supported."
+                            if "plan" in text.lower() or "price" in text.lower():
+                                aria_text = "The Family Safety Plan gives you full access to live risk reports, bedtime anomaly alerts, and weekly behavioral digests."
+                            elif "sleep" in text.lower() or "bedtime" in text.lower():
+                                aria_text = "I've saved their normal bedtime as part of the baseline. Any late-night phone usage out of the ordinary will be safely flagged."
+>>>>>>> feature/dashboard-ui
+
+                            aria_msg = models.ChatMessage(
+                                guardian_id=sub_id, sender="aria", aria_utterance=aria_text
+                            )
+                            db.add(aria_msg)
+                            db.commit()
+                            db.refresh(aria_msg)
+
+                            aria_payload = {
+                                "id": aria_msg.id,
+                                "guardian_id": sub_id,
+                                "sender": "aria",
+                                "text": aria_msg.aria_utterance,
+                                "timestamp": aria_msg.timestamp.isoformat(),
+                                "type": "chat_message",
+                            }
+                            await redis_conn.publish(
+                                f"guardian_events:{sub_id}", json.dumps(aria_payload)
+                            )
+                        finally:
+                            # Always release the session, even on exception, to
+                            # avoid leaking SQLAlchemy connections on a long-lived
+                            # WebSocket connection.
+                            db.close()
                 except Exception as e:
                     import logging
 
@@ -564,6 +677,7 @@ async def trigger_demo_scenario(
     """Trigger a guided demo scenario (A, B, or C) from the dashboard for stakeholder replay."""
     auth.verify_guardian_device_access(current_guardian, req.device_id, db)
 
+<<<<<<< HEAD
     # Automatically seed baselines if they don't exist
     existing = (
         db.query(models.BaselineProfile)
@@ -594,6 +708,17 @@ async def trigger_demo_scenario(
         )
         db.add_all([b1, b2, b3])
         db.commit()
+=======
+    # Demo scenarios inject synthetic risk scores + alerts into the child's
+    # REAL alert stream (and fire real guardian WebSocket notifications), so
+    # they must never run in production.
+    from app.config import settings
+
+    if settings.ENV.lower() == "production":
+        raise HTTPException(
+            status_code=403, detail="Demo scenarios are disabled in production."
+        )
+>>>>>>> feature/dashboard-ui
 
     if req.scenario == "A":
         # Late-night usage spike

@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
     "/register",
     response_model=schemas.GuardianResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rate_limit)],
 )
 def register_guardian(
     guardian_in: schemas.GuardianCreate, request: Request, db: Session = Depends(get_db)
@@ -44,7 +45,11 @@ def verify_mfa(
     return AuthService.verify_mfa(payload, db, ip_address=ip)
 
 
-@router.post("/device", response_model=schemas.DeviceRegistrationResponse)
+@router.post(
+    "/device",
+    response_model=schemas.DeviceRegistrationResponse,
+    dependencies=[Depends(rate_limit)],
+)
 def register_device(
     device_in: schemas.ChildDeviceCreate,
     request: Request,

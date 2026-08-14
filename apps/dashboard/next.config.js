@@ -1,12 +1,20 @@
 /** @type {import('next').NextConfig} */
+<<<<<<< HEAD
 function apiOrigin() {
   const raw = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
   // Strip a trailing /api/v1 so rewrites never become /api/v1/api/v1/*
   return raw.replace(/\/?api\/v1\/?$/, '').replace(/\/$/, '') || 'http://127.0.0.1:8000';
 }
+=======
+const path = require('path')
+>>>>>>> feature/dashboard-ui
 
 const nextConfig = {
   reactStrictMode: true,
+  webpack: (config) => {
+    config.resolve.alias['@'] = path.resolve(__dirname, 'src')
+    return config
+  },
   async rewrites() {
     const origin = apiOrigin();
     return [

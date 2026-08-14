@@ -43,12 +43,22 @@ def setup_structured_logging():
 
 
 # 2. APM & Performance Monitoring Middleware
+def _redact_path(path: str) -> str:
+    """Strip the query string (may contain tokens/PII) from a URL path for logging."""
+    return path.split("?", 1)[0]
+
+
+def _redact_error(exc: Exception) -> str:
+    """Log the exception type, not the full message (may contain PII)."""
+    return type(exc).__name__
+
+
 class APMMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         start_time = time.perf_counter()
 
-        # Capture trace metadata
-        path = request.url.path
+        # Capture trace metadata (query string redacted)
+        path = _redact_path(request.url.path)
         method = request.method
 
         try:
@@ -72,21 +82,30 @@ class APMMiddleware(BaseHTTPMiddleware):
 
         except Exception as e:
             process_time_ms = (time.perf_counter() - start_time) * 1000
+            safe_err = _redact_error(e)
             logging.error(
+<<<<<<< HEAD
                 f"APM TRACE ERROR: {method} {path} failed after {process_time_ms:.2f}ms due to: {e!s}",
+=======
+                f"APM TRACE ERROR: {method} {path} failed after {process_time_ms:.2f}ms due to: {safe_err}",
+>>>>>>> feature/dashboard-ui
                 exc_info=True,
                 extra={
                     "extra_data": {
                         "method": method,
                         "path": path,
                         "latency_ms": round(process_time_ms, 2),
-                        "error": str(e),
+                        "error": safe_err,
                         "type": "apm_error",
                     }
                 },
             )
             trigger_critical_alert(
+<<<<<<< HEAD
                 error_msg=f"HTTP endpoint {method} {path} failed: {e!s}",
+=======
+                error_msg=f"HTTP endpoint {method} {path} failed: {safe_err}",
+>>>>>>> feature/dashboard-ui
                 context={"latency_ms": process_time_ms},
             )
             raise e
@@ -111,7 +130,7 @@ def trigger_critical_alert(error_msg: str, context: dict = None):
         f"[AUTOMATED ALERT] CRITICAL OPERATIONAL FAILURE: {error_msg}",
         extra={"extra_data": alert_payload},
     )
-    # Simulated webhook / notification dispatch in development
-    print(
-        f"📡 [Ops Webhook Dispatch] Sent alert payload to pager channel: {json.dumps(alert_payload)}"
+    # Dispatch via the structured logger instead of stdout.
+    logging.getLogger(__name__).info(
+        "Ops webhook dispatch: %s", json.dumps(alert_payload)
     )
