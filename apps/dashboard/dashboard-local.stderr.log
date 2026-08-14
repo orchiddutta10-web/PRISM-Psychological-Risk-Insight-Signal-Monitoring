@@ -1,0 +1,238 @@
+ ⚠ You are using a non-standard "NODE_ENV" value in your environment. This creates inconsistencies in the project and is strongly advised against. Read more: https://nextjs.org/docs/messages/non-standard-node-env
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ ./src/app/globals.css
+Module parse failed: Unexpected character '@' (1:0)
+> @tailwind base;
+| @tailwind components;
+| @tailwind utilities;
+
+Import trace for requested module:
+./src/app/globals.css
+./src/app/layout.tsx
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ ./src/app/globals.css
+Module parse failed: Unexpected character '@' (1:0)
+> @tailwind base;
+| @tailwind components;
+| @tailwind utilities;
+
+Import trace for requested module:
+./src/app/globals.css
+./src/app/layout.tsx
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz'
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ ./src/app/globals.css
+Module parse failed: Unexpected character '@' (1:0)
+> @tailwind base;
+| @tailwind components;
+| @tailwind utilities;
+
+Import trace for requested module:
+./src/app/globals.css
+./src/app/layout.tsx
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+ ⨯ [Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+[Error: ENOENT: no such file or directory, open 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\required-server-files.json'] {
+  errno: -4058,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: 'C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\apps\\dashboard\\.next\\required-server-files.json'
+}
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz_' -> 'C:\Users\Win 10\Documents\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\agents-backend-comprehensive-review-analysis\apps\dashboard\.next\cache\webpack\client-development-fallback\0.pack.gz'

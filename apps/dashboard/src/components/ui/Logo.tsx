@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import Image from 'next/image'
+
 import { cx } from '../../lib/cx'
 
 interface LogoProps {
@@ -14,16 +14,29 @@ interface LogoProps {
 }
 
 /** PRISM brand mark — concentric circles (extracted from login/overview inline SVGs). */
-export function Logo({ size = 28, className, wordmark = false }: LogoProps) {
+export function Logo({ size = 28, className, wordmark = false, color }: LogoProps) {
   return (
     <div className={cx('inline-flex items-center gap-2.5', className)}>
-      <div style={{ width: size, height: size }} className="relative shrink-0 overflow-hidden rounded-full">
-        <Image
-          src="/prism-logo.jpeg"
-          alt="PRISM"
-          fill
-          sizes={`${size}px`}
-          className="object-contain"
+      <div style={{ width: size, height: size }} className="relative shrink-0">
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            border: `2px solid ${color ?? 'currentColor'}`,
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            top: '22%',
+            left: '22%',
+            width: '44%',
+            height: '44%',
+            borderRadius: '50%',
+            border: `1.5px solid ${color ?? 'currentColor'}`,
+            opacity: 0.4,
+          }}
         />
       </div>
       {wordmark && (

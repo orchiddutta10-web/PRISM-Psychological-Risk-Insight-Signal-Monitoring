@@ -33,7 +33,6 @@ function handleCompanionUnauthorized(status: number, router: ReturnType<typeof u
   router.push('/')
   return true
 }
-
 // ── Types ──────────────────────────────────────────────────────────
 
 interface Message {
@@ -43,12 +42,18 @@ interface Message {
   timestamp: Date
 }
 
+type NovaAction = 'risk_report' | 'mood_patterns' | 'system_status' | 'privacy_protocol'
 interface NovaChatResponse {
   conversation_id: string
   message: { id: string; role: 'assistant'; content: string; timestamp: string }
   crisis_flag: boolean
 }
 
+interface QuickAction {
+  label: string
+  message: string
+  action: NovaAction
+}
 interface Persona {
   id: string
   name: string
@@ -367,7 +372,14 @@ export default function ChatbotPage() {
     setActivePersona(id)
   }
 
-  const handleSend = async (messageOverride?: string) => {
+  const quickActions: QuickAction[] = [
+    { label: 'Synthesize risk report', message: 'Synthesize my current PRISM risk report.', action: 'risk_report' },
+    { label: 'Extract mood patterns', message: 'Extract mood patterns from my authorized PRISM signals.', action: 'mood_patterns' },
+    { label: 'System status', message: 'Report the current PRISM system status.', action: 'system_status' },
+    { label: 'Privacy protocol', message: 'Explain the NOVA privacy protocol for this account.', action: 'privacy_protocol' },
+  ]
+
+  const handleSend = async (messageOverride?: string, action?: NovaAction) => {
     const trimmed = (messageOverride ?? input).trim()
     const authToken = token ?? localStorage.getItem('prism_token')
     if (!trimmed || isLoading || !authToken) return
@@ -384,7 +396,7 @@ export default function ChatbotPage() {
       const res = await fetch(`${API}/nova/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ conversation_id: conversationId, message: trimmed, persona_id: activePersona }),
+        body: JSON.stringify({ conversation_id: conversationId, message: trimmed, persona_id: activePersona, ...(action ? { action } : {}) }),
       })
       if (res.status === 401) {
         localStorage.removeItem('prism_token')
@@ -394,6 +406,8 @@ export default function ChatbotPage() {
       if (!res.ok) {
         const errorBody = await res.json().catch(() => ({}))
         const detail = typeof errorBody.detail === 'string' ? errorBody.detail : null
+        if (res.status === 404) throw new Error(detail || 'No linked PRISM device is available for this request.')
+        if (res.status === 422) throw new Error(detail || 'NOVA could not validate that request.')
         if (res.status === 429) throw new Error(detail || 'NOVA is receiving many requests. Please try again shortly.')
         if (res.status === 503) throw new Error(detail || 'NOVA AI is not configured on the backend yet.')
         if (res.status >= 500) throw new Error(detail || 'NOVA is temporarily unavailable. Please try again.')
@@ -558,17 +572,17 @@ export default function ChatbotPage() {
             <div className="max-w-4xl mx-auto">
               {/* Smart chips */}
               <div className="flex gap-3 mb-4 overflow-x-auto pb-2 hide-scrollbar">
-                {['Summarize my recent PRISM data', 'What factors are contributing to my current risk?', 'How can I improve my sleep?', 'Help me plan one next step'].map((s, i) => (
+                {quickActions.map((quickAction, i) => (
                   <motion.button 
-                    key={s}
+                    key={quickAction.action}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 + i * 0.1 }}
-                    onClick={() => { setInput(s); void handleSend(s) }} 
+                    onClick={() => { setInput(quickAction.message); void handleSend(quickAction.message, quickAction.action) }}
                     disabled={isLoading}
                     className="px-4 py-2 rounded-full border border-white/10 bg-white/5 hover:bg-white/10 text-xs text-white/70 font-medium whitespace-nowrap transition-colors backdrop-blur-md"
                   >
-                    {s}
+                    {quickAction.label}
                   </motion.button>
                 ))}
               </div>

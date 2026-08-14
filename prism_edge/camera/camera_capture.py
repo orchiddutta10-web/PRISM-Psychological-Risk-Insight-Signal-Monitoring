@@ -14,6 +14,7 @@ from prism_edge import config
 
 try:
     import cv2
+
     HAS_CV2 = True
 except ImportError:
     HAS_CV2 = False
@@ -66,12 +67,19 @@ class CameraCapture:
         if self._connected:
             logger.info(
                 "Camera %d opened: %dx%d @ %d fps",
-                self._camera_id, self._width, self._height, self._target_fps,
+                self._camera_id,
+                self._width,
+                self._height,
+                self._target_fps,
             )
         else:
-            logger.warning("Camera %d failed to open; will retry in background", self._camera_id)
+            logger.warning(
+                "Camera %d failed to open; will retry in background", self._camera_id
+            )
 
-        self._capture_thread = threading.Thread(target=self._capture_loop, name="camera-capture", daemon=True)
+        self._capture_thread = threading.Thread(
+            target=self._capture_loop, name="camera-capture", daemon=True
+        )
         self._capture_thread.start()
         return self._connected
 
@@ -116,7 +124,7 @@ class CameraCapture:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
         cap.set(cv2.CAP_PROP_FPS, self._target_fps)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # minimize latency
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize latency
 
         # Prefer MJPG codec on Linux for higher effective FPS
         cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -136,9 +144,17 @@ class CameraCapture:
         self._connected = self._init_camera()
         self._reconnect_count += 1
         if self._connected:
-            logger.info("Camera %d reconnected (attempt %d)", self._camera_id, self._reconnect_count)
+            logger.info(
+                "Camera %d reconnected (attempt %d)",
+                self._camera_id,
+                self._reconnect_count,
+            )
         else:
-            logger.warning("Camera %d reconnect failed (attempt %d)", self._camera_id, self._reconnect_count)
+            logger.warning(
+                "Camera %d reconnect failed (attempt %d)",
+                self._camera_id,
+                self._reconnect_count,
+            )
 
     def _capture_loop(self) -> None:
         """Background thread: continuously grab frames from the camera."""

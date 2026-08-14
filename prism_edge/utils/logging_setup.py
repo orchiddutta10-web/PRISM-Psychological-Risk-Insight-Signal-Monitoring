@@ -63,4 +63,6 @@ def setup_logging() -> None:
 
     logging.captureWarnings(True)
 
-    root.info("Logging initialized (level=%s, dir=%s)", config.LOG_LEVEL, config.LOG_DIR)
+    root.info(
+        "Logging initialized (level=%s, dir=%s)", config.LOG_LEVEL, config.LOG_DIR
+    )

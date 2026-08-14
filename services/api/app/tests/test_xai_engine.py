@@ -20,7 +20,6 @@ from app.utils.xai_engine import (
     XaiTimelineEvent,
 )
 
-
 # ── Helper ──────────────────────────────────────────────────────────────
 
 
@@ -30,10 +29,17 @@ def _make_result(score: float = 50.0) -> InsightResult:
         subject_id="test-subject",
         insight_score=score,
         tier_label=(
-            "Baseline" if score <= 30
-            else "Behavioural change observed" if score <= 60
-            else "Multiple unusual signals" if score <= 80
-            else "High-priority pattern"
+            "Baseline"
+            if score <= 30
+            else (
+                "Behavioural change observed"
+                if score <= 60
+                else (
+                    "Multiple unusual signals"
+                    if score <= 80
+                    else "High-priority pattern"
+                )
+            )
         ),
         tier_summary="Test tier summary",
         anomaly_score=score / 100.0,
@@ -155,9 +161,12 @@ class TestAudienceLayers:
 class TestExplanationResult:
     def test_to_dict(self):
         confidence = XaiConfidence(
-            overall=0.8, data_completeness=1.0,
-            modality_confidences={}, baseline_age_days=14,
-            missing_modalities=[], uncertainty_note="",
+            overall=0.8,
+            data_completeness=1.0,
+            modality_confidences={},
+            baseline_age_days=14,
+            missing_modalities=[],
+            uncertainty_note="",
         )
         explanation = ExplanationResult(
             risk_score=55.0,
@@ -185,13 +194,19 @@ class TestExplanationResult:
 
     def test_filter_audience_hides_technical_for_guardian(self):
         confidence = XaiConfidence(
-            overall=0.8, data_completeness=1.0,
-            modality_confidences={}, baseline_age_days=14,
-            missing_modalities=[], uncertainty_note="",
+            overall=0.8,
+            data_completeness=1.0,
+            modality_confidences={},
+            baseline_age_days=14,
+            missing_modalities=[],
+            uncertainty_note="",
         )
         explanation = ExplanationResult(
-            risk_score=50.0, risk_level="Baseline", summary="ok",
-            confidence=confidence, observation_window="14d",
+            risk_score=50.0,
+            risk_level="Baseline",
+            summary="ok",
+            confidence=confidence,
+            observation_window="14d",
             baseline_comparison="vs baseline",
             technical_details={"secret": "data"},
         )
@@ -245,7 +260,9 @@ class TestXaiEngine:
     def test_explain_high_priority_has_timeline_threshold(self):
         result = _make_result(85.0)
         explanation = XaiEngine.explain(result)
-        has_threshold = any(e.event_type == "threshold_cross" for e in explanation.timeline)
+        has_threshold = any(
+            e.event_type == "threshold_cross" for e in explanation.timeline
+        )
         assert has_threshold
 
     def test_natural_language_baseline(self):
@@ -275,7 +292,9 @@ class TestXaiEngine:
 
     def test_counterfactuals_empty_for_low_deviation(self):
         # Scores near zero — no counterfactuals should trigger
-        scores = ModalityScores(phone=0.05, vision=0.03, physio=0.02, audio=0.01, risk_reg=0.0)
+        scores = ModalityScores(
+            phone=0.05, vision=0.03, physio=0.02, audio=0.01, risk_reg=0.0
+        )
         result = _make_result(5.0)
         result.modality_scores = scores
         ranked = XaiEngine._rank_factors(scores)
@@ -284,7 +303,9 @@ class TestXaiEngine:
 
     def test_confidence_all_modalities_present(self):
         # All modalities above threshold → completeness = 1.0
-        scores = ModalityScores(phone=0.5, vision=0.3, physio=0.15, audio=0.05, risk_reg=0.01)
+        scores = ModalityScores(
+            phone=0.5, vision=0.3, physio=0.15, audio=0.05, risk_reg=0.01
+        )
         result = _make_result(50.0)
         result.modality_scores = scores
         conf = XaiEngine._build_confidence(result)
@@ -324,8 +345,16 @@ class TestNonDiagnosticConstraint:
     """Verify Phase 11 XAI never produces diagnostic labels."""
 
     def test_xai_output_contains_no_clinical_terms(self):
-        prohibited = {"healthy", "depressed", "suicidal", "mentally ill",
-                       "depression", "anxiety", "clinical diagnosis", "disorder"}
+        prohibited = {
+            "healthy",
+            "depressed",
+            "suicidal",
+            "mentally ill",
+            "depression",
+            "anxiety",
+            "clinical diagnosis",
+            "disorder",
+        }
         result = _make_result(75.0)
         explanation = XaiEngine.explain(result)
         combined = (

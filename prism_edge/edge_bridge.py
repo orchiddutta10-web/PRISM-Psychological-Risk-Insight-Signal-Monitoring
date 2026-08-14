@@ -70,6 +70,7 @@ DB_PATH = Path(__file__).resolve().parent / "prism_edge.db"
 
 try:
     import serial
+
     HAS_SERIAL = True
 except ImportError:
     HAS_SERIAL = False
@@ -77,6 +78,7 @@ except ImportError:
 
 try:
     import httpx
+
     HAS_HTTPX = True
 except ImportError:
     HAS_HTTPX = False
@@ -84,18 +86,21 @@ except ImportError:
 
 try:
     from prism_framework import HeuristicInterpreter, PRISMSchema
+
     HAS_HEURISTIC = True
 except ImportError:
     HAS_HEURISTIC = False
 
 try:
     from utils.text_screening import TextScreeningResult, screen_text
+
     HAS_TEXT_SCREENING = True
 except ImportError:
     HAS_TEXT_SCREENING = False
 
 if not HAS_HEURISTIC and not HAS_TEXT_SCREENING:
     logger.warning("Text screening module not found — NALU enrichment disabled")
+
 
 # ---------------------------------------------------------------------------
 # Database
@@ -133,12 +138,14 @@ def init_db():
     conn.commit()
     conn.close()
 
+
 # ---------------------------------------------------------------------------
 # FastAPI app
 # ---------------------------------------------------------------------------
 app = FastAPI(title="PRISM Edge Bridge", version="2.0")
 
 active_websockets: List[WebSocket] = []
+
 
 # ---------------------------------------------------------------------------
 # Shared state
@@ -155,7 +162,9 @@ class EdgeState:
         self.total_readings = 0
         self.screening_available = HAS_HEURISTIC or HAS_TEXT_SCREENING
 
+
 state = EdgeState()
+
 
 # ---------------------------------------------------------------------------
 # ESP32 Serial reader
@@ -170,7 +179,9 @@ def read_esp32_loop():
         try:
             with serial.Serial(state.esp32_port, state.esp32_baud, timeout=2) as ser:
                 state.esp32_connected = True
-                logger.info(f"ESP32 connected on {state.esp32_port} @ {state.esp32_baud}")
+                logger.info(
+                    f"ESP32 connected on {state.esp32_port} @ {state.esp32_baud}"
+                )
 
                 while True:
                     line = ser.readline().decode("utf-8", errors="replace").strip()
@@ -217,7 +228,9 @@ def read_esp32_loop():
                     state.total_readings += 1
                     state.reading_history.append(reading)
                     if len(state.reading_history) > state.max_history:
-                        state.reading_history = state.reading_history[-state.max_history:]
+                        state.reading_history = state.reading_history[
+                            -state.max_history :
+                        ]
 
                     # Store in local DB
                     _ = _store_reading(reading)
@@ -226,10 +239,16 @@ def read_esp32_loop():
                     asyncio.run(_forward_to_api(reading))
 
                     # Broadcast to WebSocket clients
-                    asyncio.run(_broadcast(json.dumps({
-                        "type": "sensor_reading",
-                        "data": reading,
-                    })))
+                    asyncio.run(
+                        _broadcast(
+                            json.dumps(
+                                {
+                                    "type": "sensor_reading",
+                                    "data": reading,
+                                }
+                            )
+                        )
+                    )
 
         except serial.SerialException as e:
             state.esp32_connected = False
@@ -248,10 +267,15 @@ def _store_reading(reading: dict) -> bool:
             """INSERT INTO sensor_readings (timestamp, ts_ms, bpm, g_force, alert_status, alert_level, distress_index, risk_index, raw_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                reading["timestamp"], reading["ts_ms"], reading["bpm"],
-                reading["g_force"], reading["alert_status"],
-                reading["alert_level"], reading["distress_index"],
-                reading["risk_index"], json.dumps(reading),
+                reading["timestamp"],
+                reading["ts_ms"],
+                reading["bpm"],
+                reading["g_force"],
+                reading["alert_status"],
+                reading["alert_level"],
+                reading["distress_index"],
+                reading["risk_index"],
+                json.dumps(reading),
             ),
         )
         conn.commit()
@@ -303,7 +327,7 @@ async def _forward_to_api(reading: dict) -> None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.post(
-                f"{state.api_url}/api/v1/telemetry/ingest",
+                f"{state.api_url}/api/v1/events/ingest",
                 json=payload,
             )
             if resp.status_code >= 400:
@@ -329,9 +353,15 @@ async def _broadcast(message: str) -> None:
 # API routes
 # ---------------------------------------------------------------------------
 
+
 @app.get("/")
 async def root():
-    return {"service": "PRISM Edge Bridge", "version": "2.0", "esp32_connected": state.esp32_connected}
+    return {
+        "service": "PRISM Edge Bridge",
+        "version": "2.0",
+        "esp32_connected": state.esp32_connected,
+    }
+
 
 @app.get("/status")
 async def status():
@@ -347,9 +377,11 @@ async def status():
         "recent_readings": state.reading_history[-20:],
     }
 
+
 @app.get("/readings")
 async def readings(limit: int = 50):
     return {"readings": state.reading_history[-limit:]}
+
 
 @app.post("/screen")
 async def screen_text_endpoint(payload: dict):
@@ -376,26 +408,211 @@ def _local_screen_text(text: str) -> dict:
     import math
 
     EMOTION_KW = {
-        "joy": ["happy", "glad", "delighted", "joyful", "wonderful", "great", "amazing", "love", "blessed", "grateful", "thankful", "content", "pleased", "excited", "thrilled", "elated", "cheerful", "awesome", "fantastic"],
-        "sadness": ["sad", "unhappy", "depressed", "down", "miserable", "heartbroken", "crying", "tears", "grief", "sorrow", "melancholy", "despair", "devastated", "gloomy", "dismal", "blue", "feel empty", "numb", "hollow", "nobody cares", "no one cares", "all alone", "completely alone"],
-        "anger": ["angry", "furious", "rage", "irritated", "annoyed", "frustrated", "mad", "livid", "outraged", "resentful", "bitter", "hostile", "pissed"],
-        "fear": ["afraid", "scared", "fearful", "terrified", "anxious", "worried", "dread", "panic", "frightened", "nervous", "uneasy", "alarmed", "paranoid", "apprehensive", "anxiety"],
-        "distress": ["distressed", "overwhelmed", "struggling", "can't cope", "breaking down", "falling apart", "losing it", "too much", "can't handle", "drowning", "suffocating", "barely holding on", "i can't", "i'm so tired", "exhausted", "drained"],
-        "calm": ["calm", "peaceful", "relaxed", "serene", "tranquil", "at ease", "composed", "centered", "grounded", "chill"],
+        "joy": [
+            "happy",
+            "glad",
+            "delighted",
+            "joyful",
+            "wonderful",
+            "great",
+            "amazing",
+            "love",
+            "blessed",
+            "grateful",
+            "thankful",
+            "content",
+            "pleased",
+            "excited",
+            "thrilled",
+            "elated",
+            "cheerful",
+            "awesome",
+            "fantastic",
+        ],
+        "sadness": [
+            "sad",
+            "unhappy",
+            "depressed",
+            "down",
+            "miserable",
+            "heartbroken",
+            "crying",
+            "tears",
+            "grief",
+            "sorrow",
+            "melancholy",
+            "despair",
+            "devastated",
+            "gloomy",
+            "dismal",
+            "blue",
+            "feel empty",
+            "numb",
+            "hollow",
+            "nobody cares",
+            "no one cares",
+            "all alone",
+            "completely alone",
+        ],
+        "anger": [
+            "angry",
+            "furious",
+            "rage",
+            "irritated",
+            "annoyed",
+            "frustrated",
+            "mad",
+            "livid",
+            "outraged",
+            "resentful",
+            "bitter",
+            "hostile",
+            "pissed",
+        ],
+        "fear": [
+            "afraid",
+            "scared",
+            "fearful",
+            "terrified",
+            "anxious",
+            "worried",
+            "dread",
+            "panic",
+            "frightened",
+            "nervous",
+            "uneasy",
+            "alarmed",
+            "paranoid",
+            "apprehensive",
+            "anxiety",
+        ],
+        "distress": [
+            "distressed",
+            "overwhelmed",
+            "struggling",
+            "can't cope",
+            "breaking down",
+            "falling apart",
+            "losing it",
+            "too much",
+            "can't handle",
+            "drowning",
+            "suffocating",
+            "barely holding on",
+            "i can't",
+            "i'm so tired",
+            "exhausted",
+            "drained",
+        ],
+        "calm": [
+            "calm",
+            "peaceful",
+            "relaxed",
+            "serene",
+            "tranquil",
+            "at ease",
+            "composed",
+            "centered",
+            "grounded",
+            "chill",
+        ],
     }
 
     RISK_KW = {
-        "crisis_danger": ["crisis", "suicide", "self-harm", "hurt myself", "hurting myself", "cutting", "overdose", "kill myself", "suicidal", "end my life", "end it all", "want to die", "thinking about hurting", "jump off", "hang myself", "not safe", "danger to myself", "ending it"],
-        "anxiety_language": ["anxiety", "anxious", "panic attack", "worrying", "worried sick", "constant worry", "can't stop worrying", "overthinking"],
-        "depression_language": ["depression", "depressed", "no energy", "can't get out of bed", "no motivation", "don't enjoy anything", "numb", "empty", "lifeless"],
-        "risk_flag": ["not okay", "struggling badly", "breaking down", "can't go on", "paranoid", "hearing voices", "seeing things", "losing my mind"],
+        "crisis_danger": [
+            "crisis",
+            "suicide",
+            "self-harm",
+            "hurt myself",
+            "hurting myself",
+            "cutting",
+            "overdose",
+            "kill myself",
+            "suicidal",
+            "end my life",
+            "end it all",
+            "want to die",
+            "thinking about hurting",
+            "jump off",
+            "hang myself",
+            "not safe",
+            "danger to myself",
+            "ending it",
+        ],
+        "anxiety_language": [
+            "anxiety",
+            "anxious",
+            "panic attack",
+            "worrying",
+            "worried sick",
+            "constant worry",
+            "can't stop worrying",
+            "overthinking",
+        ],
+        "depression_language": [
+            "depression",
+            "depressed",
+            "no energy",
+            "can't get out of bed",
+            "no motivation",
+            "don't enjoy anything",
+            "numb",
+            "empty",
+            "lifeless",
+        ],
+        "risk_flag": [
+            "not okay",
+            "struggling badly",
+            "breaking down",
+            "can't go on",
+            "paranoid",
+            "hearing voices",
+            "seeing things",
+            "losing my mind",
+        ],
     }
 
     PSYCH_KW = {
-        "stress_pressure": ["stress", "stressed", "pressure", "overworked", "burnout", "burned out", "overloaded", "swamped"],
-        "hopelessness": ["hopeless", "no hope", "giving up", "why bother", "no way out", "can't go on", "better off dead"],
-        "self_devaluation": ["worthless", "useless", "failure", "not good enough", "hate myself", "burden", "pathetic", "loser"],
-        "resilience_coping": ["coping", "managing", "getting through", "therapy", "counseling", "taking steps", "getting help", "trying to", "self-care"],
+        "stress_pressure": [
+            "stress",
+            "stressed",
+            "pressure",
+            "overworked",
+            "burnout",
+            "burned out",
+            "overloaded",
+            "swamped",
+        ],
+        "hopelessness": [
+            "hopeless",
+            "no hope",
+            "giving up",
+            "why bother",
+            "no way out",
+            "can't go on",
+            "better off dead",
+        ],
+        "self_devaluation": [
+            "worthless",
+            "useless",
+            "failure",
+            "not good enough",
+            "hate myself",
+            "burden",
+            "pathetic",
+            "loser",
+        ],
+        "resilience_coping": [
+            "coping",
+            "managing",
+            "getting through",
+            "therapy",
+            "counseling",
+            "taking steps",
+            "getting help",
+            "trying to",
+            "self-care",
+        ],
     }
 
     def _score(txt, kws):
@@ -412,31 +629,58 @@ def _local_screen_text(text: str) -> dict:
     psych = {k: _score(text, v) for k, v in PSYCH_KW.items()}
 
     pos = emotion.get("joy", 0) + emotion.get("calm", 0)
-    neg = emotion.get("sadness", 0) + emotion.get("fear", 0) + emotion.get("distress", 0) + emotion.get("anger", 0)
+    neg = (
+        emotion.get("sadness", 0)
+        + emotion.get("fear", 0)
+        + emotion.get("distress", 0)
+        + emotion.get("anger", 0)
+    )
     total = pos + neg + 0.5
-    sentiment = {"positive": round(pos / total, 4), "negative": round(neg / total, 4), "neutral": round(0.5 / total, 4)}
+    sentiment = {
+        "positive": round(pos / total, 4),
+        "negative": round(neg / total, 4),
+        "neutral": round(0.5 / total, 4),
+    }
     s = sum(sentiment.values())
     if s > 0:
         sentiment = {k: round(v / s, 4) for k, v in sentiment.items()}
 
-    distress_idx = round(sentiment.get("negative", 0) * 0.3 + emotion.get("distress", 0) * 0.5 + emotion.get("sadness", 0) * 0.3 + psych.get("stress_pressure", 0) * 0.2, 4)
-    risk_idx = round(risk.get("crisis_danger", 0) * 0.5 + risk.get("risk_flag", 0) * 0.4 + psych.get("hopelessness", 0) * 0.4 + risk.get("depression_language", 0) * 0.2, 4)
+    distress_idx = round(
+        sentiment.get("negative", 0) * 0.3
+        + emotion.get("distress", 0) * 0.5
+        + emotion.get("sadness", 0) * 0.3
+        + psych.get("stress_pressure", 0) * 0.2,
+        4,
+    )
+    risk_idx = round(
+        risk.get("crisis_danger", 0) * 0.5
+        + risk.get("risk_flag", 0) * 0.4
+        + psych.get("hopelessness", 0) * 0.4
+        + risk.get("depression_language", 0) * 0.2,
+        4,
+    )
     protective_idx = round(psych.get("resilience_coping", 0) * 0.6, 4)
 
     if risk_idx >= 0.5 or risk.get("crisis_danger", 0) >= 0.35:
-        alert = "HIGH"; crisis = True
+        alert = "HIGH"
+        crisis = True
     elif risk_idx >= 0.25 or distress_idx >= 0.45:
-        alert = "MODERATE"; crisis = False
+        alert = "MODERATE"
+        crisis = False
     elif risk_idx >= 0.1 or distress_idx >= 0.25:
-        alert = "MILD"; crisis = False
+        alert = "MILD"
+        crisis = False
     else:
-        alert = "LOW"; crisis = False
+        alert = "LOW"
+        crisis = False
 
     factors = []
     for cat, scores in [("Risk", risk), ("Emotion", emotion), ("Psychological", psych)]:
         for n, v in sorted(scores.items(), key=lambda x: -x[1]):
             if v >= 0.4:
-                factors.append(f"{n.replace('_', ' ').title()} language signal ({round(v * 100)}% intensity)")
+                factors.append(
+                    f"{n.replace('_', ' ').title()} language signal ({round(v * 100)}% intensity)"
+                )
                 if len(factors) >= 3:
                     break
         if len(factors) >= 3:
@@ -447,10 +691,15 @@ def _local_screen_text(text: str) -> dict:
         factors.append(f"Protective factors (coping/resilience: {protective_idx:.0%})")
 
     return {
-        "text": text, "alert_level": alert, "is_crisis": crisis,
-        "distress_index": distress_idx, "risk_index": risk_idx,
+        "text": text,
+        "alert_level": alert,
+        "is_crisis": crisis,
+        "distress_index": distress_idx,
+        "risk_index": risk_idx,
         "protective_index": protective_idx,
-        "emotion": emotion, "risk": risk, "psychological": psych,
+        "emotion": emotion,
+        "risk": risk,
+        "psychological": psych,
         "sentiment": sentiment,
         "contributing_factors": factors,
     }
@@ -484,22 +733,37 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     active_websockets.append(ws)
     try:
-        await ws.send_text(json.dumps({
-            "type": "connected",
-            "message": "Connected to PRISM Edge Bridge",
-            "esp32_connected": state.esp32_connected,
-            "screening_available": state.screening_available,
-        }))
+        await ws.send_text(
+            json.dumps(
+                {
+                    "type": "connected",
+                    "message": "Connected to PRISM Edge Bridge",
+                    "esp32_connected": state.esp32_connected,
+                    "screening_available": state.screening_available,
+                }
+            )
+        )
         while True:
             data = await ws.receive_text()
             msg = json.loads(data)
             if msg.get("type") == "screen":
                 text = msg.get("text", "")
                 if text:
-                    result = await screen_text({"text": text, "device_id": msg.get("device_id", "prism-edge")})
-                    await ws.send_text(json.dumps({"type": "screening_result", "data": result}))
+                    result = await screen_text(
+                        {"text": text, "device_id": msg.get("device_id", "prism-edge")}
+                    )
+                    await ws.send_text(
+                        json.dumps({"type": "screening_result", "data": result})
+                    )
             elif msg.get("type") == "ping":
-                await ws.send_text(json.dumps({"type": "pong", "timestamp": datetime.now(timezone.utc).isoformat()}))
+                await ws.send_text(
+                    json.dumps(
+                        {
+                            "type": "pong",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
+                )
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -666,13 +930,20 @@ async def dashboard():
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
     parser = argparse.ArgumentParser(description="PRISM Edge Bridge")
-    parser.add_argument("--api-url", default="http://localhost:8000", help="PRISM API URL")
+    parser.add_argument(
+        "--api-url", default="http://localhost:8000", help="PRISM API URL"
+    )
     parser.add_argument("--com-port", default="COM7", help="ESP32 serial port")
     parser.add_argument("--baud", type=int, default=115200, help="ESP32 baud rate")
-    parser.add_argument("--port", type=int, default=8500, help="Bridge HTTP server port")
-    parser.add_argument("--no-serial", action="store_true", help="Disable ESP32 serial reader")
+    parser.add_argument(
+        "--port", type=int, default=8500, help="Bridge HTTP server port"
+    )
+    parser.add_argument(
+        "--no-serial", action="store_true", help="Disable ESP32 serial reader"
+    )
     args = parser.parse_args()
 
     state.api_url = args.api_url

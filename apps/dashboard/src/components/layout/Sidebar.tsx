@@ -7,7 +7,7 @@ import { motion } from 'framer-motion'
 import {
   LayoutDashboard, Activity, Bell, MessageCircle, HeartPulse,
   LogOut, ChevronLeft, ChevronRight, Settings, Cpu, Shield,
-  Users, FileText, TerminalSquare
+  Users, FileText, Code, TerminalSquare
 } from 'lucide-react'
 import { Logo } from '../ui/Logo'
 import { clearAuth } from '../../lib/api'
@@ -28,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Guardian Policies', href: '/guardian', icon: <Shield size={20} />, section: 'Governance' },
   { label: 'Audit Log', href: '/overview/audit', icon: <FileText size={20} /> },
   { label: 'PRISM Node', href: '/prism-node', icon: <HeartPulse size={20} />, section: 'System' },
+  { label: 'Codebase', href: '/codebase', icon: <Code size={20} /> },
 ]
 
 interface SidebarProps {

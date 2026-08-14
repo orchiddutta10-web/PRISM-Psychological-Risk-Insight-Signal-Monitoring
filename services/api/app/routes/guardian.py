@@ -49,7 +49,9 @@ def verify_guardian_connection(
 class GuardianDashboardResponse(BaseModel):
     connection_id: str
     device_name: str
-    current_status: str  # stable | improving | mild_change | needs_attention | high_concern
+    current_status: (
+        str  # stable | improving | mild_change | needs_attention | high_concern
+    )
     status_summary: str
     stability_score: float
     recent_changes: str
@@ -131,7 +133,7 @@ def get_guardian_dashboard(
     recent_scores = (
         db.query(models.RiskScoreV2)
         .join(models.BehaviorWindow)
-        .filter(models.BehaviorWindow.user_id == conn.device_id)
+        .filter(models.BehaviorWindow.subject_id == conn.device_id)
         .order_by(models.BehaviorWindow.start_ts.desc())
         .limit(7)
         .all()
@@ -428,7 +430,11 @@ def list_guardian_connections(
 ):
     """List all guardian connections."""
     connections = (
-        db.query(models.GuardianConnection)
+        db.query(models.GuardianConnection, models.ChildDevice)
+        .outerjoin(
+            models.ChildDevice,
+            models.ChildDevice.id == models.GuardianConnection.device_id,
+        )
         .filter(models.GuardianConnection.guardian_id == guardian.id)
         .all()
     )
@@ -437,20 +443,11 @@ def list_guardian_connections(
         {
             "id": c.id,
             "device_id": c.device_id,
-            "device_name": (
-                db.query(models.ChildDevice)
-                .filter(models.ChildDevice.id == c.device_id)
-                .first()
-                .name
-                if db.query(models.ChildDevice)
-                .filter(models.ChildDevice.id == c.device_id)
-                .first()
-                else "Unknown"
-            ),
+            "device_name": device.name if device else "Unknown",
             "status": c.status,
             "invited_at": c.invited_at.isoformat() if c.invited_at else None,
         }
-        for c in connections
+        for c, device in connections
     ]
 
 

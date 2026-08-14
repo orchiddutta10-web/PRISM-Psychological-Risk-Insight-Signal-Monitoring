@@ -1,0 +1,68 @@
+
+> prism-dashboard@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.5.21
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.10:3000
+
+ ✓ Starting...
+ ✓ Ready in 6.5s
+ ○ Compiling / ...
+ ✓ Compiled / in 11.2s (1388 modules)
+ GET / 200 in 11922ms
+ GET / 200 in 14128ms
+ ✓ Compiled in 2.9s (652 modules)
+ GET / 200 in 333ms
+ GET / 200 in 249ms
+ ○ Compiling /overview ...
+ ✓ Compiled /overview in 10.4s (1677 modules)
+ GET /overview 200 in 11998ms
+ ✓ Compiled in 2.6s (772 modules)
+ GET / 200 in 1867ms
+ GET /overview 200 in 2156ms
+ GET /overview 200 in 855ms
+ GET / 200 in 805ms
+ GET /overview 200 in 346ms
+ ○ Compiling /alerts ...
+ ✓ Compiled /alerts in 6s (1678 modules)
+ GET /alerts 200 in 8540ms
+ ○ Compiling /devices ...
+ ✓ Compiled /devices in 6.5s (1697 modules)
+ GET /devices 200 in 7569ms
+ GET /devices 200 in 654ms
+ GET /devices 200 in 213ms
+ ○ Compiling /signals ...
+ ✓ Compiled /signals in 3.5s (1708 modules)
+ GET /signals 200 in 3920ms
+ ○ Compiling /companion ...
+ ✓ Compiled /companion in 14.2s (1721 modules)
+ GET /companion 200 in 22452ms
+ GET /companion 200 in 2517ms
+ ○ Compiling /companion/chat ...
+ ✓ Compiled /companion/chat in 9.1s (1741 modules)
+ GET /companion/chat 200 in 10116ms
+ GET /companion/chat 200 in 382ms
+ GET /companion 200 in 430ms
+ GET /companion/chat 200 in 497ms
+ GET /companion/chat 200 in 249ms
+ GET /overview 200 in 559ms
+ GET /overview 200 in 3145ms
+ GET / 200 in 3349ms
+ GET / 200 in 3668ms
+ GET /overview 200 in 5434ms
+ GET /signals 200 in 3426ms
+ GET /overview 200 in 4115ms
+ GET /overview 200 in 1799ms
+ GET /overview 200 in 1370ms
+ GET /signals 200 in 308ms
+ GET /overview 200 in 294ms
+ GET /signals 200 in 250ms
+ GET /devices 200 in 737ms
+ GET /signals 200 in 326ms
+ GET /signals 200 in 603ms
+ GET /alerts 200 in 153ms
+ GET /overview 200 in 103ms
+ GET /devices 200 in 99ms
+ GET /overview 200 in 90ms
+ GET /signals 200 in 69ms

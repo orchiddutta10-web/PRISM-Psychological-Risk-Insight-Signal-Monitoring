@@ -19,9 +19,7 @@ warnings.filterwarnings(
     "ignore", message=".*httpx.*testclient.*deprecated.*", module="starlette.testclient"
 )
 # Suppress sklearn feature-names warning from numpy arrays passed to pandas-fitted models
-warnings.filterwarnings(
-    "ignore", message="X does not have valid feature names"
-)
+warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
 # ── Shared in-memory SQLite engine for all tests ─────────────────────
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"

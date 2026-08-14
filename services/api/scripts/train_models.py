@@ -409,15 +409,21 @@ def generate_extended_synthetic_data(n_samples=365):
 
         if state == 0:  # NORMAL
             data["Sleep_Score"][i] = np.random.normal(80 if is_weekend else 70, 5)
-            data["Steps_Count"][i] = np.random.normal(8000 if is_weekend else 6000, 1500)
+            data["Steps_Count"][i] = np.random.normal(
+                8000 if is_weekend else 6000, 1500
+            )
             data["Screen_Time_Hours"][i] = np.random.normal(5 if is_weekend else 4, 1)
             data["Typing_Speed_WPM"][i] = np.random.normal(65, 10)
             data["Pulse_Rate_BPM"][i] = np.random.normal(70, 5)
-            data["App_Activity"][i] = np.random.choice(["Figma", "VS Code", "Spotify", "Chrome"])
+            data["App_Activity"][i] = np.random.choice(
+                ["Figma", "VS Code", "Spotify", "Chrome"]
+            )
             data["Audio_Sentiment"][i] = np.random.normal(0.4, 0.2)
             data["Vocal_Pitch_Variance"][i] = np.random.normal(0.7, 0.1)
             data["Selfie_Smile_Pct"][i] = np.random.normal(60, 15)
-            data["Radius_of_Gyration_km"][i] = np.random.normal(15 if is_weekend else 8, 3)
+            data["Radius_of_Gyration_km"][i] = np.random.normal(
+                15 if is_weekend else 8, 3
+            )
             data["Time_at_Home_Pct"][i] = np.random.normal(60 if is_weekend else 75, 10)
             data["Unique_POIs"][i] = int(np.random.normal(3 if is_weekend else 2, 1))
 
@@ -441,7 +447,9 @@ def generate_extended_synthetic_data(n_samples=365):
             data["Screen_Time_Hours"][i] = np.random.normal(13, 2)
             data["Typing_Speed_WPM"][i] = np.random.normal(30, 15)
             data["Pulse_Rate_BPM"][i] = np.random.normal(85, 10)
-            data["App_Activity"][i] = np.random.choice(["Instagram", "TikTok", "YouTube"])
+            data["App_Activity"][i] = np.random.choice(
+                ["Instagram", "TikTok", "YouTube"]
+            )
             data["Audio_Sentiment"][i] = np.random.normal(-0.6, 0.15)
             data["Vocal_Pitch_Variance"][i] = np.random.normal(0.2, 0.05)
             data["Selfie_Smile_Pct"][i] = np.random.normal(5, 5)
@@ -453,8 +461,13 @@ def generate_extended_synthetic_data(n_samples=365):
 
     # Smooth with 3-day rolling mean
     smooth_cols = [
-        "Sleep_Score", "Steps_Count", "Screen_Time_Hours", "Audio_Sentiment",
-        "Vocal_Pitch_Variance", "Selfie_Smile_Pct", "Radius_of_Gyration_km",
+        "Sleep_Score",
+        "Steps_Count",
+        "Screen_Time_Hours",
+        "Audio_Sentiment",
+        "Vocal_Pitch_Variance",
+        "Selfie_Smile_Pct",
+        "Radius_of_Gyration_km",
         "Time_at_Home_Pct",
     ]
     for col in smooth_cols:
@@ -479,7 +492,9 @@ def generate_extended_synthetic_data(n_samples=365):
         - (df["Time_at_Home_Pct"] * 0.1)
         + np.random.normal(0, 5, n_samples)
     )
-    df["behavioural_change_index"] = df["behavioural_change_index"].clip(1, 100).round(1)
+    df["behavioural_change_index"] = (
+        df["behavioural_change_index"].clip(1, 100).round(1)
+    )
 
     return df
 
@@ -527,14 +542,24 @@ def train_state_classifier():
 
     # 4. IQR cap numeric columns (excluding targets)
     print("3. Capping outliers...")
-    target_cols = ["Behavioural_State", "behavioural_change_index", "Date", "Day_of_Week"]
-    numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in target_cols]
+    target_cols = [
+        "Behavioural_State",
+        "behavioural_change_index",
+        "Date",
+        "Day_of_Week",
+    ]
+    numeric_cols = [
+        c for c in df.select_dtypes(include=[np.number]).columns if c not in target_cols
+    ]
     df = cap_outliers_iqr(df, numeric_cols)
 
     # 5. Separate features/targets
     y_clf = df["Behavioural_State"].values
     y_reg = df["behavioural_change_index"].values
-    X = df.drop(columns=["Date", "Behavioural_State", "behavioural_change_index"], errors="ignore")
+    X = df.drop(
+        columns=["Date", "Behavioural_State", "behavioural_change_index"],
+        errors="ignore",
+    )
 
     # 6. Chronological split (shuffle=False)
     print("4. Chronological train/test split...")
@@ -620,15 +645,26 @@ def train_state_classifier():
 
     # Re-fit scaler on pruned training columns so feature counts match classifier
     pruned_columns = X_train_pruned.columns.tolist()
-    X_train_for_scaler = X_train[pruned_columns] if set(pruned_columns).issubset(X_train.columns) else X_train_pruned
+    X_train_for_scaler = (
+        X_train[pruned_columns]
+        if set(pruned_columns).issubset(X_train.columns)
+        else X_train_pruned
+    )
     from sklearn.preprocessing import StandardScaler
+
     aligned_scaler = StandardScaler()
     aligned_scaler.fit(X_train_for_scaler)
     joblib.dump(aligned_scaler, scaler_path)
 
     # Save versioned copy for audit trail
-    joblib.dump(best_model, os.path.join(resources_dir, f"prism_behavioural_classifier_{version}.joblib"))
-    joblib.dump(aligned_scaler, os.path.join(resources_dir, f"prism_behavioural_scaler_{version}.joblib"))
+    joblib.dump(
+        best_model,
+        os.path.join(resources_dir, f"prism_behavioural_classifier_{version}.joblib"),
+    )
+    joblib.dump(
+        aligned_scaler,
+        os.path.join(resources_dir, f"prism_behavioural_scaler_{version}.joblib"),
+    )
 
     # Write training metadata
     meta = {
@@ -640,6 +676,7 @@ def train_state_classifier():
         "n_features": X_train_pruned.shape[1],
     }
     import json
+
     with open(os.path.join(resources_dir, "prism_classifier_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
@@ -681,15 +718,27 @@ def train_behavioural_regression():
     df = engineer.fit_transform(df)
     df = df.dropna().reset_index(drop=True)
 
-    target_cols = ["Behavioural_State", "behavioural_change_index", "Date", "Day_of_Week"]
-    numeric_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in target_cols]
+    target_cols = [
+        "Behavioural_State",
+        "behavioural_change_index",
+        "Date",
+        "Day_of_Week",
+    ]
+    numeric_cols = [
+        c for c in df.select_dtypes(include=[np.number]).columns if c not in target_cols
+    ]
     df = cap_outliers_iqr(df, numeric_cols)
 
     y_clf = df["Behavioural_State"].values
     y_reg = df["behavioural_change_index"].values
-    X = df.drop(columns=["Date", "Behavioural_State", "behavioural_change_index"], errors="ignore")
+    X = df.drop(
+        columns=["Date", "Behavioural_State", "behavioural_change_index"],
+        errors="ignore",
+    )
 
-    X_train, X_test, y_reg_train, y_reg_test, _, _ = chrono_split(X, y_reg, y_clf, test_size=0.2)
+    X_train, X_test, y_reg_train, y_reg_test, _, _ = chrono_split(
+        X, y_reg, y_clf, test_size=0.2
+    )
     X_train_scaled, X_test_scaled, _ = safe_scale(X_train, X_test)
     X_train_pruned, dropped = prune_collinear_features(X_train_scaled, threshold=0.90)
     if dropped:
@@ -711,7 +760,9 @@ def train_behavioural_regression():
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "resources"
     )
     os.makedirs(resources_dir, exist_ok=True)
-    joblib.dump(regressor, os.path.join(resources_dir, "prism_behavioural_regressor.joblib"))
+    joblib.dump(
+        regressor, os.path.join(resources_dir, "prism_behavioural_regressor.joblib")
+    )
 
     return regressor, mae, r2
 
@@ -723,11 +774,13 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="PRISM ML Model Training")
     parser.add_argument(
-        "--notebook", action="store_true",
+        "--notebook",
+        action="store_true",
         help="Run notebook-derived behavioural classifier + regressor training",
     )
     parser.add_argument(
-        "--all", action="store_true",
+        "--all",
+        action="store_true",
         help="Run both original models AND notebook-derived models",
     )
     args = parser.parse_args()
@@ -735,6 +788,7 @@ if __name__ == "__main__":
     if args.notebook or args.all:
         import pandas as pd
         import joblib
+
         print("\n=== Notebook-Derived Behavioural Models ===\n")
         f1 = train_state_classifier()
         print(f"\n   Classifier F1 (macro): {f1[2]:.4f}")

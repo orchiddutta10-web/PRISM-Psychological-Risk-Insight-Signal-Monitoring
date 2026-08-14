@@ -1,0 +1,19 @@
+
+> prism-dashboard@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.5.21
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.10:3000
+
+ ✓ Starting...
+ ✓ Ready in 3.8s
+ ○ Compiling /companion/chat ...
+ ✓ Compiled /companion/chat in 6s (1649 modules)
+ GET /companion/chat 200 in 6968ms
+ ✓ Compiled in 1202ms (759 modules)
+ GET /companion/chat 200 in 463ms
+ ○ Compiling / ...
+ ✓ Compiled / in 3s (1670 modules)
+ GET / 200 in 3459ms
+ GET / 200 in 216ms

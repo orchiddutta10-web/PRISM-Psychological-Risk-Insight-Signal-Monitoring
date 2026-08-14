@@ -35,6 +35,7 @@ ml_routes.set_ml_engine(_test_engine)
 
 # ── Helper: generate synthetic feature vectors for testing ──────────────
 
+
 def _make_window_vectors(
     n_windows: int = 10, anomaly: bool = False, seed: int = 42
 ) -> np.ndarray:
@@ -43,43 +44,47 @@ def _make_window_vectors(
 
     if anomaly:
         # Produce clearly out-of-distribution vectors
-        means = np.array([
-            30.0,   # total_active_mins  (very low)
-            3.0,    # sleep_hours_proxy  (very low)
-            95.0,   # avg_bpm            (elevated)
-            20.0,   # bpm_std            (high variability)
-            1.5,    # avg_g_force        (high movement)
-            0.8,    # g_force_std        (high variance)
-            35.0,   # avg_blink_rate     (elevated)
-            8.0,    # blink_rate_std     (high variability)
-            0.7,    # slouch_ratio       (slouching often)
-            2.0,    # avg_speech_segments (low)
-            0.3,    # speech_segments_std
-            0.85,   # avg_silence_ratio  (very quiet)
-            0.15,   # silence_ratio_std
-            80.0,   # screen_on_count    (high)
-            12.0,   # unique_app_count
-            0.60,   # night_activity_ratio (high night usage)
-        ])
+        means = np.array(
+            [
+                30.0,  # total_active_mins  (very low)
+                3.0,  # sleep_hours_proxy  (very low)
+                95.0,  # avg_bpm            (elevated)
+                20.0,  # bpm_std            (high variability)
+                1.5,  # avg_g_force        (high movement)
+                0.8,  # g_force_std        (high variance)
+                35.0,  # avg_blink_rate     (elevated)
+                8.0,  # blink_rate_std     (high variability)
+                0.7,  # slouch_ratio       (slouching often)
+                2.0,  # avg_speech_segments (low)
+                0.3,  # speech_segments_std
+                0.85,  # avg_silence_ratio  (very quiet)
+                0.15,  # silence_ratio_std
+                80.0,  # screen_on_count    (high)
+                12.0,  # unique_app_count
+                0.60,  # night_activity_ratio (high night usage)
+            ]
+        )
     else:
-        means = np.array([
-            180.0,  # total_active_mins
-            8.0,    # sleep_hours_proxy
-            72.0,   # avg_bpm
-            5.0,    # bpm_std
-            1.02,   # avg_g_force
-            0.1,    # g_force_std
-            15.0,   # avg_blink_rate
-            3.0,    # blink_rate_std
-            0.1,    # slouch_ratio
-            8.0,    # avg_speech_segments
-            2.0,    # speech_segments_std
-            0.3,    # avg_silence_ratio
-            0.1,    # silence_ratio_std
-            30.0,   # screen_on_count
-            5.0,    # unique_app_count
-            0.05,   # night_activity_ratio
-        ])
+        means = np.array(
+            [
+                180.0,  # total_active_mins
+                8.0,  # sleep_hours_proxy
+                72.0,  # avg_bpm
+                5.0,  # bpm_std
+                1.02,  # avg_g_force
+                0.1,  # g_force_std
+                15.0,  # avg_blink_rate
+                3.0,  # blink_rate_std
+                0.1,  # slouch_ratio
+                8.0,  # avg_speech_segments
+                2.0,  # speech_segments_std
+                0.3,  # avg_silence_ratio
+                0.1,  # silence_ratio_std
+                30.0,  # screen_on_count
+                5.0,  # unique_app_count
+                0.05,  # night_activity_ratio
+            ]
+        )
 
     stds = means * 0.1 + 0.01
     return rng.normal(loc=means, scale=stds, size=(n_windows, len(means)))
@@ -92,11 +97,21 @@ def _seed_db_with_data(subject_id: str):
     from datetime import timedelta
 
     # Create a user
-    user = models.User(id=subject_id, email=f"{subject_id}@test.com", hashed_password="x", role="guardian")
+    user = models.User(
+        id=subject_id,
+        email=f"{subject_id}@test.com",
+        hashed_password="x",
+        role="guardian",
+    )
     db.add(user)
 
     # Create a device
-    device = models.Device(id=subject_id, user_id=subject_id, name="Test Device", device_type="android_phone")
+    device = models.Device(
+        id=subject_id,
+        user_id=subject_id,
+        name="Test Device",
+        device_type="android_phone",
+    )
     db.add(device)
 
     # Insert behavior windows (daily, last 14 days ending today)
@@ -105,7 +120,7 @@ def _seed_db_with_data(subject_id: str):
         start = day.replace(hour=0, minute=0, second=0, microsecond=0)
         end = day.replace(hour=23, minute=59, second=59, microsecond=0)
         bw = models.BehaviorWindow(
-            user_id=subject_id,
+            subject_id=subject_id,
             start_ts=start,
             end_ts=end,
             total_active_mins=180.0,
@@ -192,9 +207,9 @@ class TestIsolationForest:
 
         # Most normal vectors should score below 0.6 (sigmoid midpoint ~0.5)
         low_scores = sum(1 for s in scores if s < 0.60)
-        assert low_scores >= len(scores) * 0.6, (
-            f"Only {low_scores}/{len(scores)} normal vectors scored below 0.60"
-        )
+        assert (
+            low_scores >= len(scores) * 0.6
+        ), f"Only {low_scores}/{len(scores)} normal vectors scored below 0.60"
 
     def test_score_anomalous_vector(self):
         X = _make_window_vectors(n_windows=15)
@@ -274,23 +289,31 @@ class TestFusionEngine:
 
     def test_all_one_produces_one(self):
         engine = FusionEngine()
-        scores = ModalityScores(phone=1.0, vision=1.0, physio=1.0, audio=1.0, risk_reg=1.0)
+        scores = ModalityScores(
+            phone=1.0, vision=1.0, physio=1.0, audio=1.0, risk_reg=1.0
+        )
         result = engine.compute(scores)
         assert abs(result - 1.0) < 0.001
 
     def test_weighted_contribution(self):
         engine = FusionEngine()
-        scores = ModalityScores(phone=0.5, vision=0.0, physio=0.0, audio=0.0, risk_reg=0.0)
+        scores = ModalityScores(
+            phone=0.5, vision=0.0, physio=0.0, audio=0.0, risk_reg=0.0
+        )
         result = engine.compute(scores)
         assert abs(result - 0.175) < 0.01  # 0.5 * 0.35
 
-        scores = ModalityScores(phone=0.0, vision=0.0, physio=0.0, audio=0.0, risk_reg=1.0)
+        scores = ModalityScores(
+            phone=0.0, vision=0.0, physio=0.0, audio=0.0, risk_reg=1.0
+        )
         result = engine.compute(scores)
         assert abs(result - 0.10) < 0.01  # 1.0 * 0.10
 
     def test_result_clamped_to_zero_one(self):
         engine = FusionEngine()
-        scores = ModalityScores(phone=5.0, vision=5.0, physio=5.0, audio=5.0, risk_reg=5.0)
+        scores = ModalityScores(
+            phone=5.0, vision=5.0, physio=5.0, audio=5.0, risk_reg=5.0
+        )
         result = engine.compute(scores)
         assert 0.0 <= result <= 1.0
 
@@ -317,14 +340,25 @@ class TestPrismInsightScorer:
         assert 61 <= result.insight_score <= 80
 
     def test_high_priority_tier(self):
-        scores = ModalityScores(phone=0.9, vision=0.9, physio=0.8, audio=0.7, risk_reg=1.0)
+        scores = ModalityScores(
+            phone=0.9, vision=0.9, physio=0.8, audio=0.7, risk_reg=1.0
+        )
         result = PrismInsightScorer.interpret(0.90, 0.9, scores)
         assert result.tier_label == "High-priority pattern"
         assert 81 <= result.insight_score <= 100
 
     def test_never_produces_diagnostic_labels(self):
-        prohibited = {"healthy", "depressed", "suicidal", "depression", "mentally ill",
-                       "psychiatric", "clinical", "diagnosis", "disorder"}
+        prohibited = {
+            "healthy",
+            "depressed",
+            "suicidal",
+            "depression",
+            "mentally ill",
+            "psychiatric",
+            "clinical",
+            "diagnosis",
+            "disorder",
+        }
         scores = ModalityScores(phone=0.5)
         result = PrismInsightScorer.interpret(0.50, 0.5, scores)
 
@@ -412,9 +446,11 @@ class TestMLEngineIntegration:
 
         db = TestingSessionLocal()
         try:
-            score = db.query(models.RiskScoreV2).filter(
-                models.RiskScoreV2.window.has(user_id=subj)
-            ).first()
+            score = (
+                db.query(models.RiskScoreV2)
+                .filter(models.RiskScoreV2.window.has(subject_id=subj))
+                .first()
+            )
             # May or may not have persisted if no window exists, but evaluate_and_persist
             # should not crash.
             db.close()
@@ -544,8 +580,17 @@ class TestNonDiagnosticConstraint:
     """Verify non-negotiable constraint: never produce clinical/diagnostic labels."""
 
     def test_insight_tiers_contain_no_diagnostic_terms(self):
-        prohibited = {"healthy", "depressed", "suicidal", "mentally ill",
-                       "depression", "anxiety", "clinical", "disorder", "diagnosis"}
+        prohibited = {
+            "healthy",
+            "depressed",
+            "suicidal",
+            "mentally ill",
+            "depression",
+            "anxiety",
+            "clinical",
+            "disorder",
+            "diagnosis",
+        }
         for _, _, label, summary in INSIGHT_TIERS:
             combined = f"{label} {summary}".lower()
             for word in prohibited:
@@ -567,6 +612,6 @@ class TestNonDiagnosticConstraint:
             result = PrismInsightScorer.interpret(score_val, score_val, scores)
             combined = " ".join(result.contributing_factors).lower()
             for word in prohibited:
-                assert word not in combined, (
-                    f"'{word}' in contributing factors at score={score_val}: {result.contributing_factors}"
-                )
+                assert (
+                    word not in combined
+                ), f"'{word}' in contributing factors at score={score_val}: {result.contributing_factors}"

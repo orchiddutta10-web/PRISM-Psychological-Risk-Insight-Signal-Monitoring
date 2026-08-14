@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Modal, SafeAreaView } from 'react-native';
 import { MapPin, Keyboard, Smartphone, Play, Pause, Settings, RefreshCw, Bell, AlertTriangle, ShieldCheck, X } from 'lucide-react-native';
 import { ApiClient, TokenManager } from '../services/api';
+import { socketService } from '../services/socket';
 import {
   startTelemetry,
   pauseTelemetry,
@@ -40,40 +41,18 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
   }, [deviceId]);
 
   useEffect(() => {
-    let ws: WebSocket | null = null;
-    const connectWs = async () => {
-      try {
-        const token = await TokenManager.getToken();
-        if (!token) return;
-        
-        const wsUrl = `ws://localhost:8000/api/v1/events/ws?token=${token}`;
-        ws = new WebSocket(wsUrl);
-        
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.severity_tier) {
-              setActiveAlert(data);
-              setShowAlertBanner(true);
-            }
-          } catch (e) {
-            console.error('Error parsing device WS message:', e);
-          }
-        };
+    socketService.connect('/events/ws');
 
-        ws.onclose = () => {
-          // Reconnect logic
-          setTimeout(connectWs, 3000);
-        };
-      } catch (err) {
-        console.error('WS Connection error:', err);
+    const unsubscribe = socketService.subscribe((data) => {
+      if (data.severity_tier) {
+        setActiveAlert(data);
+        setShowAlertBanner(true);
       }
-    };
-
-    connectWs();
+    });
 
     return () => {
-      if (ws) ws.close();
+      unsubscribe();
+      socketService.disconnect();
     };
   }, []);
 

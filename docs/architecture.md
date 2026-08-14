@@ -155,7 +155,21 @@ erDiagram
 
 ---
 
-## 3. Core Security & Privacy Protocols
+## 3. NOVA AI Configuration
+
+NOVA chat is served by the FastAPI API at `POST /api/v1/nova/chat` and `GET /api/v1/nova/conversations/{conversation_id}`. Both routes require the existing guardian bearer token and store conversation turns in the existing companion memory tables.
+
+Configure the model only on the backend:
+
+```text
+GEMINI_API_KEY=<server-only Gemini API key>
+NOVA_AI_MODEL=gemini-2.0-flash
+NOVA_AI_TIMEOUT_SECONDS=20
+```
+
+Never expose `GEMINI_API_KEY` through `NEXT_PUBLIC_*` variables or the Next.js client.
+
+## 4. Core Security & Privacy Protocols
 * **Field-Level Encryption:** Sensitive telemetry data (like latitude/longitude metadata or raw timestamp logs) is encrypted before storage using AES-256-GCM.
 * **Immutable Audit Trail:** Any read or write of teen telemetry, or access to guardian screens, writes an audit record immediately.
 * **Dual-Consent Sign-off:** No telemetry is collected or processed without active tokens matching the current consent status from both registered Guardian and Teen devices.

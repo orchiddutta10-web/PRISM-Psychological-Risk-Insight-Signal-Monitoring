@@ -31,7 +31,9 @@ CPUQuota=200%
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/log/prism-edge /var/lib/prism-edge /tmp
+# The edge node writes the SQLite offline DB next to its source tree
+# (/opt/prism-edge/prism_edge.db) in addition to the configured log/data dirs.
+ReadWritePaths=/var/log/prism-edge /var/lib/prism-edge /opt/prism-edge /tmp
 PrivateTmp=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 

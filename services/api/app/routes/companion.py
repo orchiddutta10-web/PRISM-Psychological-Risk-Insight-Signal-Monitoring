@@ -1,19 +1,347 @@
+import hashlib
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from sqlalchemy.exc import SQLAlchemyError
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app import models
 from app.database import get_db
+from app.config import settings
 from app.utils import audit, auth
+from app.utils.rate_limiter import rate_limit
 from app.utils.companion_engine import (
+    CRISIS_RESPONSE,
     DISCLOSURE_BANNER,
     PERSONAS,
+    _raise_crisis_alert,
+    check_crisis,
     handle_companion_message,
 )
+from app.utils.text_screening import screen_text
+from app.services.nova_ai_service import NovaProviderError, NovaProviderUnavailable, NovaTurn, generate_response
 
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
+nova_router = APIRouter(prefix="/api/v1/nova", tags=["NOVA"])
+
+
+NOVA_ACTIONS = {
+    "risk_report",
+    "mood_patterns",
+    "system_status",
+    "privacy_protocol",
+}
+
+
+class NovaChatRequest(BaseModel):
+    conversation_id: str | None = None
+    message: str
+    persona_id: str = "listener"
+    action: str | None = Field(default=None, pattern="^(risk_report|mood_patterns|system_status|privacy_protocol)$")
+
+
+class NovaMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: str
+
+
+def _safe_id(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+
+
+def _guardian_device_ids(db: Session, guardian: models.Guardian) -> list[str]:
+    return [
+        row.id
+        for row in db.query(models.ChildDevice.id)
+        .filter(models.ChildDevice.guardian_id == guardian.id)
+        .all()
+    ]
+
+
+def _nova_session(db: Session, guardian: models.Guardian, conversation_id: str | None, persona_id: str):
+    device_ids = _guardian_device_ids(db, guardian)
+    if not device_ids:
+        raise HTTPException(status_code=404, detail="No linked PRISM device is available for this account")
+    if conversation_id:
+        session = (
+            db.query(models.CompanionSession)
+            .filter(
+                models.CompanionSession.id == conversation_id,
+                models.CompanionSession.subject_id.in_(device_ids),
+            )
+            .first()
+        )
+        if not session:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return session
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="No PRISM device is linked to this account")
+    if persona_id not in PERSONAS:
+        raise HTTPException(status_code=400, detail="Invalid persona ID")
+    session = models.CompanionSession(
+        subject_id=device_ids[0], persona_id=persona_id, channel="nova-web"
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+def _nova_context(db: Session, device_ids: list[str]) -> str | None:
+    if not device_ids:
+        return "Authorized PRISM context: no linked device, telemetry, risk, alert, or synchronization data is available."
+
+    try:
+        sections: list[str] = [
+            "Authorization: guardian-owned device scope only; raw message content, audio, video, and screenshots are unavailable.",
+            f"Backend/database status: available; authorized device count={len(device_ids)}.",
+            f"AI service configuration: {'configured' if settings.GEMINI_API_KEY else 'unconfigured'}; provider secrets are not exposed.",
+        ]
+        devices = db.query(models.ChildDevice).filter(models.ChildDevice.id.in_(device_ids)).all()
+        device_status = "; ".join(
+            f"name={device.name} platform={device.platform} last_seen={device.last_seen.isoformat() if device.last_seen else 'unavailable'}"
+            for device in devices
+        )
+        sections.append(f"Device connection and last synchronization: {device_status or 'unavailable'}.")
+
+        v2_risk_rows = (
+            db.query(models.RiskScoreV2, models.BehaviorWindow)
+            .join(models.BehaviorWindow, models.RiskScoreV2.window_id == models.BehaviorWindow.id)
+            .filter(models.BehaviorWindow.subject_id.in_(device_ids))
+            .order_by(models.BehaviorWindow.end_ts.desc())
+            .limit(7)
+            .all()
+        )
+        legacy_risk_rows = (
+            db.query(models.RiskScore)
+            .filter(models.RiskScore.device_id.in_(device_ids))
+            .order_by(models.RiskScore.timestamp.desc())
+            .limit(5)
+            .all()
+        )
+        if v2_risk_rows:
+            sections.append("Risk scores and recent trend: " + "; ".join(
+                f"score={risk.score_value:g} level={risk.risk_level} window={window.start_ts.isoformat()} to {window.end_ts.isoformat()} factors={', '.join(risk.contributing_factors[:3]) or 'none recorded'}"
+                for risk, window in v2_risk_rows
+            ))
+        elif legacy_risk_rows:
+            sections.append("Risk scores: " + "; ".join(
+                f"model={row.model_name} score={row.score:g} flagged={row.flagged} timestamp={row.timestamp.isoformat()} factors={', '.join(row.contributing_factors[:3]) or 'none recorded'}"
+                for row in legacy_risk_rows
+            ))
+        else:
+            sections.append("Risk scores and recent trend: unavailable; no authorized risk assessments are recorded.")
+
+        windows = (
+            db.query(models.BehaviorWindow)
+            .filter(models.BehaviorWindow.subject_id.in_(device_ids))
+            .order_by(models.BehaviorWindow.end_ts.desc())
+            .limit(7)
+            .all()
+        )
+        if windows:
+            sections.append("Activity and sleep proxy windows: " + "; ".join(
+                f"{window.start_ts.isoformat()} to {window.end_ts.isoformat()} active_minutes={window.total_active_mins:g} sleep_hours_proxy={window.sleep_hours_proxy:g}"
+                for window in windows
+            ))
+        else:
+            sections.append("Activity and sleep proxy windows: unavailable.")
+
+        sleep = (
+            db.query(models.SleepWindow)
+            .filter(models.SleepWindow.subject_id.in_(device_ids))
+            .order_by(models.SleepWindow.estimated_start.desc())
+            .limit(5)
+            .all()
+        )
+        sections.append("Sleep windows: " + ("; ".join(
+            f"{row.estimated_start.isoformat()} to {row.estimated_end.isoformat()} confidence={row.confidence:g}"
+            for row in sleep
+        ) if sleep else "unavailable."))
+
+        alerts = (
+            db.query(models.AlertV2)
+            .filter(models.AlertV2.subject_id.in_(device_ids))
+            .order_by(models.AlertV2.created_at.desc())
+            .limit(8)
+            .all()
+        )
+        sections.append("Alerts: " + ("; ".join(
+            f"created={row.created_at.isoformat()} read={row.is_read} summary={row.summary[:240]}"
+            for row in alerts
+        ) if alerts else "none recorded."))
+
+        telemetry_rows = (
+            db.query(models.UnifiedEvent)
+            .filter(models.UnifiedEvent.subject_id.in_(device_ids))
+            .order_by(models.UnifiedEvent.timestamp.desc())
+            .limit(50)
+            .all()
+        )
+        if telemetry_rows:
+            modalities = sorted({row.modality for row in telemetry_rows})
+            latest = telemetry_rows[0].timestamp.isoformat() if telemetry_rows[0].timestamp else "unavailable"
+            sections.append(f"Telemetry: available modalities={', '.join(modalities)} latest_event={latest} event_count_sample={len(telemetry_rows)}; raw encrypted values unavailable.")
+        else:
+            sections.append("Telemetry: unavailable; no authorized unified events are recorded.")
+
+        grants = (
+            db.query(models.ConsentGrant)
+            .filter(models.ConsentGrant.subject_id.in_(device_ids))
+            .order_by(models.ConsentGrant.granted_at.desc())
+            .limit(30)
+            .all()
+        )
+        records = (
+            db.query(models.ConsentRecord)
+            .filter(models.ConsentRecord.device_id.in_(device_ids))
+            .order_by(models.ConsentRecord.granted_at.desc())
+            .limit(30)
+            .all()
+        )
+        consent_states = [f"{row.modality}={'granted' if row.is_granted and row.revoked_at is None else 'not granted'}" for row in grants]
+        consent_states.extend(f"{row.signal_type}={'granted' if row.revoked_at is None else 'revoked'}" for row in records)
+        sections.append("Authorization records: " + (", ".join(dict.fromkeys(consent_states)) if consent_states else "unavailable."))
+        sections.append("PRISM interpretation boundary: early-warning behavioral signals only; not a medical diagnosis.")
+    except SQLAlchemyError:
+        logging.getLogger(__name__).exception(
+            "NOVA PRISM context query failed for authorized device count=%s",
+            len(device_ids),
+        )
+        raise NovaProviderError("NOVA PRISM context is unavailable")
+
+    return "Authorized PRISM context:\n" + "\n".join(sections)
+
+
+def _nova_history(db: Session, session_id: str) -> list[NovaTurn]:
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.session_id == session_id)
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .limit(40)
+        .all()
+    )
+    return [NovaTurn(role=row.role, content=row.message) for row in rows]
+
+
+def _nova_message(row: models.ConversationMemory) -> dict:
+    return {
+        "id": row.id,
+        "role": row.role,
+        "content": row.message,
+        "timestamp": row.timestamp.isoformat() if row.timestamp else "",
+    }
+
+
+@nova_router.post("/chat", dependencies=[Depends(rate_limit)])
+def nova_chat(
+    req: NovaChatRequest,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
+    if req.action is not None and req.action not in NOVA_ACTIONS:
+        raise HTTPException(status_code=422, detail="Invalid NOVA quick action")
+
+    session = _nova_session(db, guardian, req.conversation_id, req.persona_id)
+    device_ids = _guardian_device_ids(db, guardian)
+    logging.getLogger(__name__).info(
+        "NOVA authenticated scope: guardian=%s devices=%s device_hashes=%s",
+        _safe_id(guardian.id),
+        len(device_ids),
+        [_safe_id(device_id) for device_id in device_ids],
+    )
+    history = _nova_history(db, session.id)
+    user_memory = models.ConversationMemory(
+        subject_id=session.subject_id,
+        session_id=session.id,
+        message=message,
+        role="user",
+    )
+    db.add(user_memory)
+    db.commit()
+
+    if check_crisis(message):
+        session.crisis_flag = True
+        db.commit()
+        _raise_crisis_alert(db, session)
+        response_text = CRISIS_RESPONSE
+    else:
+        try:
+            response_args = {
+                "history": history + [NovaTurn(role="user", content=message)],
+                "context": _nova_context(db, device_ids),
+                "persona_id": session.persona_id,
+            }
+            if req.action is not None:
+                response_args["action"] = req.action
+            response_text = generate_response(**response_args)
+        except NovaProviderUnavailable as exc:
+            db.delete(user_memory)
+            db.commit()
+            raise HTTPException(status_code=503, detail="NOVA AI is not configured") from exc
+        except NovaProviderError as exc:
+            db.delete(user_memory)
+            db.commit()
+            raise HTTPException(status_code=502, detail="NOVA could not respond right now") from exc
+        except Exception as exc:
+            db.delete(user_memory)
+            db.commit()
+            raise HTTPException(status_code=502, detail="NOVA could not respond right now") from exc
+
+    assistant_memory = models.ConversationMemory(
+        subject_id=session.subject_id,
+        session_id=session.id,
+        message=response_text,
+        role="assistant",
+    )
+    db.add(assistant_memory)
+    audit.log_audit_event(
+        db,
+        action="NOVA conversation accessed",
+        guardian_id=guardian.id,
+        device_id=session.subject_id,
+    )
+    db.commit()
+    db.refresh(assistant_memory)
+    return {
+        "conversation_id": session.id,
+        "message": _nova_message(assistant_memory),
+        "crisis_flag": session.crisis_flag,
+    }
+
+
+@nova_router.get("/conversations/{conversation_id}")
+def get_nova_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    session = _nova_session(db, guardian, conversation_id, "listener")
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.session_id == session.id)
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .limit(100)
+        .all()
+    )
+    audit.log_audit_event(
+        db,
+        action="NOVA conversation history accessed",
+        guardian_id=guardian.id,
+        device_id=session.subject_id,
+    )
+    return {
+        "conversation_id": session.id,
+        "persona_id": session.persona_id,
+        "messages": [_nova_message(row) for row in rows],
+    }
 
 
 class CompanionSessionCreate(BaseModel):
@@ -37,6 +365,145 @@ def list_personas():
         }
         for k, v in PERSONAS.items()
     ]
+
+
+class SimulateMessageRequest(BaseModel):
+    persona_id: str
+    message: str
+
+
+@router.post("/simulate")
+def simulate_persona(
+    req: SimulateMessageRequest,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """Simulate a persona response for the guardian dashboard."""
+    from app.utils.companion_engine import _respond, PERSONAS
+
+    if req.persona_id not in PERSONAS:
+        raise HTTPException(status_code=400, detail="Invalid persona ID")
+
+    persona = PERSONAS[req.persona_id]
+    response_text = _respond(persona, req.message)
+    return {"response": response_text}
+
+
+class RagSearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    device_id: str | None = None
+
+
+@router.post("/rag/search")
+def companion_rag_search(
+    req: RagSearchRequest,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    Lightweight lexical memory search over conversation_memory for the guardian's devices.
+    Kept under /companion so the dashboard chatbot has a real authenticated endpoint.
+    """
+    devices = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == guardian.id)
+        .all()
+    )
+    device_ids = [d.id for d in devices]
+    if req.device_id:
+        if req.device_id not in device_ids:
+            raise HTTPException(status_code=403, detail="Device not owned by guardian")
+        device_ids = [req.device_id]
+
+    if not device_ids:
+        return {"results_count": 0, "results": [], "method": "lexical"}
+
+    q = (req.query or "").strip().lower()
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(models.ConversationMemory.subject_id.in_(device_ids))
+        .order_by(models.ConversationMemory.timestamp.desc())
+        .limit(200)
+        .all()
+    )
+
+    scored = []
+    tokens = [t for t in q.replace(",", " ").split() if len(t) > 2]
+    for row in rows:
+        text = (row.message or "").lower()
+        if not tokens or any(t in text for t in tokens):
+            scored.append(
+                {
+                    "id": row.id,
+                    "role": row.role,
+                    "message": row.message,
+                    "sentiment": row.sentiment,
+                    "timestamp": row.timestamp.isoformat() if row.timestamp else None,
+                }
+            )
+        if len(scored) >= max(1, min(req.top_k, 20)):
+            break
+
+    return {"results_count": len(scored), "results": scored, "method": "lexical"}
+
+
+@router.get("/mood/timeline")
+def companion_mood_timeline(
+    days: int = Query(7, ge=1, le=90),
+    device_id: str | None = None,
+    db: Session = Depends(get_db),
+    guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """Aggregate daily dominant sentiment from conversation memory for guardian devices."""
+    from collections import Counter, defaultdict
+    from datetime import datetime, timedelta, timezone
+
+    devices = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == guardian.id)
+        .all()
+    )
+    device_ids = [d.id for d in devices]
+    if device_id:
+        if device_id not in device_ids:
+            raise HTTPException(status_code=403, detail="Device not owned by guardian")
+        device_ids = [device_id]
+
+    if not device_ids:
+        return {"daily_mood": []}
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (
+        db.query(models.ConversationMemory)
+        .filter(
+            models.ConversationMemory.subject_id.in_(device_ids),
+            models.ConversationMemory.timestamp >= since,
+        )
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .all()
+    )
+
+    by_day: dict[str, list[str]] = defaultdict(list)
+    for row in rows:
+        if not row.timestamp:
+            continue
+        key = row.timestamp.date().isoformat()
+        by_day[key].append((row.sentiment or "neutral").lower())
+
+    daily = []
+    for day, sentiments in sorted(by_day.items()):
+        counts = Counter(sentiments)
+        dominant, _ = counts.most_common(1)[0]
+        daily.append(
+            {
+                "date": day,
+                "dominant_sentiment": dominant,
+                "message_count": len(sentiments),
+                "breakdown": dict(counts),
+            }
+        )
+    return {"daily_mood": daily}
 
 
 @router.post("/sessions")
@@ -94,6 +561,23 @@ def create_session(
     }
 
 
+def _screening_summary(message: str) -> dict:
+    """Compact explainable signal summary from the text screening layer."""
+    screen = screen_text(message)
+    top_signals = sorted(
+        ((k, v) for k, v in screen.emotion.items() if v > 0), key=lambda x: -x[1]
+    )[:3]
+    return {
+        "alert_level": screen.alert_level,
+        "risk_index": screen.risk_index,
+        "distress_index": screen.distress_index,
+        "protective_index": screen.protective_index,
+        "sentiment": screen.sentiment,
+        "top_emotions": [{"label": k, "score": v} for k, v in top_signals],
+        "contributing_factors": screen.contributing_factors[:5],
+    }
+
+
 @router.post("/sessions/{session_id}/message")
 def send_message(
     session_id: str,
@@ -125,6 +609,7 @@ def send_message(
         "status": "processed",
         "response": response_text,
         "crisis_flag": session.crisis_flag,
+        "signals": _screening_summary(req.message),
     }
 
 
@@ -273,6 +758,7 @@ async def meta_webhook(payload: dict, request: Request, db: Session = Depends(ge
         "channel": channel,
         "response": response_text,
         "crisis_flag": session.crisis_flag,
+        "signals": _screening_summary(message_text),
     }
 
 

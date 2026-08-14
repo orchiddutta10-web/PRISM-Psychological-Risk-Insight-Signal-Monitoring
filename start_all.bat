@@ -53,7 +53,7 @@ REM ---- PRISM Edge Bridge ----
 if not "%1"=="--no-edge" if not "%2"=="--no-edge" if not "%3"=="--no-edge" (
     if exist "%EDGE_DIR%\edge_bridge.py" (
         echo [3/3] Starting PRISM Edge Bridge ^(port 8500^)...
-        start "PRISM-Edge" cmd /c "cd /d "%EDGE_DIR%" && ..\..\.venv\Scripts\python.exe edge_bridge.py --port 8500"
+        start "PRISM-Edge" cmd /c "cd /d "%EDGE_DIR%" && ..\.venv\Scripts\python.exe edge_bridge.py --port 8500"
         timeout /t 2 /nobreak >nul
     )
 )

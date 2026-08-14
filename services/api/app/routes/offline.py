@@ -29,7 +29,7 @@ BATCH_IDEMPOTENCY_TTL = 3600
 
 
 @router.post("/ingest/batch", response_model=BatchIngestResponse)
-def ingest_batch(
+async def ingest_batch(
     payload: BatchIngestRequest,
     request: Request,
     device=Depends(get_current_device),
@@ -45,10 +45,8 @@ def ingest_batch(
     cached = None
     if redis_client is not None:
         try:
-            raw = redis_client.get(idempotency_key)
-            if hasattr(raw, "__await__"):
-                pass  # async mock — skip cache
-            elif raw:
+            raw = await redis_client.get(idempotency_key)
+            if raw:
                 cached = raw
         except Exception:
             pass
@@ -66,21 +64,30 @@ def ingest_batch(
             unified = UnifiedEvent(
                 subject_id=payload.device_id,
                 modality=event.source,
-                encrypted_value=_json.dumps(event.payload),
                 confidence=1.0,
                 timestamp=event.timestamp,
             )
+            unified.value = event.payload
             db.add(unified)
             db.flush()
-            results.append(BatchResultItem(
-                row_index=i, status="synced", cloud_id=unified.id,
-            ))
+            results.append(
+                BatchResultItem(
+                    row_index=i,
+                    status="synced",
+                    cloud_id=unified.id,
+                )
+            )
             accepted += 1
         except Exception as e:
             db.rollback()
-            results.append(BatchResultItem(
-                row_index=i, status="rejected", error=str(e), code="internal_error",
-            ))
+            results.append(
+                BatchResultItem(
+                    row_index=i,
+                    status="rejected",
+                    error=str(e),
+                    code="internal_error",
+                )
+            )
             rejected += 1
             logger.warning("Batch event %d rejected: %s", i, e)
 
@@ -108,9 +115,15 @@ def ingest_batch(
 
     try:
         if redis_client:
-            redis_client.setex(idempotency_key, BATCH_IDEMPOTENCY_TTL, _json.dumps(response_data.model_dump()))
+            await redis_client.set(
+                idempotency_key,
+                _json.dumps(response_data.model_dump()),
+                ex=BATCH_IDEMPOTENCY_TTL,
+            )
     except Exception:
         pass
 
-    logger.info("Batch %s: accepted=%d rejected=%d", payload.batch_id, accepted, rejected)
+    logger.info(
+        "Batch %s: accepted=%d rejected=%d", payload.batch_id, accepted, rejected
+    )
     return response_data

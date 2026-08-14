@@ -79,8 +79,11 @@ def main() -> None:
     _pipelines["connectivity"] = connectivity
 
     sync_engine = SyncEngine(
-        offline_queue, connectivity,
-        config.API_BASE_URL, config.API_DEVICE_JWT, config.API_DEVICE_ID,
+        offline_queue,
+        connectivity,
+        config.API_BASE_URL,
+        config.API_DEVICE_JWT,
+        config.API_DEVICE_ID,
     )
     sync_engine.start()
     _pipelines["sync_engine"] = sync_engine
@@ -102,12 +105,14 @@ def main() -> None:
 
     # ── 1. Start ESP32 Bridge (lightweight Flask HTTP server) ──────
     from prism_edge.bridge.esp32_bridge import start_bridge
+
     bridge_thread = start_bridge(shared_state, state_lock)
     _pipelines["bridge"] = bridge_thread
 
     # ── 2. Start Camera + Vision Pipelines ─────────────────────────
     try:
         import cv2 as _cv2
+
         cv2 = _cv2
     except ImportError:
         logger.warning("OpenCV not available — camera/vision pipelines disabled")
@@ -144,7 +149,13 @@ def main() -> None:
         # Start vision processing thread
         vision_thread = threading.Thread(
             target=vision_loop,
-            args=(camera, face_extractor, pose_extractor, motion_extractor, shutdown_event),
+            args=(
+                camera,
+                face_extractor,
+                pose_extractor,
+                motion_extractor,
+                shutdown_event,
+            ),
             name="vision-pipeline",
             daemon=True,
         )
@@ -159,25 +170,31 @@ def main() -> None:
 
     # ── 3. Start Audio Pipeline ────────────────────────────────────
     from prism_edge.audio.voice_features import VoiceFeatureExtractor
+
     voice_extractor = VoiceFeatureExtractor()
     voice_extractor.start()
     _pipelines["voice"] = voice_extractor
 
     # ── 4. Start Feature Packer ────────────────────────────────────
     from prism_edge.packer.feature_packer import FeaturePacker
+
     packer = FeaturePacker(shared_state, state_lock, tx_queue)
     packer.start()
     _pipelines["packer"] = packer
 
     # ── 5. Start API Client (Writer) ───────────────────────────────
     from prism_edge.api.client import ApiClient
-    api_client = ApiClient(tx_queue, offline_queue=offline_queue, connectivity_monitor=connectivity)
+
+    api_client = ApiClient(
+        tx_queue, offline_queue=offline_queue, connectivity_monitor=connectivity
+    )
     api_client.start()
     _pipelines["api"] = api_client
 
     # Wire edge_bridge.py global references for offline queue + LCD
     try:
         from prism_edge.edge_bridge import set_offline_queue, set_lcd_controller
+
         set_offline_queue(offline_queue)
         set_lcd_controller(lcd)
     except ImportError:
@@ -201,22 +218,35 @@ def main() -> None:
         if now - last_health_log >= config.HEALTH_CHECK_INTERVAL_SEC:
             last_health_log = now
             from prism_edge.utils.health_monitor import get_health_snapshot
+
             health = get_health_snapshot()
-            api_connected = "connected" if api_client.connected else f"disconnected ({api_client.consecutive_failures} failures)"
+            api_connected = (
+                "connected"
+                if api_client.connected
+                else f"disconnected ({api_client.consecutive_failures} failures)"
+            )
             conn_status = "online" if connectivity.is_online() else "offline"
             queue_stats = offline_queue.count_by_status()
             pending = queue_stats.get("pending", 0) + queue_stats.get("failed", 0)
             syncing = " (syncing)" if sync_engine.active else ""
             logger.info(
                 "Health: CPU=%.1f%% RAM=%.1f%% Temp=%.1f°C API=%s Net=%s Queue=%d%s",
-                health["cpu_percent"], health["ram_percent"],
-                health["temperature_c"], api_connected, conn_status, pending, syncing,
+                health["cpu_percent"],
+                health["ram_percent"],
+                health["temperature_c"],
+                api_connected,
+                conn_status,
+                pending,
+                syncing,
             )
 
             # Thermal throttle warning
             if health["temperature_c"] > config.TEMP_THROTTLE_C:
-                logger.warning("Thermal throttle: %.1f°C exceeds threshold %.0f°C",
-                               health["temperature_c"], config.TEMP_THROTTLE_C)
+                logger.warning(
+                    "Thermal throttle: %.1f°C exceeds threshold %.0f°C",
+                    health["temperature_c"],
+                    config.TEMP_THROTTLE_C,
+                )
 
     # ── 7. Graceful Shutdown ───────────────────────────────────────
     logger.info("Shutdown signal received — stopping pipelines...")
@@ -238,6 +268,7 @@ def vision_loop(
     motion_interval = 1.0 / max(config.MOTION_FPS, 1)
 
     from prism_edge.vision.state_tracker import StateTracker
+
     state_tracker = StateTracker()
 
     logger.info("Vision pipeline started")
@@ -271,7 +302,10 @@ def vision_loop(
                 logger.debug("Pose extraction error: %s", e)
 
         # Motion extraction (throttled to MOTION_FPS)
-        if motion_extractor.ready and (timestamp - last_motion_frame_time) >= motion_interval:
+        if (
+            motion_extractor.ready
+            and (timestamp - last_motion_frame_time) >= motion_interval
+        ):
             last_motion_frame_time = timestamp
             try:
                 motion_feats = motion_extractor.extract(frame, timestamp)
@@ -284,7 +318,9 @@ def vision_loop(
         try:
             with state_lock:
                 voice_feats = shared_state.get("voice", {})
-            tracking_state = state_tracker.update(face_feats, pose_feats, motion_feats, voice_feats, timestamp)
+            tracking_state = state_tracker.update(
+                face_feats, pose_feats, motion_feats, voice_feats, timestamp
+            )
             with state_lock:
                 shared_state["tracking_state"] = tracking_state
         except Exception as e:

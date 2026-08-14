@@ -1,0 +1,22 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\Win 10\\Documents\\PRISM-Psychological-Risk-Insight-Signal-Monitoring.worktrees\\agents-backend-comprehensive-review-analysis\\services\\api']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [16516] using WatchFiles
+INFO:     Started server process [10324]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:58687 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiY2ZiMmY0OC05NGM2LTQ5MjUtOTkyYy0yZWQ1ZDFlNTVhNDMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTkyODh9.I1c9kRcNyRUI3m5dG1O9QmYer_lecTy7gL6-6a4FQzs" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:58782 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiY2ZiMmY0OC05NGM2LTQ5MjUtOTkyYy0yZWQ1ZDFlNTVhNDMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTkyODh9.I1c9kRcNyRUI3m5dG1O9QmYer_lecTy7gL6-6a4FQzs" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:58875 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZDk2NTFiOS05Mzc3LTRmMzgtYTM1ZS1lMzg1MTJlNzYwNmMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTk4NDJ9.--1ZZy2A_QHL-ye5rqMQHq2ZoS-_K_TCNPenT_QFcM8" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:58905 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZDk2NTFiOS05Mzc3LTRmMzgtYTM1ZS1lMzg1MTJlNzYwNmMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTk4NDJ9.--1ZZy2A_QHL-ye5rqMQHq2ZoS-_K_TCNPenT_QFcM8" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59298 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZDk2NTFiOS05Mzc3LTRmMzgtYTM1ZS1lMzg1MTJlNzYwNmMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTk4NDJ9.--1ZZy2A_QHL-ye5rqMQHq2ZoS-_K_TCNPenT_QFcM8" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59309 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZDk2NTFiOS05Mzc3LTRmMzgtYTM1ZS1lMzg1MTJlNzYwNmMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTk4NDJ9.--1ZZy2A_QHL-ye5rqMQHq2ZoS-_K_TCNPenT_QFcM8" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59607 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZDk2NTFiOS05Mzc3LTRmMzgtYTM1ZS1lMzg1MTJlNzYwNmMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTk4NDJ9.--1ZZy2A_QHL-ye5rqMQHq2ZoS-_K_TCNPenT_QFcM8" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:59620 - "WebSocket /api/v1/events/ws?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1ZDk2NTFiOS05Mzc3LTRmMzgtYTM1ZS1lMzg1MTJlNzYwNmMiLCJ0eXBlIjoiZ3VhcmRpYW4iLCJleHAiOjE3ODY2NTk4NDJ9.--1ZZy2A_QHL-ye5rqMQHq2ZoS-_K_TCNPenT_QFcM8" [accepted]
+INFO:     connection open

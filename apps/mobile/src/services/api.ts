@@ -1,7 +1,5 @@
 import * as SecureStore from 'expo-secure-store';
-
-// In local emulator/web environments, we use localhost or host IP.
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+import { API_BASE_URL } from '../config/network';
 
 export interface User {
   id: string;
@@ -24,46 +22,72 @@ export const TokenManager = {
     try {
       await SecureStore.setItemAsync('prism_jwt_token', token);
     } catch {
-      // Fallback for web testing
-      localStorage.setItem('prism_jwt_token', token);
+      // Fallback removed to avoid localStorage issues in React Native
     }
   },
   async getToken() {
     try {
       return await SecureStore.getItemAsync('prism_jwt_token');
     } catch {
-      return localStorage.getItem('prism_jwt_token');
+      return null;
     }
   },
   async clearToken() {
     try {
       await SecureStore.deleteItemAsync('prism_jwt_token');
     } catch {
-      localStorage.removeItem('prism_jwt_token');
+      // Fallback removed to avoid localStorage issues in React Native
     }
   }
 };
 
+const REQUEST_TIMEOUT_MS = 10000;
+const MAX_RETRIES = 3;
+
+const requestInterceptor = async (options: RequestInit = {}): Promise<RequestInit> => {
+  const token = await TokenManager.getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(options.headers || {})
+  };
+  return { ...options, headers };
+};
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export const ApiClient = {
-  async request(endpoint: string, options: RequestInit = {}) {
-    const token = await TokenManager.getToken();
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...(options.headers || {})
-    };
+  async request(endpoint: string, options: RequestInit = {}, retries = 0): Promise<any> {
+    const interceptedOptions = await requestInterceptor(options);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...interceptedOptions,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers
-    });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ detail: 'API Error' }));
+        throw new Error(errData.detail || 'Something went wrong');
+      }
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({ detail: 'API Error' }));
-      throw new Error(errData.detail || 'Something went wrong');
+      return await response.json();
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      // Retry logic for network errors or timeouts
+      if ((error.name === 'AbortError' || error.message.includes('Network')) && retries < MAX_RETRIES) {
+        const backoffMs = Math.pow(2, retries) * 1000; // Exponential backoff: 1s, 2s, 4s
+        console.warn(`[ApiClient] Request failed, retrying in ${backoffMs}ms... (${retries + 1}/${MAX_RETRIES})`);
+        await delay(backoffMs);
+        return this.request(endpoint, options, retries + 1);
+      }
+      
+      throw error;
     }
-
-    return await response.json();
   },
 
   async login(email: string, password: string): Promise<{ access_token: string, user: User }> {

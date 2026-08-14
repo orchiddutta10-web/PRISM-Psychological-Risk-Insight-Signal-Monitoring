@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/v1", tags=["behavior"])
 
 class TypingEventIngest(BaseModel):
     """Single keystroke event from Android."""
+
     device_id: str
     key: str
     event_type: str = Field(..., pattern=r"^(key_down|key_up)$")
@@ -36,6 +37,7 @@ class TypingEventIngest(BaseModel):
 
 class TypingBatchIngest(BaseModel):
     """Batch of typing events from a session."""
+
     device_id: str
     session_id: str
     events: list[dict]  # [{key, event_type, timestamp_ms}, ...]
@@ -74,7 +76,9 @@ def ingest_typing_batch(
 
     events = payload.events
     if len(events) < 5:
-        raise HTTPException(400, detail="Need at least 5 keystroke events for analysis.")
+        raise HTTPException(
+            400, detail="Need at least 5 keystroke events for analysis."
+        )
 
     # Sort by timestamp
     events.sort(key=lambda e: e.get("timestamp_ms", 0))
@@ -89,7 +93,9 @@ def ingest_typing_batch(
         if e.get("event_type") == "key_down":
             # Find matching key_up
             for j in range(i + 1, len(events)):
-                if events[j].get("event_type") == "key_up" and events[j].get("key") == e.get("key"):
+                if events[j].get("event_type") == "key_up" and events[j].get(
+                    "key"
+                ) == e.get("key"):
                     hold = events[j].get("timestamp_ms", 0) - e.get("timestamp_ms", 0)
                     if 10 < hold < 2000:  # valid range
                         hold_times.append(hold)
@@ -212,12 +218,35 @@ class RAGSearchRequest(BaseModel):
 def rag_search(
     req: RAGSearchRequest,
     db: Session = Depends(get_db),
-    current_device: models.ChildDevice = Depends(auth.get_current_device),
+    current_user: models.Guardian = Depends(auth.get_current_user),
+    device_id: str | None = None,
 ):
     """
     Semantic search over conversation memory and knowledge base.
     Uses keyword matching as a fallback until vector embeddings are integrated.
+    Searchable by the guardian dashboard (guardian token) or a device.
     """
+    # Resolve the subject device: explicit device_id, else the guardian's first device
+    if device_id:
+        auth.verify_guardian_device_access(current_user, device_id, db)
+        subject_id = device_id
+    else:
+        device = (
+            db.query(models.ChildDevice)
+            .filter(models.ChildDevice.guardian_id == current_user.id)
+            .first()
+        )
+        subject_id = str(device.id) if device else None
+
+    if not subject_id:
+        return {
+            "query": req.query,
+            "results_count": 0,
+            "results": [],
+            "method": "keyword",
+            "note": "No paired device with conversation memory.",
+        }
+
     query_lower = req.query.lower()
     limit = req.top_k
 
@@ -225,7 +254,7 @@ def rag_search(
     memories = (
         db.query(models.ConversationMemory)
         .filter(
-            models.ConversationMemory.subject_id == current_device.id,
+            models.ConversationMemory.subject_id == subject_id,
             models.ConversationMemory.message.ilike(f"%{query_lower}%"),
         )
         .order_by(models.ConversationMemory.timestamp.desc())
@@ -248,7 +277,7 @@ def rag_search(
         "query": req.query,
         "results_count": len(results),
         "results": results,
-        "method": "keyword"  # will be "vector" once embeddings are integrated
+        "method": "keyword",  # will be "vector" once embeddings are integrated
     }
 
 
@@ -306,6 +335,7 @@ def mood_timeline(
 
     # Aggregate daily sentiment
     from collections import Counter
+
     by_day = {}
     for entry in timeline:
         day = entry["date"]
@@ -318,12 +348,14 @@ def mood_timeline(
     for day, sentiments in sorted(by_day.items()):
         counts = Counter(sentiments)
         dominant = counts.most_common(1)[0][0] if counts else "neutral"
-        daily_mood.append({
-            "date": day,
-            "dominant_sentiment": dominant,
-            "message_count": len(sentiments),
-            "breakdown": dict(counts),
-        })
+        daily_mood.append(
+            {
+                "date": day,
+                "dominant_sentiment": dominant,
+                "message_count": len(sentiments),
+                "breakdown": dict(counts),
+            }
+        )
 
     return {
         "device_id": device_id,

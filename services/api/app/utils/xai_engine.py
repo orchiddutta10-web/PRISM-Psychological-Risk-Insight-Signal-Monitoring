@@ -35,12 +35,12 @@ logger = logging.getLogger(__name__)
 class XaiFactor:
     modality: str
     label: str
-    direction: str               # "↑↑↑" | "↑↑" | "↑" | "→" | "↓"
-    magnitude_pct: float         # 0–100 percentage
-    importance_weight: float     # 0–1, sum of all weights ≈ 1.0
-    confidence: str              # "High" | "Medium" | "Low"
-    raw_deviation: float         # original modality score 0–1
-    comparison_text: str         # human-readable comparison vs baseline
+    direction: str  # "↑↑↑" | "↑↑" | "↑" | "→" | "↓"
+    magnitude_pct: float  # 0–100 percentage
+    importance_weight: float  # 0–1, sum of all weights ≈ 1.0
+    confidence: str  # "High" | "Medium" | "Low"
+    raw_deviation: float  # original modality score 0–1
+    comparison_text: str  # human-readable comparison vs baseline
 
     def to_dict(self) -> dict:
         return {
@@ -57,8 +57,8 @@ class XaiFactor:
 
 @dataclass
 class XaiTimelineEvent:
-    day_offset: int              # days ago (0 = today)
-    event_type: str              # "modality_shift" | "threshold_cross"
+    day_offset: int  # days ago (0 = today)
+    event_type: str  # "modality_shift" | "threshold_cross"
     description: str
     insight_score: float
     tier_label: str
@@ -75,8 +75,8 @@ class XaiTimelineEvent:
 
 @dataclass
 class XaiCounterfactual:
-    behavior_change: str         # "Increase daily steps by 2,000"
-    estimated_impact: str        # "Significant" | "Moderate" | "Marginal"
+    behavior_change: str  # "Increase daily steps by 2,000"
+    estimated_impact: str  # "Significant" | "Moderate" | "Marginal"
     modality_affected: str
     rationale: str
     is_hypothetical: bool = True
@@ -94,8 +94,8 @@ class XaiCounterfactual:
 @dataclass
 class XaiConfidence:
     overall: float
-    data_completeness: float     # % of expected sensor data received
-    modality_confidences: dict[str, str]   # per-modality "High"/"Medium"/"Low"
+    data_completeness: float  # % of expected sensor data received
+    modality_confidences: dict[str, str]  # per-modality "High"/"Medium"/"Low"
     baseline_age_days: int
     missing_modalities: list[str]
     uncertainty_note: str
@@ -114,6 +114,7 @@ class XaiConfidence:
 @dataclass
 class AudienceLayers:
     """Three-tier output for guardian, clinician, and data scientist."""
+
     guardian: dict = field(default_factory=dict)
     clinician: dict = field(default_factory=dict)
     scientist: dict = field(default_factory=dict)
@@ -169,7 +170,9 @@ class ExplanationResult:
             timeline=self.timeline,
             counterfactuals=self.counterfactuals,
             audience_layers=self.audience_layers,
-            technical_details=(self.technical_details if audience == "scientist" else {}),
+            technical_details=(
+                self.technical_details if audience == "scientist" else {}
+            ),
         )
         # Overlay audience-specific content onto summary
         layer = self.audience_layers.filter(audience)
@@ -185,18 +188,24 @@ class XaiEngine:
     """Produces rich, multi-audience explanations from an InsightResult."""
 
     MODALITY_READABLE = {
-        "phone":    {"label": "Physical Activity & Screen Time", "column": "total_active_mins"},
-        "vision":   {"label": "Visual Engagement (Posture/Gaze)", "column": "avg_blink_rate_bpm"},
-        "physio":   {"label": "Physiological (Heart Rate)", "column": "avg_bpm"},
-        "audio":    {"label": "Vocal Patterns", "column": "avg_speech_segments"},
+        "phone": {
+            "label": "Physical Activity & Screen Time",
+            "column": "total_active_mins",
+        },
+        "vision": {
+            "label": "Visual Engagement (Posture/Gaze)",
+            "column": "avg_blink_rate_bpm",
+        },
+        "physio": {"label": "Physiological (Heart Rate)", "column": "avg_bpm"},
+        "audio": {"label": "Vocal Patterns", "column": "avg_speech_segments"},
         "risk_reg": {"label": "Safety Registry", "column": "risk_registry_hits"},
     }
 
     MODALITY_COMPARISONS = {
-        "phone":    "Compared to your recent screen-time and activity patterns.",
-        "vision":   "Based on changes in posture, blink rate, and time at screen.",
-        "physio":   "Relative to your typical resting heart rate and movement variance.",
-        "audio":    "Compared to your usual vocal engagement and speech patterns.",
+        "phone": "Compared to your recent screen-time and activity patterns.",
+        "vision": "Based on changes in posture, blink rate, and time at screen.",
+        "physio": "Relative to your typical resting heart rate and movement variance.",
+        "audio": "Compared to your usual vocal engagement and speech patterns.",
         "risk_reg": "New app installations or safety-registry matches detected.",
     }
 
@@ -474,7 +483,11 @@ class XaiEngine:
                 suggestions.append(
                     XaiCounterfactual(
                         behavior_change="Increase daily physical activity and reduce late-night screen time.",
-                        estimated_impact="Significant" if factor.importance_weight > 0.15 else "Moderate",
+                        estimated_impact=(
+                            "Significant"
+                            if factor.importance_weight > 0.15
+                            else "Moderate"
+                        ),
                         modality_affected="phone",
                         rationale=(
                             "Screen time and activity patterns are the strongest weighted "
@@ -593,15 +606,19 @@ class XaiEngine:
                 f"compared to your usual patterns."
             ),
             "primary_signal": (
-                f"{top_factor.label}: {top_factor.direction} {top_factor.magnitude_pct:.0f}% "
-                f"from baseline"
-            ) if top_factor else "All signals within baseline.",
+                (
+                    f"{top_factor.label}: {top_factor.direction} {top_factor.magnitude_pct:.0f}% "
+                    f"from baseline"
+                )
+                if top_factor
+                else "All signals within baseline."
+            ),
             "what_this_means": nl_explanation,
-            "suggested_actions": [
-                c.behavior_change for c in counterfactuals[:2]
-            ] if counterfactuals else [
-                "Continue monitoring. All signals are within expected ranges."
-            ],
+            "suggested_actions": (
+                [c.behavior_change for c in counterfactuals[:2]]
+                if counterfactuals
+                else ["Continue monitoring. All signals are within expected ranges."]
+            ),
         }
 
         clinician = {

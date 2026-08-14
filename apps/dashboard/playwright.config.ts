@@ -20,7 +20,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://127.0.0.1:3000',
     trace: 'on-first-retry',
     headless: true,
   },
@@ -44,12 +44,11 @@ export default defineConfig({
       timeout: 300 * 1000,
     },
     {
-      command: 'npm run dev',
+      command: 'npm run start',
       cwd: dashboardDirectory,
       url: 'http://127.0.0.1:3000',
       env: {
         ...process.env,
-        NODE_ENV: 'development',
         NEXT_PUBLIC_API_URL: 'http://127.0.0.1:8000',
         HOSTNAME: '127.0.0.1',
         PORT: '3000',

@@ -2,7 +2,16 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -509,12 +518,6 @@ class User(Base):
     devices = relationship(
         "Device", back_populates="user", cascade="all, delete-orphan"
     )
-    behavior_windows = relationship(
-        "BehaviorWindow", back_populates="user", cascade="all, delete-orphan"
-    )
-    alerts = relationship(
-        "AlertV2", back_populates="user", cascade="all, delete-orphan"
-    )
 
 
 class Device(Base):
@@ -608,13 +611,15 @@ class BehaviorWindow(Base):
     __tablename__ = "behavior_windows"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    subject_id = Column(
+        String, ForeignKey("child_devices.id"), nullable=False, index=True
+    )
     start_ts = Column(DateTime, nullable=False, index=True)
     end_ts = Column(DateTime, nullable=False)
     total_active_mins = Column(Float, nullable=False)
     sleep_hours_proxy = Column(Float, nullable=False)
 
-    user = relationship("User", back_populates="behavior_windows")
+    device = relationship("ChildDevice")
     risk_score = relationship(
         "RiskScoreV2",
         back_populates="window",
@@ -662,13 +667,15 @@ class AlertV2(Base):
     __tablename__ = "alerts_v2"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    subject_id = Column(
+        String, ForeignKey("child_devices.id"), nullable=False, index=True
+    )
     risk_score_id = Column(String, ForeignKey("risk_scores_v2.id"), nullable=True)
     created_at = Column(DateTime, default=_now, nullable=False)
     summary = Column(Text, nullable=False)
     is_read = Column(Boolean, default=False, nullable=False)
 
-    user = relationship("User", back_populates="alerts")
+    device = relationship("ChildDevice")
     risk_score = relationship("RiskScoreV2")
 
 
@@ -697,9 +704,7 @@ class ModelRegistry(Base):
     )  # draft | shadow | active | archived
     deployed_at = Column(DateTime, nullable=True)
     previous_version = Column(String, nullable=True)  # rollback link
-    audit_log_id = Column(
-        String, ForeignKey("audit_log_entries.id"), nullable=True
-    )
+    audit_log_id = Column(String, ForeignKey("audit_log_entries.id"), nullable=True)
     created_at = Column(DateTime, default=_now, nullable=False)
 
     device = relationship("ChildDevice")
@@ -726,9 +731,7 @@ class FeedbackRecord(Base):
     subject_id = Column(
         String, ForeignKey("child_devices.id"), nullable=False, index=True
     )
-    source = Column(
-        String, nullable=False
-    )  # "guardian" | "clinician" | "system"
+    source = Column(String, nullable=False)  # "guardian" | "clinician" | "system"
     feedback_type = Column(
         String, nullable=False
     )  # "helpful" | "not_helpful" | "false_alert" | "missed_alert" | "correct" | "incorrect"
@@ -798,9 +801,7 @@ class GuardianConnection(Base):
     __tablename__ = "guardian_connections"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    guardian_id = Column(
-        String, ForeignKey("guardians.id"), nullable=False, index=True
-    )
+    guardian_id = Column(String, ForeignKey("guardians.id"), nullable=False, index=True)
     device_id = Column(
         String, ForeignKey("child_devices.id"), nullable=False, index=True
     )
@@ -866,7 +867,9 @@ class GuardianAccessLog(Base):
     connection_id = Column(
         String, ForeignKey("guardian_connections.id"), nullable=False, index=True
     )
-    action = Column(String, nullable=False)  # VIEW_DASHBOARD | VIEW_ALERT | VIEW_TIMELINE | ACKNOWLEDGE_ALERT
+    action = Column(
+        String, nullable=False
+    )  # VIEW_DASHBOARD | VIEW_ALERT | VIEW_TIMELINE | ACKNOWLEDGE_ALERT
     resource = Column(String, nullable=True)
     ip_address = Column(String, nullable=True)
     timestamp = Column(DateTime, default=_now, nullable=False)

@@ -1,0 +1,13 @@
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ ReferenceError: darkInput is not defined
+    at LoginPage (src\app\page.tsx:212:218)
+  210 |               {mode === 'signup' && <motion.div key="fullname" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}><Field icon={<User className="h-4 w-4 text-zinc-500" />} label="Full name"><input type="text" required placeholder="Your full name" value={fullName} onChange={e => setFullName(e.target.value)} className={darkInput} /></Field></motion.div>}
+  211 |             </AnimatePresence>
+> 212 |             <Field icon={<Mail className="h-4 w-4 text-zinc-500" />} label="Email address"><input type="email" required placeholder="name@example.com" value={email} onChange={e => setEmail(e.target.value)} className={darkInput} /></Field>
+      |                                                                                                                                                                                                                          ^
+  213 |             <Field icon={<Lock className="h-4 w-4 text-zinc-500" />} label="Password" right={<button type="button" aria-label={showPass ? 'Hide password' : 'Show password'} onClick={() => setShowPass(s => !s)} className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-zinc-500 hover:text-white">{showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>}><input type={showPass ? 'text' : 'password'} required placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className={`${darkInput} pr-12`} /></Field>
+  214 |             <AnimatePresence mode="popLayout">
+  215 |               {mode === 'signup' && <motion.div key="role" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}><Field icon={<Shield className="h-4 w-4 text-zinc-500" />} label="Role"><select value={role} onChange={e => setRole(e.target.value)} className={darkInput}><option value="guardian">Guardian (Standard)</option><option value="guardian-admin">Guardian-Admin (Audit Access)</option></select></Field></motion.div>} {
+  digest: '2809643871'
+}
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
