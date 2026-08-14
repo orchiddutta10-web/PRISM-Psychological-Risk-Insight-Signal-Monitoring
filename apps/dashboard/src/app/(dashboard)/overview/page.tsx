@@ -13,7 +13,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   apiFetch, apiFetchSafe, buildWsUrl, timeAgo, severityOf, riskLabel,
-  type ChildDevice, type BackendAlert, type RiskScore, type BaselineMap, type IngestionHealth,
+  type ChildDevice, type BackendAlert, type RiskScore, type BaselineMap, type IngestionHealth, type InsightScoreResponse
 } from '../../../lib/api'
 
 /* ─────────────────────────────────────────────────────────────
@@ -74,38 +74,38 @@ function SparkLine({ data, w = 520, h = 88 }: { data: DayPoint[]; w?: number; h?
         <line key={p} x1={pad.l} y1={pad.t + p * (h - pad.t - pad.b)} x2={w - pad.r} y2={pad.t + p * (h - pad.t - pad.b)}
           className="stroke-gray-100 dark:stroke-gray-800/80" strokeWidth={1} strokeDasharray="4 4" />
       ))}
-      <motion.path 
-        d={aFill} 
-        fill="url(#aGrad)" 
+      <motion.path
+        d={aFill}
+        fill="url(#aGrad)"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1, delay: 0.5 }}
       />
-      <motion.path 
-        d={bPath} 
-        fill="none" 
-        className="stroke-gray-300 dark:stroke-gray-600" 
-        strokeWidth={1.5} 
+      <motion.path
+        d={bPath}
+        fill="none"
+        className="stroke-gray-300 dark:stroke-gray-600"
+        strokeWidth={1.5}
         strokeDasharray="5 4"
         initial={{ pathLength: 0, opacity: 0 }}
         animate={{ pathLength: 1, opacity: 1 }}
         transition={{ duration: 1, ease: 'easeInOut' }}
       />
-      <motion.path 
-        d={aPath} 
-        fill="none" 
-        className="stroke-indigo-500 dark:stroke-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]" 
-        strokeWidth={2.5} 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
+      <motion.path
+        d={aPath}
+        fill="none"
+        className="stroke-indigo-500 dark:stroke-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.5)]"
+        strokeWidth={2.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
         initial={{ pathLength: 0 }}
         animate={{ pathLength: 1 }}
         transition={{ duration: 1.5, ease: 'easeOut', delay: 0.2 }}
       />
       {data.map((d, i) => (
-        <motion.circle 
-          key={i} 
-          cx={sx(i)} cy={sy(d.actual)} 
+        <motion.circle
+          key={i}
+          cx={sx(i)} cy={sy(d.actual)}
           r={i === data.length - 1 ? 5 : 3.5}
           className={`stroke-indigo-500 dark:stroke-indigo-400 ${i === data.length - 1 ? 'fill-indigo-500 dark:fill-indigo-400' : 'fill-white dark:fill-[#1C1C1E]'}`}
           strokeWidth={i === data.length - 1 ? 0 : 2}
@@ -264,6 +264,10 @@ export default function OverviewPage() {
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const [logs, setLogs] = useState<string[]>([])
   const [simRunning, setSim] = useState(false)
+  const [colabResult, setColabResult] = useState<any>(null)
+  const [insight, setInsight] = useState<InsightScoreResponse | null>(null)
+  const [insightLoading, setInsightLoading] = useState(false)
+  const [insightError, setInsightError] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
 
   const device = devices.find(d => d.id === activeId) ?? devices[0] ?? null
@@ -300,10 +304,21 @@ export default function OverviewPage() {
   }, [])
 
   const loadDeviceDetail = useCallback(async (tk: string, deviceId: string) => {
+    setInsightLoading(true)
+    setInsightError(false)
     const [bl, sc] = await Promise.all([
       apiFetchSafe<BaselineMap>(`/events/baselines/${deviceId}`, tk, {}),
       apiFetchSafe<RiskScore[]>(`/events/scores/${deviceId}`, tk, []),
     ])
+    try {
+      const ins = await apiFetch<InsightScoreResponse>(`/ml/insight/${deviceId}`, tk)
+      setInsight(ins)
+    } catch (e) {
+      setInsightError(true)
+      setInsight(null)
+    } finally {
+      setInsightLoading(false)
+    }
     setBaselines(bl)
     setScores(sc)
     setWeeklyData(buildWeeklyData(sc))
@@ -382,6 +397,28 @@ export default function OverviewPage() {
     setSim(false)
   }
 
+  const runColabTest = async () => {
+    if (!token) return
+    setSim(true)
+    pushLog(`[TEST] Sending 57 features to Colab ML endpoint...`)
+    try {
+      const sample = {
+        "Day_of_Week": 2, "Sleep_Score": 82, "Steps_Count": 5000, "Screen_Time_Hours": 4.5, "Typing_Speed_WPM": 65, "Pulse_Rate_BPM": 72, "Unique_POIs": 2,
+        "App_Activity_VS Code": 1, "sin_Day_of_Week": 0.9749, "cos_Day_of_Week": -0.2225,
+        "Sleep_Score_7d_mean": 80, "Sleep_Score_14d_mean": 79.5, "Sleep_Score_7d_std": 5, "Sleep_Score_dev_from_7d": 2,
+        "Steps_Count_7d_mean": 6000, "Steps_Count_dev_from_7d": -1000, "Screen_Time_Hours_7d_mean": 4, "Typing_Speed_WPM_7d_mean": 64,
+        "Pulse_Rate_BPM_7d_mean": 71, "Audio_Stress_Score": 0.4, "Vocal_Pitch_Variance": 0.6, "Speech_Pause_Ratio": 0.1, "RMS_Energy": 0.05,
+        "Spectral_Centroid": 1200, "MFCC_Mean": 0.0, "Facial_Valence_Score": 0.2, "Selfie_Smile_Pct": 45, "Eye_Fatigue_Index": 0.3
+      }
+      const res = await apiFetch('/ml/predict_colab', token, { method: 'POST', body: JSON.stringify(sample) })
+      setColabResult(res)
+      pushLog(`[TEST] Colab Prediction: ${res.risk_level} (Score: ${res.regressor_score.toFixed(1)})`)
+    } catch (err: any) {
+      pushLog(`[TEST] Failed: ${err.message}`)
+    }
+    setSim(false)
+  }
+
   const acknowledgeAlert = async (id: string) => {
     setAlerts(p => p.map(x => x.id === id ? { ...x, read: true } : x))
     if (token) await apiFetchSafe(`/events/alerts/viewed/${id}`, token, null as any, { method: 'POST' })
@@ -406,7 +443,7 @@ export default function OverviewPage() {
 
   return (
     <div className="relative">
-      
+
       {/* ═══════ ALERT SLIDE-OVER ═══════ */}
       {alertOpen && (
         <div className="fixed inset-y-0 right-0 w-full sm:w-[420px] bg-white dark:bg-[#1C1C1E] border-l border-gray-200 dark:border-gray-800 z-50 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
@@ -415,14 +452,14 @@ export default function OverviewPage() {
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">Alerts</h2>
               <p className="text-xs text-gray-500 mt-1">{unread} unread · {alerts.length} total</p>
             </div>
-            <button 
-              onClick={() => setAlertOpen(false)} 
+            <button
+              onClick={() => setAlertOpen(false)}
               className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-900 dark:hover:text-gray-300 transition-colors"
             >
               <X size={16} />
             </button>
           </div>
-          
+
           <div className="flex-1 overflow-y-auto">
             {alerts.length === 0 ? (
               <div className="p-10 text-center text-gray-500 text-sm">
@@ -432,12 +469,12 @@ export default function OverviewPage() {
             ) : (
               <div className="divide-y divide-gray-100 dark:divide-gray-800/60">
                 {alerts.map((a) => (
-                  <div 
-                    key={a.id} 
+                  <div
+                    key={a.id}
                     onClick={() => acknowledgeAlert(a.id)}
                     className={`p-4 cursor-pointer transition-colors ${
-                      !a.read 
-                        ? 'bg-blue-50/50 dark:bg-blue-900/10 border-l-4 border-l-blue-500' 
+                      !a.read
+                        ? 'bg-blue-50/50 dark:bg-blue-900/10 border-l-4 border-l-blue-500'
                         : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 border-l-4 border-l-transparent opacity-70'
                     }`}
                   >
@@ -449,18 +486,18 @@ export default function OverviewPage() {
                           <span className="text-[10px] text-gray-500 whitespace-nowrap pt-0.5">{a.time}</span>
                         </div>
                         <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-3">{a.summary}</p>
-                        
+
                         <div className="flex flex-wrap gap-2 mb-2">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                            a.severity === 'high' ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:border-red-500/20' : 
-                            a.severity === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20' : 
+                            a.severity === 'high' ? 'bg-red-50 text-red-600 border-red-200 dark:bg-red-500/10 dark:border-red-500/20' :
+                            a.severity === 'medium' ? 'bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/20' :
                             'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'
                           }`}>
                             {a.severity.charAt(0).toUpperCase() + a.severity.slice(1)}
                           </span>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{a.device}</span>
                         </div>
-                        
+
                         <div className="space-y-1">
                           {a.factors.map((f, fi) => (
                             <div key={fi} className="flex items-start gap-1.5 text-[11px] text-gray-500">
@@ -479,7 +516,7 @@ export default function OverviewPage() {
       )}
 
       {/* ═══════ BODY ═══════ */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: 'easeOut' }}
@@ -501,12 +538,12 @@ export default function OverviewPage() {
           {devices.map(d => {
             const active = activeId === d.id
             return (
-              <button 
-                key={d.id} 
-                onClick={() => selectDevice(d.id)} 
+              <button
+                key={d.id}
+                onClick={() => selectDevice(d.id)}
                 className={`w-full text-left p-4 rounded-xl border transition-all ${
-                  active 
-                    ? 'bg-gray-900 dark:bg-white text-white dark:text-black border-gray-900 dark:border-white shadow-md scale-[1.02]' 
+                  active
+                    ? 'bg-gray-900 dark:bg-white text-white dark:text-black border-gray-900 dark:border-white shadow-md scale-[1.02]'
                     : 'bg-white dark:bg-[#1C1C1E] text-gray-900 dark:text-white border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 hover:shadow-sm scale-100'
                 }`}
               >
@@ -524,7 +561,7 @@ export default function OverviewPage() {
 
                 <div className="flex items-center gap-2">
                   <div className={`flex-1 h-1.5 rounded-full overflow-hidden ${active ? 'bg-white/20 dark:bg-black/10' : 'bg-gray-100 dark:bg-gray-800'}`}>
-                    <div 
+                    <div
                       className={`h-full rounded-full transition-all duration-1000 ${active ? 'bg-white dark:bg-black' : 'bg-gray-900 dark:bg-white'}`}
                       style={{ width: `${d.riskScore}%` }}
                     />
@@ -544,11 +581,11 @@ export default function OverviewPage() {
           <div className="relative overflow-hidden rounded-2xl p-[1px] mt-4 shadow-lg group">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 opacity-20 group-hover:opacity-40 transition-opacity duration-700" />
             <div className="relative bg-white/90 dark:bg-[#1C1C1E]/90 backdrop-blur-xl border border-white/40 dark:border-gray-800 rounded-2xl p-5 h-full">
-              
+
               <div className="flex items-center justify-between mb-5">
                 <div>
                   <h3 className="text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-500 flex items-center gap-2">
-                    <Sparkles size={14} className="text-indigo-500" /> 
+                    <Sparkles size={14} className="text-indigo-500" />
                     Live Simulator
                   </h3>
                   <p className="text-[10px] font-medium text-gray-500 mt-1">Inject synthetic ML signals</p>
@@ -567,10 +604,10 @@ export default function OverviewPage() {
                   { s: 'B' as const, icon: <UserMinus size={16}/>, title: 'Social Withdrawal', desc: 'Simulates drop in steps & typing changes', textClass: 'text-amber-500 dark:text-amber-400', bgClass: 'bg-amber-50 dark:bg-amber-500/10' },
                   { s: 'C' as const, icon: <AlertTriangle size={16}/>, title: 'High-Risk App', desc: 'Installs unknown anonymous chat app', textClass: 'text-rose-500 dark:text-rose-400', bgClass: 'bg-rose-50 dark:bg-rose-500/10' },
                 ].map(({ s, icon, title, desc, textClass, bgClass }) => (
-                  <button 
-                    key={s} 
-                    onClick={() => runSim(s)} 
-                    disabled={simRunning || !device} 
+                  <button
+                    key={s}
+                    onClick={() => runSim(s)}
+                    disabled={simRunning || !device}
                     className="w-full relative overflow-hidden group/btn text-left p-3 rounded-xl border border-gray-100 dark:border-gray-800/80 bg-white dark:bg-black/20 hover:border-gray-300 dark:hover:border-gray-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md hover:-translate-y-0.5"
                   >
                     <div className="flex gap-3 items-start relative z-10">
@@ -584,6 +621,30 @@ export default function OverviewPage() {
                     </div>
                   </button>
                 ))}
+
+                {/* Colab Test Button */}
+                <button
+                  onClick={runColabTest}
+                  disabled={simRunning}
+                  className="w-full relative overflow-hidden group/btn text-left p-3 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md hover:-translate-y-0.5"
+                >
+                  <div className="flex gap-3 items-start relative z-10">
+                    <div className={`mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-inner transition-colors duration-300 bg-indigo-100 dark:bg-indigo-800 group-hover/btn:bg-opacity-80`}>
+                       <div className="text-indigo-600 dark:text-indigo-300"><Cpu size={16}/></div>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-900 dark:text-gray-100 mb-0.5 group-hover/btn:text-indigo-600 dark:group-hover/btn:text-indigo-400 transition-colors">Test Colab ML (57 Features)</h4>
+                      <p className="text-[10px] text-gray-500 leading-tight">Send explicit JSON to /predict_colab endpoint.</p>
+                      {colabResult && (
+                        <div className="mt-2 p-2 rounded bg-white dark:bg-black/40 border border-gray-100 dark:border-gray-700">
+                          <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Risk: <span className="text-indigo-600 dark:text-indigo-400">{colabResult.risk_level}</span></p>
+                          <p className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Score: <span className="text-indigo-600 dark:text-indigo-400">{colabResult.regressor_score.toFixed(1)}</span></p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+
               </div>
             </div>
           </div>
@@ -620,7 +681,7 @@ export default function OverviewPage() {
           ) : (
             <>
               {/* ═══════ PROFILE HEADER ═══════ */}
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.4, delay: 0.1 }}
@@ -654,23 +715,35 @@ export default function OverviewPage() {
                     <p className="text-[11px] text-gray-500 mt-1 font-semibold uppercase tracking-wider">{device.riskLabel}</p>
                   </div>
                   <div className="h-16 w-px bg-gray-200 dark:bg-gray-800 hidden sm:block" />
-                  <div className="flex-1 min-w-[120px]">
+                  <div className="flex-1 min-w-[140px]">
                     <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">Models Flagged</p>
-                    <span className="text-xs font-bold px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white inline-block bg-white dark:bg-[#1C1C1E]">
+                    <span className="text-xs font-bold px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white inline-block bg-white dark:bg-[#1C1C1E] mb-2">
                       {device.flaggedCount > 0 ? `${device.flaggedCount} of ${scores.length ? new Set(scores.map(s => s.model_name)).size : 4} active` : 'None — stable'}
                     </span>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Production ML Prediction</p>
+                    <div className="text-xs font-medium px-3 py-1.5 rounded border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 inline-block max-w-xs truncate">
+                      {insightLoading ? (
+                         <span className="flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Loading...</span>
+                      ) : insightError ? (
+                         <span className="text-red-500">API Error: Prediction Unavailable</span>
+                      ) : insight?.colab_ml_risk_level ? (
+                         <span>{insight.colab_ml_risk_level}</span>
+                      ) : (
+                         <span>No recent evaluation</span>
+                      )}
+                    </div>
                   </div>
-                  
+
                   <div className="flex items-center gap-2 w-full sm:w-auto mt-2 sm:mt-0">
-                    <button 
+                    <button
                       onClick={() => setAlertOpen(true)}
                       className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-white hover:bg-gray-50 dark:bg-[#2C2C2E] dark:hover:bg-gray-700 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700 rounded-xl text-sm font-bold transition-colors shadow-sm"
                     >
-                      <Bell size={16} className={unread > 0 ? 'text-red-500 fill-red-500/20 animate-pulse' : 'text-gray-400'} /> 
+                      <Bell size={16} className={unread > 0 ? 'text-red-500 fill-red-500/20 animate-pulse' : 'text-gray-400'} />
                       {unread > 0 ? `${unread} New` : 'Alerts'}
                     </button>
 
-                    <button 
+                    <button
                       onClick={() => { localStorage.setItem('prism_selected_device', device.id); router.push('/prism-node') }}
                       className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-gray-800 dark:bg-white dark:hover:bg-gray-100 text-white dark:text-black rounded-xl text-sm font-bold transition-colors shadow-sm"
                       title="Open PRISM Node wearable dashboard"
@@ -683,7 +756,7 @@ export default function OverviewPage() {
               </motion.div>
 
               {/* ═══════ PREMIUM BASELINE SIGNAL CARDS ═══════ */}
-              <motion.div 
+              <motion.div
                 initial="hidden"
                 animate="visible"
                 variants={{
@@ -701,18 +774,18 @@ export default function OverviewPage() {
 
                   const isWarning = latest?.flagged;
                   const isOffline = status === 'inactive';
-                  
+
                   const iconColor = isOffline ? 'text-slate-400' : isWarning ? 'text-rose-500' : 'text-teal-500';
                   const bgGrad = isOffline ? 'from-slate-500/5' : isWarning ? 'from-rose-500/10' : 'from-teal-500/10';
                   const strokeColor = isOffline ? '#64748b' : isWarning ? '#f43f5e' : '#14b8a6';
-                  const iconBg = isOffline ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/80 dark:border-slate-700/50' 
+                  const iconBg = isOffline ? 'bg-slate-50 border-slate-100 dark:bg-slate-800/80 dark:border-slate-700/50'
                                : isWarning ? 'bg-rose-50 border-rose-100 dark:bg-rose-500/10 dark:border-rose-500/20'
                                : 'bg-teal-50 border-teal-100 dark:bg-teal-500/10 dark:border-teal-500/20';
                   const borderClass = isWarning ? 'border-rose-200 dark:border-rose-900/50' : 'border-gray-200 dark:border-gray-800';
 
                   return (
-                    <motion.div 
-                      key={key} 
+                    <motion.div
+                      key={key}
                       variants={{
                         hidden: { opacity: 0, y: 15 },
                         visible: { opacity: 1, y: 0 }
@@ -722,13 +795,13 @@ export default function OverviewPage() {
                     >
                       {/* Background Graphic */}
                       <div className={`absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t ${bgGrad} to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-500`} />
-                      
+
                       {/* Abstract Waveform SVG in background */}
                       <div className="absolute -bottom-2 -left-2 -right-2 opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none">
                         <svg viewBox="0 0 100 20" preserveAspectRatio="none" className="w-full h-12">
-                          <path d={isWarning 
-                              ? "M0,10 Q10,0 20,10 T40,10 T60,0 T80,15 T100,5 L100,20 L0,20 Z" 
-                              : "M0,10 Q15,12 25,10 T50,10 T75,10 T100,10 L100,20 L0,20 Z"} 
+                          <path d={isWarning
+                              ? "M0,10 Q10,0 20,10 T40,10 T60,0 T80,15 T100,5 L100,20 L0,20 Z"
+                              : "M0,10 Q15,12 25,10 T50,10 T75,10 T100,10 L100,20 L0,20 Z"}
                             fill={strokeColor} />
                         </svg>
                       </div>
@@ -744,7 +817,7 @@ export default function OverviewPage() {
                           <StatusDot status={isOffline ? 'offline' : isWarning ? 'warning' : 'healthy'} size={8} />
                         </div>
                       </div>
-                      
+
                       {latest ? (
                         <div className="relative z-10 mt-2">
                           <div className="flex items-baseline gap-1.5 mb-3">
@@ -755,8 +828,8 @@ export default function OverviewPage() {
                           </div>
                           <div className="flex items-center justify-between">
                             <span className={`text-[10px] font-bold px-2 py-1 rounded-md flex items-center gap-1.5 border transition-all duration-300 ${
-                              isWarning 
-                                ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white border-transparent shadow-[0_4px_12px_rgba(244,63,94,0.3)]' 
+                              isWarning
+                                ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white border-transparent shadow-[0_4px_12px_rgba(244,63,94,0.3)]'
                                 : 'bg-white dark:bg-gray-800 text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-900/50 shadow-sm'
                             }`}>
                               {isWarning ? <AlertTriangle size={10} /> : <Activity size={10} />}
@@ -778,13 +851,13 @@ export default function OverviewPage() {
               </motion.div>
 
               {/* ═══════ WEEKLY TRENDS & ALERTS ROW ═══════ */}
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5, delay: 0.4 }}
                 className="grid grid-cols-1 lg:grid-cols-3 gap-5 md:gap-6"
               >
-                
+
                 {/* Chart Panel */}
                 <div className="lg:col-span-2 bg-white dark:bg-[#1C1C1E] border border-gray-200 dark:border-gray-800 rounded-2xl p-5 md:p-6 shadow-sm overflow-hidden flex flex-col">
                   <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4 mb-6">
@@ -801,7 +874,7 @@ export default function OverviewPage() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="w-full flex-1 flex flex-col justify-end min-h-[160px]">
                     {weeklyData.length > 0 ? (
                       <div className="w-full h-full relative">
@@ -838,7 +911,7 @@ export default function OverviewPage() {
                         AI Engine Insights
                       </h3>
                     </div>
-                    <button 
+                    <button
                       onClick={() => router.push('/alerts')}
                       className="text-[10px] font-bold text-gray-400 hover:text-white uppercase tracking-wider flex items-center gap-1 transition-colors bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded border border-white/5"
                     >
@@ -858,20 +931,20 @@ export default function OverviewPage() {
                     ) : (
                       <AnimatePresence>
                         {alerts.slice(0, 4).map((a, i) => (
-                          <motion.div 
-                            key={a.id} 
+                          <motion.div
+                            key={a.id}
                             initial={{ opacity: 0, x: 20 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ delay: i * 0.1 }}
                             onClick={() => acknowledgeAlert(a.id)}
                             className={`flex flex-col gap-2 p-4 rounded-xl cursor-pointer transition-all border backdrop-blur-md relative overflow-hidden ${
-                              !a.read 
-                                ? 'bg-indigo-900/10 border-indigo-500/30 hover:border-indigo-400/50 hover:bg-indigo-900/20 shadow-[0_0_15px_rgba(99,102,241,0.05)]' 
+                              !a.read
+                                ? 'bg-indigo-900/10 border-indigo-500/30 hover:border-indigo-400/50 hover:bg-indigo-900/20 shadow-[0_0_15px_rgba(99,102,241,0.05)]'
                                 : 'bg-gray-900/50 border-gray-800 hover:border-gray-700'
                             }`}
                           >
                             {!a.read && <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-indigo-400 to-purple-500" />}
-                            
+
                             <div className="flex justify-between items-start">
                               <h4 className={`text-xs font-bold leading-tight pr-2 flex items-center gap-2 ${!a.read ? 'text-indigo-100' : 'text-gray-400'}`}>
                                 {!a.read && <Sparkles size={12} className="text-indigo-400 animate-pulse shrink-0" />}
@@ -879,11 +952,11 @@ export default function OverviewPage() {
                               </h4>
                               <span className="text-[9px] text-gray-500 font-mono whitespace-nowrap">{a.time}</span>
                             </div>
-                            
+
                             <p className={`text-[11px] leading-relaxed line-clamp-2 ${!a.read ? 'text-indigo-200/70' : 'text-gray-500'}`}>
                               {a.summary}
                             </p>
-                            
+
                             {!a.read && (
                               <div className="flex items-center justify-between mt-1 pt-2 border-t border-indigo-500/20">
                                 <span className="text-[9px] text-indigo-400 font-medium flex items-center gap-1">
@@ -902,7 +975,7 @@ export default function OverviewPage() {
               </motion.div>
 
               {/* ═══════ REAL PIPELINE HEALTH KPIs ═══════ */}
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.5, delay: 0.6 }}

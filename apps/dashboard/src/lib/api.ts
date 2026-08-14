@@ -52,8 +52,9 @@ export function authHeaders(token: string): HeadersInit {
 
 export async function apiFetch<T = any>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
+    cache: 'no-store',
     ...init,
-    headers: { ...authHeaders(token), ...(init.headers || {}) },
+    headers: { ...authHeaders(token), 'Cache-Control': 'no-cache', ...(init.headers || {}) },
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -103,6 +104,20 @@ export interface RiskScore {
   flagged: boolean
   contributing_factors: string[]
   timestamp: string
+}
+
+export interface InsightScoreResponse {
+  subject_id: string
+  insight_score: number
+  tier_label: string
+  tier_summary: string
+  anomaly_score: number
+  modality_scores: Record<string, number>
+  fusion_score: number
+  contributing_factors: string[]
+  confidence: number
+  colab_ml_risk_level?: string | null
+  colab_ml_score?: number | null
 }
 
 export type BaselineMap = Record<string, { mean: number; variance: number }>

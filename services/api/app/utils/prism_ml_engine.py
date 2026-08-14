@@ -121,6 +121,8 @@ class InsightResult:
     fusion_score: float  # pre-scaling fusion output
     contributing_factors: list = field(default_factory=list)
     confidence: float = 1.0
+    colab_ml_risk_level: str = "ML prediction unavailable (missing features)"
+    colab_ml_score: Optional[float] = None
 
     def to_dict(self) -> dict:
         return {
@@ -135,6 +137,8 @@ class InsightResult:
             "fusion_score": round(self.fusion_score, 4),
             "contributing_factors": self.contributing_factors,
             "confidence": round(self.confidence, 3),
+            "colab_ml_risk_level": self.colab_ml_risk_level,
+            "colab_ml_score": round(self.colab_ml_score, 4) if self.colab_ml_score is not None else None,
         }
 
 
@@ -818,12 +822,7 @@ class PrismMLEngine:
         # ── Fusion ──────────────────────────────────────────────
         fusion_score = self._fusion.compute(modality_scores)
 
-        # ── Notebook-derived classifier boost (optional) ─────────
-        # If the behavioural classifier is loaded, use its confidence
-        # in sustained behavioural change (class 2) as a signal amplifier.
-        # Gracefully degrades if model file is missing or feature dims mismatch.
-        if anomaly_score > 0.15:  # only boost if IF detects some deviation
-            fusion_score = self._classifier_boost(x, fusion_score)
+        # (Deprecated notebook-derived classifier boost removed: incompatible with authoritative 57-feature Colab models)
 
         # ── Insight Interpretation ──────────────────────────────
         result = PrismInsightScorer.interpret(
@@ -832,6 +831,31 @@ class PrismMLEngine:
             modality_scores=modality_scores,
         )
         result.subject_id = subject_id
+
+        # ── Authoritative 57-Feature ML Prediction ──────────────
+        # Safely integrate the production Colab ML service.
+        # We explicitly gate this prediction because the live database
+        # currently only provides 16 features via FeatureVectorBuilder.
+        # We NEVER silently fabricate the remaining 41 features.
+        try:
+            from app.services.colab_ml_service import ColabMLService
+            from app.utils.production_feature_builder import ProductionFeatureBuilder
+
+            colab_svc = ColabMLService()
+            colab_builder = ProductionFeatureBuilder(db)
+            colab_features = colab_builder.build(subject_id)
+
+            if colab_features is not None:
+                prediction = colab_svc.predict(colab_features)
+                result.colab_ml_risk_level = prediction.risk_level
+                result.colab_ml_score = prediction.regressor_score
+            else:
+                result.colab_ml_risk_level = "ML prediction unavailable (missing 57-feature telemetry)"
+                result.colab_ml_score = None
+        except Exception as e:
+            logger.error("Failed to invoke ColabMLService: %s", e)
+            result.colab_ml_risk_level = "ML prediction unavailable (internal error)"
+
         return result
 
     def evaluate_and_persist(self, subject_id: str) -> Optional[InsightResult]:
@@ -919,66 +943,7 @@ class PrismMLEngine:
 
         return float(np.clip(total / max(len(hits) * 0.5, 1.0), 0.0, 1.0))
 
-    # ── Notebook-derived classifier boost ───────────────────────
-
-    def _load_classifier(self) -> None:
-        """Lazy-load the notebook-derived RandomForestClassifier (if available)."""
-        if self._classifier is not None:
-            return
-        try:
-            import joblib
-
-            model_path = os.path.join(_MODEL_DIR, "prism_behavioural_classifier.joblib")
-            scaler_path = os.path.join(_MODEL_DIR, "prism_behavioural_scaler.joblib")
-            if os.path.exists(model_path):
-                self._classifier = joblib.load(model_path)
-                if os.path.exists(scaler_path):
-                    self._classifier_scaler = joblib.load(scaler_path)
-                logger.info("Loaded behavioural classifier from disk")
-        except Exception as e:
-            logger.debug("Classifier not available: %s", e)
-            self._classifier = None
-
-    def _classifier_boost(self, feature_vector: np.ndarray, base_score: float) -> float:
-        """
-        Use the notebook-derived RandomForestClassifier to boost anomaly scores
-        when sustained multi-modal behavioural change is detected.
-
-        The classifier was trained on 79 engineered features (rolling windows,
-        ratios, cyclical encoding). The FeatureVectorBuilder produces 16 raw
-        features — dimension mismatch means the classifier boost is currently
-        inactive. It activates when the full feature engineering pipeline is
-        integrated (TimeSeriesFeatureEngineer → 79-dim → classifier).
-
-        Gracefully returns base_score unchanged when feature dims mismatch.
-        """
-        self._load_classifier()
-        if self._classifier is None:
-            return base_score
-
-        try:
-            n_expected = self._classifier.n_features_in_
-            n_actual = feature_vector.shape[0]
-            if n_actual != n_expected:
-                return base_score  # dim mismatch — FeatureVectorBuilder (16) vs classifier (79)
-
-            if self._classifier_scaler is not None:
-                x_scaled = self._classifier_scaler.transform(
-                    feature_vector.reshape(1, -1)
-                )
-            else:
-                x_scaled = feature_vector.reshape(1, -1)
-            proba = self._classifier.predict_proba(x_scaled)
-            # Only class 2 (Behavioural Change) contributes boost
-            if proba.shape[1] >= 3:
-                class2_prob = float(proba[0][2])
-            else:
-                class2_prob = 0.0
-            boost = class2_prob * 0.30  # max 30-point boost
-            return min(base_score + boost, 1.0)
-        except Exception as e:
-            logger.debug("Classifier boost failed: %s", e)
-            return base_score
+    # ── (Notebook-derived classifier boost removed) ───────────────
 
 
 # =========================================================================

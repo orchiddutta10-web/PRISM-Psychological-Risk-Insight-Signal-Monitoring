@@ -18,6 +18,7 @@ from app.utils import auth
 from app.utils.prism_ml_engine import PrismMLEngine
 from app.utils.xai_engine import ExplanationResult, XaiEngine
 from app.utils.drift_monitor import DriftMonitor, DriftReport, DataQualityReport
+from app.services.colab_ml_service import ColabModelFeatures, ColabPredictionResponse, ColabMLService
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,8 @@ class InsightScoreResponse(BaseModel):
     fusion_score: float
     contributing_factors: list[str]
     confidence: float
+    colab_ml_risk_level: str | None = None
+    colab_ml_score: float | None = None
 
 
 class InsightHistoryResponse(BaseModel):
@@ -86,6 +89,28 @@ def set_ml_engine(engine: PrismMLEngine) -> None:
 
 
 # ── Routes ──────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/predict_colab",
+    response_model=ColabPredictionResponse,
+    status_code=status.HTTP_200_OK,
+)
+def predict_colab(
+    features: ColabModelFeatures,
+) -> ColabPredictionResponse:
+    """
+    Development endpoint for testing the Colab-trained 57-feature models directly.
+    Accepts explicit features as JSON.
+    """
+    from app.config import settings
+    if settings.ENV.lower() == "production":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint is restricted to development/validation environments only."
+        )
+    service = ColabMLService()
+    return service.predict(features)
 
 
 @router.post(
@@ -183,6 +208,8 @@ def evaluate_subject(
         fusion_score=result.fusion_score,
         contributing_factors=result.contributing_factors,
         confidence=result.confidence,
+        colab_ml_risk_level=result.colab_ml_risk_level,
+        colab_ml_score=result.colab_ml_score,
     )
 
 
@@ -223,6 +250,8 @@ def get_latest_insight(
         fusion_score=latest.score_value / 100.0,
         contributing_factors=latest.contributing_factors,
         confidence=0.7,
+        colab_ml_risk_level=None,
+        colab_ml_score=None,
     )
 
 
@@ -261,6 +290,8 @@ def get_insight_history(
                 fusion_score=s.score_value / 100.0,
                 contributing_factors=s.contributing_factors,
                 confidence=0.7,
+                colab_ml_risk_level=None,
+                colab_ml_score=None,
             )
         )
 

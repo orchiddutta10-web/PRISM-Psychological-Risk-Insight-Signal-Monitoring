@@ -98,3 +98,9 @@ local_voice_assistant.py
 
 # Command Code AI assistant
 .commandcode/
+
+# Temp
+*.joblib.bak
+all_files.json
+scratch_audit.py
+ml_models/
