@@ -1,8 +1,9 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { API_BASE } from '@/lib/api'
 
-const API = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+const API = API_BASE
 
 interface Guardian {
   id: string

@@ -44,7 +44,8 @@ if not "%1"=="--no-dashboard" if not "%2"=="--no-dashboard" if not "%3"=="--no-d
     cd /d "%DASHBOARD_DIR%"
     call npm install --silent
     echo [2/3] Starting PRISM Dashboard ^(port 3000^)...
-    start "PRISM-Dashboard" cmd /c "cd /d "%DASHBOARD_DIR%" && npx next dev"
+    set NODE_ENV=development
+    start "PRISM-Dashboard" cmd /c "cd /d "%DASHBOARD_DIR%" && set NODE_ENV=development&& npx next dev"
     timeout /t 5 /nobreak >nul
 )
 

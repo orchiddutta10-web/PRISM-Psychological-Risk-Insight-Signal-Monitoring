@@ -1,0 +1,1 @@
+{"type": "library", "name": "LiquidCrystal_I2C", "version": "0.0.0+20260810105116", "spec": {"owner": null, "id": null, "name": "LiquidCrystal_I2C", "requirements": null, "uri": "file://C:/Users/deban/OneDrive/Documents/GitHub/PRISM-Psychological-Risk-Insight-Signal-Monitoring/prism_edge/prism_pulse/.pio/libdeps/esp32dev/LiquidCrystal_I2C"}}

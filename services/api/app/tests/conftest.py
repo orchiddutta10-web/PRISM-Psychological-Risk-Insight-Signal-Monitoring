@@ -3,8 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import create_engine
+
+from app.config import settings
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+
+settings.DEMO_MODE = False
 
 from app import models
 from app.database import Base, get_db

@@ -15,7 +15,7 @@ test.describe('PRISM Dashboard E2E Navigation & Social Auth Flow', () => {
 
     // 2. Toggle to "Sign Up" mode
     await page.getByRole('button', { name: 'Sign Up' }).click();
-    await expect(page.locator('h2')).toHaveText('Create account');
+    await expect(page.locator('h2')).toHaveText('Create an account');
     await expect(page.locator('button[type="submit"]')).toContainText('Create Account');
     
     // Verify "Full Name" and "Role" inputs are now visible
@@ -29,7 +29,13 @@ test.describe('PRISM Dashboard E2E Navigation & Social Auth Flow', () => {
 
     // 4. Perform Social Login (Google)
     // In our LoginPage, this registers a mock email/pass and logs in, redirecting to /overview
+    const devicesResponse = page.waitForResponse((response) =>
+      response.url().includes('/api/v1/auth/devices') &&
+      response.request().method() === 'GET' &&
+      response.status() === 200,
+    );
     await page.getByRole('button', { name: 'Google' }).click();
+    await devicesResponse;
 
     // 5. Verify redirect to Overview page
     await page.waitForURL('**/overview');
