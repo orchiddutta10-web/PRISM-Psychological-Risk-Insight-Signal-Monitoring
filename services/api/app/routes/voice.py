@@ -1,3 +1,6 @@
+import os
+import shutil
+
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
 from sqlalchemy.orm import Session
 
@@ -50,6 +53,17 @@ async def voice_checkin(
         raise HTTPException(
             status_code=403, detail="Active consent for voice modality is not granted."
         )
+
+    # 1b. Verify explicit voice_retention consent (required for raw-audio
+    # persistence; absent by default per the PRISM privacy spec).
+    retention_consent = (
+        db.query(models.ConsentGrant)
+        .filter(
+            models.ConsentGrant.subject_id == current_device.id,
+            models.ConsentGrant.modality == "voice_retention",
+        )
+        .first()
+    )
 
     # Reject oversized bodies by declared Content-Length up front, before any
     # bytes are read into memory (defense against memory-exhaustion DoS).

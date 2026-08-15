@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
 import pytest
 import warnings
 from unittest.mock import AsyncMock

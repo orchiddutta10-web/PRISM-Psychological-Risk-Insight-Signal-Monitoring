@@ -674,7 +674,9 @@ def test_voice_checkin():
         files={"audio": ("checkin.wav", sample_a, "audio/wav")},
     )
     assert response.status_code == 200
-    assert response.json()["audio_discarded"] is False
+    # Per the PRISM privacy spec, raw audio is ALWAYS discarded unless explicit
+    # `voice_retention` consent is granted — which this test does not grant.
+    assert response.json()["audio_discarded"] is True
 
 
 def test_pulse_isd_trigger_generates_guardian_alert():
@@ -702,6 +704,12 @@ def test_pulse_isd_trigger_generates_guardian_alert():
     )
     device_id = res_dev.json()["device"]["id"]
     device_jwt = res_dev.json()["device_jwt_token"]
+
+    # 1a. Grant pulse consent (required by the ingest endpoint)
+    db = TestingSessionLocal()
+    db.add(models.ConsentGrant(subject_id=device_id, modality="pulse", is_granted=True))
+    db.commit()
+    db.close()
 
     # 2. Normal pulse reading — must NOT produce a flagged alert
     client.post(

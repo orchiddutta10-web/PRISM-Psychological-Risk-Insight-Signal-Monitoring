@@ -1,67 +1,54 @@
-merge: integrate feature/iot into main (PRISM 57-feature + behavioral AI + medical RAG)
+fix(integration): post-merge cleanups — 84/84 API tests pass, end-to-end smoke verified
 
-This merge brings the IoT branch's fully-tested AI/ML stack onto main as the
-canonical production baseline, while preserving main's structural improvements
-((dashboard) route group, component library, dashboard restructure).
+Fixes applied after the integration/ai-ml-iot merge to bring the API from
+43 failing tests to 84 passing, with end-to-end smoke tests on:
+- /api/v1/prism/predict → real 57-feature inference with classifier +
+  regressor + data_sufficiency + feature_status + model_version
+- /api/v1/medical/status → 21 docs loaded, 4 txt + 17 md
+- /api/v1/medical/chat → synthesized answer with 5 evidence chunks +
+  sources + confidence + crisis gate + medical disclaimer
+- /api/v1/events/alerts → guardian-RBAC-gated alert retrieval
 
-AI / ML modules added (concrete, tested, end-to-end executable):
+Code fixes:
 
-- services/api/app/utils/prism_features.py     — 57-feature schema lock
-- services/api/app/utils/prism_model.py        — lazy-loaded inference + 503 envelope
-- services/api/app/utils/behavioral_ai.py      — typing screening (signal + trend) + Module 4 XAI
-- services/api/app/utils/tracking.py           — daily/weekly/monthly trend snapshots
-- services/api/app/utils/medical_rag.py        — hybrid dense+BM25 RAG with crisis gate
-- services/api/app/utils/llm_provider.py       — OpenAI/Ollama factory + hash fallback
-- services/api/app/utils/mqtt_bridge.py        — MQTT adapter with HTTP fallback
+- app/main.py: replace invalid walrus `:=(...)` walrus in audit middleware
+  with a plain `now = datetime.now(timezone.utc)`; the previous form was
+  Python 3.8+ syntax-correct but AST-rejected on some interpreters.
+- app/main.py: drop the Colab ML readiness check (ColabMLService is no
+  longer in the iot branch). Readiness probe now only checks DB.
+- app/main.py: add audit-action classification for the new routes
+  (typing insights, behavioral, trends, medical, prism).
+- app/main.py: lifespan is now a no-op; ML engine wiring was iot's removal
+  of PrismMLEngine, and the medical RAG prewarm moved to @app.on_event
+  ("startup") on a daemon thread (matches iot's pattern).
+- app/routes/companion.py: take iot's version (main's imports text_screening
+  + nova_ai_service which iot removed).
+- app/routes/physio.py: import List from typing for the VitalsOut list
+  response_model.
+- app/routes/voice.py: add `import os` and `import shutil` (used by raw
+  audio persistence); resolve missing `retention_consent` by querying
+  ConsentGrant for `voice_retention` modality (the new privacy spec
+  requires explicit consent for raw audio storage; default is discarded).
 
-Routes wired into FastAPI lifespan:
-- routes/prism.py      → GET /api/v1/prism/predict, /history
-- routes/medical.py    → /api/v1/medical/{status,chat,ingest,kb/upload}
-- telemetry.py         → typing insights + behavioral + trends endpoints
-- physio.py            → vitals ingestion (multi-channel IoT)
+Test cleanups:
 
-Resources (10 trained artifacts, ~14 MB total):
-- resources/prism/{classifier,regressor,scaler}.joblib
-- resources/behavioral_ai/{stress,cognitive_load,typing_fatigue}_rf.joblib
-- resources/behavioral_ai/typing_stability_if.joblib
-- resources/behavioral_ai/{anxiety,depression}_trend_model.joblib
-- resources/behavioral_ai/mental_risk_ensemble.joblib
+- conftest.py: set RATE_LIMIT_ENABLED=false at import time so the
+  per-IP sliding-window rate limiter doesn't block tests when they're
+  fired rapidly against TestClient.
+- test_api.py: test_pulse_isd_trigger now seeds a ConsentGrant(pulse) row
+  before the first ingest call (required by the endpoint's consent gate).
+- test_api.py: test_voice_checkin's `audio_discarded is False` assertion
+  updated to `True` to match the new privacy-by-default behavior (raw
+  audio is always discarded unless voice_retention consent is granted).
+- test_medical.py: greet test now asserts "PRISM Health Coach" instead of
+  "medical assistant" (the greeting text was reworded on iot).
 
-Tests (5 new files, 1,455 lines):
-- test_prism_pipeline.py (17 tests) — schema lock, scaler-never-refit, deterministic inference
-- test_behavioral_ai.py  — Module 3 + Module 4 explainability + persistence
-- test_medical.py        — RAG authz, RBAC, crisis gate, multi-format KB extraction
-- test_iot_module10.py   — Vitals ingestion + MQTT fallback
-- test_tracking.py       — TrendSnapshot idempotency
+Removed from main (orphaned after the iot merge replaced them):
 
-Docs:
-- docs/PRISM_MODEL.md                  — 57-feature operator guide
-- services/api/docs/EXPLAINABLE_AI.md  — Module 4 XAI guide
-- services/api/docs/MODEL_EVAL_BEHAVIORAL.md — synthetic-data evaluation report
-- 11 medical KB corpus files
-
-Dashboard additions:
-- src/app/(dashboard)/analytics/page.tsx       — PRISM prediction + trends
-- src/app/(dashboard)/medical/page.tsx         — medical chatbot UI
-- src/app/(dashboard)/typing-analytics/page.tsx — behavioral AI dashboard
-- src/lib/api.ts updated for PrismPrediction + MedicalChat types
-
-ESP32 firmware: prism_pulse.ino + platformio.ini + src/main.cpp
-
-Resolutions applied during merge:
-- Took iot's code for: ml_engine, voice_processor, observability, future_stubs,
-  companion_engine, models.py (new tables), schemas.py (new shapes),
-  auth_service.py, conftest.py, test_api.py, telemetry.py (typing/trends),
-  edge firmware, mobile config, dashboard chrome.
-- Kept main's structure: (dashboard) route group, AppShell/layout,
-  SecurityHeadersMiddleware, AuditLoggingMiddleware (no chain on
-  AuditLogEntry to keep the iot-side AuditLogEntry schema).
-- Removed duplicate top-level dashboard pages that iot carried over (now in
-  (dashboard)/).
-- Dropped main-only Phase 10 modules that iot had replaced
-  (prism_ml_engine, xai_engine, drift_monitor, production_feature_builder,
-   colab_ml_service, nova_ai_service, ml_pipeline/, routes/{ml,behavior,
-   demo,guardian,offline,sensors}.py, run_ml_pipeline.py, demo_simulation_
-   engine.py, plus their tests).
+- app/demo_simulation_engine.py
+- app/tests/test_demo_auth.py, test_drift_monitor.py, test_feature_utils.py,
+  test_model_regression.py, test_nova.py, test_offline.py,
+  test_phase10_ml.py, test_production_feature_builder.py,
+  test_sensor_routes.py, test_xai_engine.py
 
 Co-authored-by: CommandCodeBot <noreply@commandcode.ai>

@@ -121,11 +121,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             try:
                 from datetime import datetime, timezone
 
+                now = datetime.now(timezone.utc)
                 entry = models.AuditLogEntry(
                     actor_id=actor_id,
                     action=action,
                     resource=f"{method} {path}",
-                    timestamp=now := datetime.now(timezone.utc),
+                    timestamp=now,
                 )
                 entry.context = {
                     "ip": request.client.host if request.client else None,

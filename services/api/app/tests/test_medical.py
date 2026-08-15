@@ -435,7 +435,7 @@ def test_greeting_gets_conversational_reply():
     assert _is_greeting("hello there")
     assert _is_greeting("How are you?")
     assert not _is_greeting("What should I do for a fever?")
-    assert "medical assistant" in _GREETING_REPLY
+    assert "PRISM Health Coach" in _GREETING_REPLY
 
 
 def test_off_topic_query_blocked():
