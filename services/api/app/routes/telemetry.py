@@ -1,10 +1,5 @@
 import json
-<<<<<<< HEAD
-from datetime import datetime, timezone
-
-=======
 import threading
->>>>>>> feature/dashboard-ui
 from fastapi import (
     APIRouter,
     Depends,
@@ -537,14 +532,6 @@ async def websocket_endpoint(websocket: WebSocket):
                                 f"guardian_events:{sub_id}", json.dumps(payload)
                             )
 
-<<<<<<< HEAD
-                        # 2. Generate Aria response (real AI or fallback)
-                        import asyncio
-
-                        await asyncio.sleep(0.3)
-
-                        aria_text = await _generate_aria_ws_response(text)
-=======
                             # 2. Trigger mock Aria response after 1 second
                             import asyncio
 
@@ -555,7 +542,6 @@ async def websocket_endpoint(websocket: WebSocket):
                                 aria_text = "The Family Safety Plan gives you full access to live risk reports, bedtime anomaly alerts, and weekly behavioral digests."
                             elif "sleep" in text.lower() or "bedtime" in text.lower():
                                 aria_text = "I've saved their normal bedtime as part of the baseline. Any late-night phone usage out of the ordinary will be safely flagged."
->>>>>>> feature/dashboard-ui
 
                             aria_msg = models.ChatMessage(
                                 guardian_id=sub_id, sender="aria", aria_utterance=aria_text
@@ -677,38 +663,6 @@ async def trigger_demo_scenario(
     """Trigger a guided demo scenario (A, B, or C) from the dashboard for stakeholder replay."""
     auth.verify_guardian_device_access(current_guardian, req.device_id, db)
 
-<<<<<<< HEAD
-    # Automatically seed baselines if they don't exist
-    existing = (
-        db.query(models.BaselineProfile)
-        .filter(models.BaselineProfile.device_id == req.device_id)
-        .count()
-    )
-    if existing == 0:
-        b1 = models.BaselineProfile(
-            device_id=req.device_id,
-            signal_type="location",
-            rolling_mean=15000,
-            rolling_variance=0.5,
-            source="demo_seed",
-        )
-        b2 = models.BaselineProfile(
-            device_id=req.device_id,
-            signal_type="typing",
-            rolling_mean=1.0,
-            rolling_variance=0.1,
-            source="demo_seed",
-        )
-        b3 = models.BaselineProfile(
-            device_id=req.device_id,
-            signal_type="app_usage",
-            rolling_mean=1.5,
-            rolling_variance=0.2,
-            source="demo_seed",
-        )
-        db.add_all([b1, b2, b3])
-        db.commit()
-=======
     # Demo scenarios inject synthetic risk scores + alerts into the child's
     # REAL alert stream (and fire real guardian WebSocket notifications), so
     # they must never run in production.
@@ -718,7 +672,6 @@ async def trigger_demo_scenario(
         raise HTTPException(
             status_code=403, detail="Demo scenarios are disabled in production."
         )
->>>>>>> feature/dashboard-ui
 
     if req.scenario == "A":
         # Late-night usage spike

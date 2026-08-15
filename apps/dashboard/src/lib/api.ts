@@ -93,6 +93,18 @@ export interface ChildDevice {
   last_seen: string
 }
 
+export interface BackendAlert {
+  id: string
+  device_id: string
+  severity: string
+  severity_tier: string
+  message: string
+  plain_language_summary: string
+  contributing_factors: string[]
+  is_viewed: boolean
+  timestamp: string
+}
+
 export interface RiskScore {
   id: string
   device_id: string

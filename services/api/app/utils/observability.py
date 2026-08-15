@@ -84,11 +84,7 @@ class APMMiddleware(BaseHTTPMiddleware):
             process_time_ms = (time.perf_counter() - start_time) * 1000
             safe_err = _redact_error(e)
             logging.error(
-<<<<<<< HEAD
-                f"APM TRACE ERROR: {method} {path} failed after {process_time_ms:.2f}ms due to: {e!s}",
-=======
                 f"APM TRACE ERROR: {method} {path} failed after {process_time_ms:.2f}ms due to: {safe_err}",
->>>>>>> feature/dashboard-ui
                 exc_info=True,
                 extra={
                     "extra_data": {
@@ -101,11 +97,7 @@ class APMMiddleware(BaseHTTPMiddleware):
                 },
             )
             trigger_critical_alert(
-<<<<<<< HEAD
-                error_msg=f"HTTP endpoint {method} {path} failed: {e!s}",
-=======
                 error_msg=f"HTTP endpoint {method} {path} failed: {safe_err}",
->>>>>>> feature/dashboard-ui
                 context={"latency_ms": process_time_ms},
             )
             raise e

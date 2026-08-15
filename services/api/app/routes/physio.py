@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,15 +18,11 @@ class PhysioReadingIn(BaseModel):
     sensor_type: str = Field(..., pattern=r"^(gsr|ppg)$")  # 'gsr' or 'ppg'
     value: float
     variance: float = 0.0
-<<<<<<< HEAD
-    timestamp: datetime | None = None
-=======
     timestamp: Optional[datetime] = None
     # Marks demo/synthetic data (defaults to False = real sensor reading).
     # Mirrors the pulse ingest path so the health cache reports real vs
     # synthetic accurately.
     is_synthetic: bool = False
->>>>>>> feature/dashboard-ui
 
 
 class SleepWindowOut(BaseModel):

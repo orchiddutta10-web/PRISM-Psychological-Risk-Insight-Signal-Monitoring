@@ -1,30 +1,10 @@
 import logging
-<<<<<<< HEAD
-
-from cryptography.fernet import Fernet
-
-=======
 from cryptography.fernet import Fernet, InvalidToken
->>>>>>> feature/dashboard-ui
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
-# Validate configured encryption key. Generating a random fallback silently
-# would cause irreversible data loss — all previously encrypted fields would
-# become permanently unreadable after a restart.
-try:
-    key_bytes = settings.ENCRYPTION_KEY.encode()
-    fernet_client = Fernet(key_bytes)
-except Exception:
-    raise ValueError(
-        "FATAL: Invalid ENCRYPTION_KEY in configuration. "
-        "Cannot silently fall back to a random key — this would permanently "
-        "corrupt all previously encrypted data. Provide a valid 32-byte "
-        "base64-encoded Fernet key."
-    )
-=======
 
 def _build_fernet(key: str) -> Fernet:
     """Builds a Fernet client from the configured key, failing fast if invalid.
@@ -46,7 +26,6 @@ def _build_fernet(key: str) -> Fernet:
 
 
 fernet_client = _build_fernet(settings.ENCRYPTION_KEY)
->>>>>>> feature/dashboard-ui
 
 
 def encrypt_field(plain_text: str) -> str:

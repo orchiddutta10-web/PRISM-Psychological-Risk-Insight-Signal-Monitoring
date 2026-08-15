@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-=======
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Request
->>>>>>> feature/dashboard-ui
 from sqlalchemy.orm import Session
 
 from app import models
@@ -169,8 +165,6 @@ async def voice_checkin(
     # The voice_retention consent modality is reserved for future use with encrypted
     # feature-vector retention only, not raw audio storage.
 
-<<<<<<< HEAD
-=======
     persisted = False
     if retention_consent and retention_consent.is_granted:
         # Persist raw audio file under a server-generated name — NEVER the
@@ -187,7 +181,6 @@ async def voice_checkin(
         persisted = True
 
     # Audit logging
->>>>>>> feature/dashboard-ui
     audit.log_audit_event(
         db,
         action=f"Voice check-in processed. Emotion: {emotion_label}. Raw audio discarded per privacy policy.",

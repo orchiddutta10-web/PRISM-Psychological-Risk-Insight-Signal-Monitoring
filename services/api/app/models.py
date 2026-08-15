@@ -1,20 +1,6 @@
 import json
-<<<<<<< HEAD
+import json
 import uuid
-=======
-from sqlalchemy import (
-    Column,
-    String,
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Table,
-    Text,
-    Float,
-    Index,
-)
-from sqlalchemy.orm import relationship
->>>>>>> feature/dashboard-ui
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -26,6 +12,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Index,
+    Table,
 )
 from sqlalchemy.orm import relationship
 
@@ -272,14 +260,9 @@ class AuditLogEntry(Base):
     audit_detail_json = Column(
         Text, nullable=False
     )  # Immutable audit metadata (not user content)
-<<<<<<< HEAD
+    # Tamper-evident hash chain: each entry links to the previous entry's hash.
     prev_hash = Column(String, nullable=True)
     entry_hash = Column(String, nullable=False, default=generate_uuid)
-=======
-    # Tamper-evident hash chain: each entry links to the previous entry's hash.
-    prev_hash = Column(String, nullable=True)  # None for the first entry
-    entry_hash = Column(String, nullable=False)
->>>>>>> feature/dashboard-ui
 
     @property
     def context(self) -> dict:

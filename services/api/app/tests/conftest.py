@@ -1,28 +1,22 @@
 import warnings
 from unittest.mock import AsyncMock
 
-<<<<<<< HEAD
 import pytest
 from sqlalchemy import create_engine
-
-from app.config import settings
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-settings.DEMO_MODE = False
-
-from app import models
-from app.database import Base, get_db
-from app.main import app
-=======
 from app.config import settings
 
 # The test suite makes many rapid calls to the same auth endpoints from one
 # testclient IP; disable rate limiting to avoid self-lockout. Rate limiting is
 # enabled by default in all environments (see app/utils/rate_limiter.py).
 settings.RATE_LIMIT_ENABLED = False
->>>>>>> feature/dashboard-ui
+settings.DEMO_MODE = False
 
+from app import models
+from app.database import Base, get_db
+from app.main import app
 # Suppress upstream Starlette deprecation warning about httpx vs httpx2
 warnings.filterwarnings(
     "ignore", message=".*httpx.*testclient.*deprecated.*", module="starlette.testclient"

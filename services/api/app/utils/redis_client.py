@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Global in-memory storage and pubsub channels for the mock
 _mem_db: dict[str, str] = {}
+_mem_expiry: dict[str, float] = {}
 _subscribers: dict[str, set[asyncio.Queue]] = {}
 
 
@@ -44,10 +45,24 @@ class MockRedisClient:
         return True
 
     async def get(self, key: str):
+        expires_at = _mem_expiry.get(key)
+        if expires_at is not None:
+            import time
+
+            if time.time() >= expires_at:
+                _mem_db.pop(key, None)
+                _mem_expiry.pop(key, None)
+                return None
         return _mem_db.get(key)
 
     async def set(self, key: str, value: str, ex=None):
         _mem_db[key] = str(value)
+        if ex is not None:
+            import time
+
+            _mem_expiry[key] = time.time() + ex
+        else:
+            _mem_expiry.pop(key, None)
         return True
 
     async def publish(self, channel: str, message: str):
@@ -86,6 +101,11 @@ class MockPipeline:
                 _mem_db[key] = str(val)
                 results.append(val)
             elif cmd == "expire":
+                import time
+
+                key = args[0]
+                period = args[1]
+                _mem_expiry[key] = time.time() + period
                 results.append(True)
         self.commands = []
         return results

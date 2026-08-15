@@ -1,10 +1,6 @@
 import os
-<<<<<<< HEAD
-from pathlib import Path
-
-=======
 import logging
->>>>>>> feature/dashboard-ui
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -43,15 +39,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # Symmetric Fernet key for encrypting sensitive fields at rest (e.g. GPS coordinates).
-<<<<<<< HEAD
-    # Default is a cryptographically valid key for development only — MUST be overridden in production.
-    ENCRYPTION_KEY: str = os.getenv(
-        "ENCRYPTION_KEY", "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI="
-=======
     # Default is a valid Fernet key for dev/test; MUST be overridden in production.
     ENCRYPTION_KEY: str = os.getenv(
         "ENCRYPTION_KEY", "zWPnl7ADt_siOkQKZgw7Xo0YLFqXnGgC-h-NdZWq09g="
->>>>>>> feature/dashboard-ui
     )
 
     # Meta API Webhook Configuration
@@ -83,20 +73,6 @@ class Settings(BaseSettings):
         super().__init__(**values)
         # Enforce enterprise secret validation: fail start if default keys are found in production
         if self.ENV.lower() == "production":
-<<<<<<< HEAD
-            if self.JWT_SECRET == "super-secret-jwt-key-change-in-production-123456":
-                raise ValueError(
-                    "Security Hardening Failure: Default JWT_SECRET is active in production mode."
-                )
-            if self.ENCRYPTION_KEY == "vqZBWaQHgnNoRgzmwdx_lDAYjXgTCrGBTqdiIyOqchI=":
-                raise ValueError(
-                    "Security Hardening Failure: Default ENCRYPTION_KEY is active in production mode."
-                )
-            if self.META_VERIFY_TOKEN == "prism_verify_secret":
-                raise ValueError(
-                    "Security Hardening Failure: Default META_VERIFY_TOKEN is active in production mode."
-                )
-=======
             for name, default in _INSECURE_DEFAULTS.items():
                 if getattr(self, name) == default:
                     raise ValueError(
@@ -111,7 +87,6 @@ class Settings(BaseSettings):
                         "Using default %s in non-production environment — set it in production!",
                         name,
                     )
->>>>>>> feature/dashboard-ui
 
 
 settings = Settings()

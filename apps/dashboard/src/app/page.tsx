@@ -105,6 +105,42 @@ export default function LoginPage() {
     return data.access_token as string
   }
 
+  const linkDemoDevice = async (token: string) => {
+    const existing = await fetch(`${API}/auth/devices`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (existing.ok) {
+      const devices = await existing.json()
+      if (devices.length > 0) {
+        localStorage.setItem('prism_selected_device', devices[0].id)
+        return
+      }
+    }
+
+    const uid = Math.random().toString(36).slice(2, 8)
+    const devRes = await fetch(`${API}/auth/device`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ name: "Demo Teen (Simulator)", platform: "android", device_token: `mock-fcm-${uid}` })
+    })
+    if (!devRes.ok) return
+    const devData = await devRes.json()
+    const devId = devData.device.id
+    localStorage.setItem('prism_selected_device', devId)
+
+    await fetch(`${API}/consent/grants/${devId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ modality: "location", is_granted: true })
+    })
+
+    await fetch(`${API}/events/demo-trigger`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ device_id: devId, scenario: 'A' })
+    })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(''); setSuccess(''); setLoading(true)
@@ -123,7 +159,10 @@ export default function LoginPage() {
       }
       const data = await post('/auth/login', { email, password })
       const token = await completeLogin(data)
-      if (token) router.push('/overview')
+      if (token) {
+        await linkDemoDevice(token)
+        router.push('/overview')
+      }
     } catch (err: any) { setError(err.message) }
     finally { setLoading(false) }
   }
@@ -138,32 +177,7 @@ export default function LoginPage() {
       const data = await post('/auth/login', { email: demoEmail, password: demoPass })
       const tk = await completeLogin(data)
       if (!tk) return
-      const devRes = await fetch(`${API}/auth/device`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tk}` },
-        body: JSON.stringify({ name: "Demo Teen (Simulator)", platform: "android", device_token: `mock-fcm-${uid}` })
-      })
-      
-      if (devRes.ok) {
-        const devData = await devRes.json();
-        const devId = devData.device.id;
-        localStorage.setItem('prism_selected_device', devId);
-        
-        // Setup initial consent
-        await fetch(`${API}/consent/grants/${devId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tk}` },
-          body: JSON.stringify({ modality: "location", is_granted: true })
-        });
-        
-        // Trigger a demo scenario to generate initial data
-        await fetch(`${API}/events/demo-trigger`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tk}` },
-          body: JSON.stringify({ device_id: devId, scenario: 'A' })
-        });
-      }
-
+      await linkDemoDevice(tk)
       router.push('/overview')
     } catch (err: any) { setError(err.message) }
     finally { setSocialLoading(null) }

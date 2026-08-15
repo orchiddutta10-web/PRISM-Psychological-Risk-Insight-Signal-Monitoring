@@ -1,10 +1,9 @@
 from sqlalchemy.orm import Session
-<<<<<<< HEAD
-=======
 from datetime import datetime, timezone
 import hashlib
 import json
->>>>>>> feature/dashboard-ui
+
+from typing import Optional
 
 from app import models
 

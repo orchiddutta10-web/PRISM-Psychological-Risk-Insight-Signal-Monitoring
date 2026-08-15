@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import hashlib
 import logging
 import os
@@ -7,15 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-=======
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-from datetime import datetime
-import json
-import hashlib
-import hmac
->>>>>>> feature/dashboard-ui
 
 from app import models
 from app.database import get_db
@@ -354,25 +344,13 @@ def get_nova_conversation(
     }
 
 
-def _verify_meta_signature(app_secret: str, raw_body: bytes, signature: str) -> bool:
-    """Meta signs the raw request body with HMAC-SHA256 using the app secret.
-
-    The X-Hub-Signature-256 header has the form "sha256=<hexdigest>". We compare
-    in constant time to avoid timing attacks.
-    """
-    expected = "sha256=" + hmac.new(
-        app_secret.encode(), raw_body, hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(expected, signature)
-
-
 class CompanionSessionCreate(BaseModel):
     persona_id: str
     channel: str = "in-app"
 
 
 class CompanionMessageRequest(BaseModel):
-    message: str = Field(..., max_length=500)
+    message: str
 
 
 @router.get("/personas")
@@ -625,11 +603,7 @@ def send_message(
             status_code=404, detail="Session not found or belongs to another device."
         )
 
-    # Strip control characters before processing (length is capped by the schema).
-    message_text = "".join(
-        ch for ch in req.message if ch >= " " or ch in "\t\n\r"
-    )
-    response_text = handle_companion_message(db, session.id, message_text)
+    response_text = handle_companion_message(db, session.id, req.message)
 
     return {
         "status": "processed",
@@ -659,17 +633,11 @@ def verify_meta_webhook(
 
 
 @router.post("/webhook/meta")
-<<<<<<< HEAD
 async def meta_webhook(payload: dict, request: Request, db: Session = Depends(get_db)):
-=======
-async def meta_webhook(request: Request, db: Session = Depends(get_db)):
->>>>>>> feature/dashboard-ui
     """
     Meta Inbound Webhook (WhatsApp & Instagram).
-    Verifies the X-Hub-Signature-256 header (HMAC-SHA256 of the raw body using
-    META_APP_SECRET) before parsing, then routes to AI + Crisis classifier.
+    Parses sender, text, and channels, then routes to AI + Crisis classifier.
     """
-<<<<<<< HEAD
     # Validate x-hub-signature-256 if META_APP_SECRET is configured
     from app.config import settings
 
@@ -683,28 +651,6 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
         expected_sig = f"sha256={hmac.new(app_secret.encode(), raw_body, hashlib.sha256).hexdigest()}"
         if not hmac.compare_digest(signature, expected_sig):
             raise HTTPException(status_code=403, detail="Invalid webhook signature")
-=======
-    from app.config import settings
-
-    raw_body = await request.body()
-    signature = request.headers.get("X-Hub-Signature-256", "")
-
-    if not settings.META_APP_SECRET or not _verify_meta_signature(
-        settings.META_APP_SECRET, raw_body, signature
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing webhook signature.",
-        )
-
-    try:
-        payload = json.loads(raw_body)
-    except (json.JSONDecodeError, TypeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid JSON payload.",
-        )
->>>>>>> feature/dashboard-ui
 
     channel = None
     sender_id = None
@@ -743,62 +689,27 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
     if not sender_id or not message_text:
         return {"status": "ignored", "detail": "Empty or unrecognized Meta payload."}
 
-    # Determine whether the sender is an internal device (in-app/device flow)
-    # or an external Meta messenger identity. CompanionSession.subject_id is
-    # FK-bound to child_devices.id, so we must NOT insert a session for an
-    # external sender (e.g. a WhatsApp phone number or Instagram user ID) —
-    # that would violate the foreign key and crash with a 500.
-    device = (
-        db.query(models.ChildDevice).filter(models.ChildDevice.id == sender_id).first()
+    # Fetch or start session for this subject on the specific channel
+    session = (
+        db.query(models.CompanionSession)
+        .filter(
+            models.CompanionSession.subject_id == sender_id,
+            models.CompanionSession.channel == channel,
+        )
+        .first()
     )
 
-    if device:
-        # Internal device: fetch or start a persisted session (existing path).
-        session = (
-            db.query(models.CompanionSession)
-            .filter(
-                models.CompanionSession.subject_id == sender_id,
-                models.CompanionSession.channel == channel,
-            )
-            .first()
+    if not session:
+        # Default to "listener" archetype for new message streams
+        session = models.CompanionSession(
+            subject_id=sender_id, persona_id="listener", channel=channel
         )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
 
-        if not session:
-            # Default to "listener" archetype for new message streams
-            session = models.CompanionSession(
-                subject_id=sender_id, persona_id="listener", channel=channel
-            )
-            db.add(session)
-            db.commit()
-            db.refresh(session)
-
-        # Route message through unified Persona / Crisis pipeline
-        response_text = handle_companion_message(db, session.id, message_text)
-        crisis_flag = session.crisis_flag
-    else:
-        # External sender: process statelessly. Do NOT create a session or
-        # alert (both are FK-bound to child_devices.id). Run the crisis check
-        # directly and return the persona-gated response.
-        from app.utils.companion_engine import (
-            CRISIS_RESPONSE,
-            PERSONAS,
-            check_crisis,
-        )
-
-        is_crisis = check_crisis(message_text)
-        crisis_flag = is_crisis
-        if is_crisis:
-            response_text = CRISIS_RESPONSE
-        else:
-            persona = PERSONAS.get("listener", PERSONAS["listener"])
-            import random as _random
-
-            responses = [
-                f"[{persona['display_name']}] That's interesting. Tell me more about how that affects you.",
-                f"[{persona['display_name']}] I hear you. What do you think is the next best step?",
-                f"[{persona['display_name']}] Thank you for sharing that with me.",
-            ]
-            response_text = _random.choice(responses)
+    # Route message through unified Persona / Crisis pipeline
+    response_text = handle_companion_message(db, session.id, message_text)
 
     # Send outbound API call back to Meta if token is present
     from app.config import settings
@@ -846,12 +757,8 @@ async def meta_webhook(request: Request, db: Session = Depends(get_db)):
         "status": "processed",
         "channel": channel,
         "response": response_text,
-<<<<<<< HEAD
         "crisis_flag": session.crisis_flag,
         "signals": _screening_summary(message_text),
-=======
-        "crisis_flag": crisis_flag,
->>>>>>> feature/dashboard-ui
     }
 
 

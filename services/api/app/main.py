@@ -142,15 +142,8 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
                 db.add(entry)
                 db.commit()
             except Exception as e:
-<<<<<<< HEAD
-                logging.getLogger(__name__).error(
-                    "Failed to log audit event: %s", str(e)
-=======
-                import logging
-
                 logging.getLogger(__name__).warning(
                     "Failed to log audit event: %s", type(e).__name__
->>>>>>> feature/dashboard-ui
                 )
             finally:
                 db.close()

@@ -1,16 +1,10 @@
 import logging
 import random
-<<<<<<< HEAD
-from datetime import datetime, timedelta, timezone
-
-from fastapi import HTTPException, status
-from jose import JWTError, jwt
-from sqlalchemy.orm import Session
-=======
 import secrets
-import logging
+from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
->>>>>>> feature/dashboard-ui
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 
 from app import models, schemas
 from app.config import settings
@@ -113,11 +107,6 @@ class AuthService:
                 expires_delta=timedelta(minutes=5),
             )
             code = f"{random.randint(100000, 999999)}"
-<<<<<<< HEAD
-            _store_mfa(guardian.id, code)
-            logger.info("MFA challenge issued for guardian %s", guardian.email)
-            logger.debug("Mock MFA OTP for %s is %s", guardian.email, code)
-=======
             # Store with expiry + attempt tracking. NEVER print the code to stdout.
             MOCK_MFA_STORE[guardian.id] = {
                 "code": code,
@@ -128,7 +117,6 @@ class AuthService:
                 "MFA code generated for guardian %s (delivery channel not configured)",
                 guardian.id,
             )
->>>>>>> feature/dashboard-ui
 
             audit.log_audit_event(
                 db,
@@ -280,13 +268,6 @@ class AuthService:
         req: schemas.SendOTPRequest, db: Session, ip_address: str = None
     ) -> dict:
         phone = req.phone_number.strip()
-<<<<<<< HEAD
-        # NOTE: In a production deployment, OTP codes would be generated via
-        # a real SMS provider (Twilio, etc.) and stored with TTL. This mock
-        # implementation uses a short-lived in-memory OTP store for sandbox/demo use only.
-        code = str(random.randint(100000, 999999))
-        _store_otp(phone, code)
-=======
         # Always generate a random 6-digit code — never a hardcoded constant.
         code = f"{secrets.randbelow(1_000_000):06d}"
         MOCK_OTP_STORE[phone] = {
@@ -295,19 +276,12 @@ class AuthService:
             + timedelta(seconds=OTP_TTL_SECONDS),
             "attempts": 0,
         }
->>>>>>> feature/dashboard-ui
 
         audit.log_audit_event(
             db,
             action=f"OTP code sent successfully to phone {phone}",
             ip_address=ip_address,
         )
-<<<<<<< HEAD
-        logger.info("OTP sent to phone %s", phone)
-        if settings.ENV.lower() != "production":
-            logger.debug("Mock OTP for %s is %s", phone, code)
-        return {"status": "sent"}
-=======
 
         # In production the code must NOT be returned in the response or printed;
         # it would be delivered via a real SMS gateway (not configured yet), so we
@@ -318,7 +292,6 @@ class AuthService:
             return {"status": "sent"}
         print(f"--- [OTP] Sent {code} to {phone} ---")
         return {"status": "sent", "code": code}
->>>>>>> feature/dashboard-ui
 
     @staticmethod
     def verify_otp(
