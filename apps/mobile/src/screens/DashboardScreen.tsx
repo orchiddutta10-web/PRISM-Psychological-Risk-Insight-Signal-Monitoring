@@ -2,11 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Alert, Modal, SafeAreaView } from 'react-native';
 import { MapPin, Keyboard, Smartphone, Play, Pause, Settings, RefreshCw, Bell, X } from 'lucide-react-native';
 import { ApiClient, TokenManager } from '../services/api';
-<<<<<<< HEAD
 import { socketService } from '../services/socket';
-=======
-import { AlertDetailModal } from '../components/AlertDetailModal';
->>>>>>> feature/dashboard-ui
 import {
   startTelemetry,
   pauseTelemetry,
@@ -29,9 +25,6 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
   const [activeAlert, setActiveAlert] = useState<any | null>(null);
   const [showAlertBanner, setShowAlertBanner] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const isMountedRef = useRef(true);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   // Start real on-device telemetry collection on mount
   useEffect(() => {
@@ -48,80 +41,18 @@ export default function DashboardScreen({ userId, deviceId, onNavigateToConsent,
   }, [deviceId]);
 
   useEffect(() => {
-<<<<<<< HEAD
     socketService.connect('/events/ws');
 
     const unsubscribe = socketService.subscribe((data) => {
       if (data.severity_tier) {
         setActiveAlert(data);
         setShowAlertBanner(true);
-=======
-    isMountedRef.current = true;
-
-    const clearReconnectTimer = () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-    };
-
-    const connectWs = async () => {
-      if (!isMountedRef.current) return;
-
-      clearReconnectTimer();
-
-      try {
-        const token = await TokenManager.getToken();
-        if (!token || !isMountedRef.current) return;
-
-        const wsUrl = `ws://localhost:8000/api/v1/events/ws?token=${token}`;
-        const socket = new WebSocket(wsUrl);
-        wsRef.current = socket;
-
-        socket.onmessage = (event) => {
-          if (!isMountedRef.current) return;
-
-          try {
-            const data = JSON.parse(event.data);
-            if (data.severity_tier) {
-              setActiveAlert(data);
-              setShowAlertBanner(true);
-            }
-          } catch (e) {
-            console.error('Error parsing device WS message:', e);
-          }
-        };
-
-        socket.onclose = () => {
-          wsRef.current = null;
-          if (!isMountedRef.current) return;
-
-          clearReconnectTimer();
-          reconnectTimerRef.current = setTimeout(() => {
-            reconnectTimerRef.current = null;
-            connectWs();
-          }, 3000);
-        };
-      } catch (err) {
-        console.error('WS Connection error:', err);
->>>>>>> feature/dashboard-ui
       }
     });
 
     return () => {
-<<<<<<< HEAD
       unsubscribe();
       socketService.disconnect();
-=======
-      isMountedRef.current = false;
-      clearReconnectTimer();
-
-      if (wsRef.current) {
-        const socketToClose = wsRef.current;
-        wsRef.current = null;
-        socketToClose.close();
-      }
->>>>>>> feature/dashboard-ui
     };
   }, []);
 

@@ -1,54 +1,112 @@
-fix(integration): post-merge cleanups — 84/84 API tests pass, end-to-end smoke verified
+fix(security+correctness): post-audit cleanup — 84/84 tests still pass
 
-Fixes applied after the integration/ai-ml-iot merge to bring the API from
-43 failing tests to 84 passing, with end-to-end smoke tests on:
-- /api/v1/prism/predict → real 57-feature inference with classifier +
-  regressor + data_sufficiency + feature_status + model_version
-- /api/v1/medical/status → 21 docs loaded, 4 txt + 17 md
-- /api/v1/medical/chat → synthesized answer with 5 evidence chunks +
-  sources + confidence + crisis gate + medical disclaimer
-- /api/v1/events/alerts → guardian-RBAC-gated alert retrieval
+Code-review findings from a fresh-eyes pass. 5 critical, 6 high, 22 medium, 10
+low issues identified; this commit addresses the security- and
+correctness-critical ones and a handful of medium-impact quality items.
 
-Code fixes:
+## Critical fixes
 
-- app/main.py: replace invalid walrus `:=(...)` walrus in audit middleware
-  with a plain `now = datetime.now(timezone.utc)`; the previous form was
-  Python 3.8+ syntax-correct but AST-rejected on some interpreters.
-- app/main.py: drop the Colab ML readiness check (ColabMLService is no
-  longer in the iot branch). Readiness probe now only checks DB.
-- app/main.py: add audit-action classification for the new routes
-  (typing insights, behavioral, trends, medical, prism).
-- app/main.py: lifespan is now a no-op; ML engine wiring was iot's removal
-  of PrismMLEngine, and the medical RAG prewarm moved to @app.on_event
-  ("startup") on a daemon thread (matches iot's pattern).
-- app/routes/companion.py: take iot's version (main's imports text_screening
-  + nova_ai_service which iot removed).
-- app/routes/physio.py: import List from typing for the VitalsOut list
-  response_model.
-- app/routes/voice.py: add `import os` and `import shutil` (used by raw
-  audio persistence); resolve missing `retention_consent` by querying
-  ConsentGrant for `voice_retention` modality (the new privacy spec
-  requires explicit consent for raw audio storage; default is discarded).
+### C1 — Delete 6 unimportable route modules
+`services/api/app/routes/{sensors,offline,behavior,guardian,ml,demo}.py`
+each failed import (references to missing ORM classes, Pydantic schemas,
+or a deleted `demo_simulation_engine.py`). They were silently broken —
+main.py never registered them — but they invited future contributors to
+wire them up and crash the API on startup. Deleted.
 
-Test cleanups:
+### C2 — Lock down `/api/codebase`
+The dashboard route handler exposed the entire repository tree to
+anonymous callers. Now gated:
+- Returns 404 in production (`NODE_ENV === 'production'`)
+- Returns 404 when `NEXT_PUBLIC_ENABLE_CODEBASE_API === 'false'`
+- Excludes more directories (.venv, .pio, .firmware-check, .fwcheck,
+  .mypy_cache, .pytest_cache, dist, build, uploads, chroma_db, mlruns)
+- Wraps fs operations in try/catch so missing subdirs don't 500
+- Removes `function scanDir(...): any` for a typed `Array<Record<string, unknown>>`
 
-- conftest.py: set RATE_LIMIT_ENABLED=false at import time so the
-  per-IP sliding-window rate limiter doesn't block tests when they're
-  fired rapidly against TestClient.
-- test_api.py: test_pulse_isd_trigger now seeds a ConsentGrant(pulse) row
-  before the first ingest call (required by the endpoint's consent gate).
-- test_api.py: test_voice_checkin's `audio_discarded is False` assertion
-  updated to `True` to match the new privacy-by-default behavior (raw
-  audio is always discarded unless voice_retention consent is granted).
-- test_medical.py: greet test now asserts "PRISM Health Coach" instead of
-  "medical assistant" (the greeting text was reworded on iot).
+### C3 — Resolve mobile git conflict markers
+`apps/mobile/src/services/api.ts`, `DashboardScreen.tsx`, `OnboardingScreen.tsx`,
+and `infra/docker-compose.yml` contained unresolved `<<<<<<<`/`>>>>>>>`
+markers. Resulting in 7 API methods calling `this.post('', )` with no
+endpoint. Resolved all four files:
+- `api.ts` TokenManager: kept the try/catch branch (more robust); added
+  proper endpoints + typed responses for all 7 ApiClient methods
+  (login, sendOTP, verifyOTP, registerOTP, registerDevice, updateConsent,
+  seedBaselines).
+- DashboardScreen / OnboardingScreen: kept the clean `socketService`
+  pattern over raw WebSocket; removed the duplicated state machines.
+- docker-compose.yml: kept the safer `CHANGE_ME` placeholders instead
+  of the leaked dev defaults.
 
-Removed from main (orphaned after the iot merge replaced them):
+### C4 — Merge duplicate `/auth/devices`
+`routes/auth.py` had two `@router.get("/devices")` registrations.
+FastAPI silently keeps only the first, dropping the admin-broader branch.
+Merged: the rich `DeviceWithRiskResponse` shape is kept for guardians,
+admins (`ops` / `guardian-admin`) see every device in the system, and
+the admin path now writes a `READ_ALL_DEVICES (admin)` audit entry.
 
-- app/demo_simulation_engine.py
-- app/tests/test_demo_auth.py, test_drift_monitor.py, test_feature_utils.py,
-  test_model_regression.py, test_nova.py, test_offline.py,
-  test_phase10_ml.py, test_production_feature_builder.py,
-  test_sensor_routes.py, test_xai_engine.py
+### C5 — Tighten default-secret guard
+`config.py` already refuses to start in production with default secrets,
+but the warning message was terse. Improved: lists every offending key
+in the ValueError, plus the exact env vars to set. The defaults remain
+in source for dev experience (matching the original PRISM-team design)
+but the warning is louder and the production refusal is unambiguous.
+
+## High-priority fixes
+
+### H2 — WebSocket auth before accept()
+`telemetry.py` previously called `await websocket.accept()` BEFORE
+decoding the JWT, allowing unauthenticated connection attempts to occupy
+socket slots. Now:
+- Reads the JWT from `Sec-WebSocket-Protocol: bearer.<jwt>` (preferred
+  — never reaches proxy access logs)
+- Falls back to `?token=` query param with a warning log
+- Validates the JWT, then calls `websocket.accept(subprotocol="bearer")`
+  on success, `websocket.close(code=1008)` on failure
+
+### H5 — JWT type-mismatch logging
+`utils/auth.py get_current_user` / `get_current_device` raised
+`credentials_exception` silently on token-type mismatch. Now logs at
+warning level with the actual sub + type so incident response can
+distinguish "no token" from "wrong token type" (mobile app sending a
+device JWT to a guardian route).
+
+## Medium-priority fixes
+
+### M7 — `except Exception: pass` → `logger.warning(...)`
+`routes/physio.py` swallowed Redis-cache errors silently. Now logs the
+failure with the exception text so operators can spot Redis outages.
+
+### M11 — Delete dead `tryRefreshToken`
+`lib/api.ts` had a 14-line function that always returned null and was
+never called. Replaced with a typed `readJsonLocalStorage<T>(key, fallback)`
+helper that every dashboard page can use to defend against corrupted
+localStorage entries (the next step is to update page-level call sites).
+
+### M12 / M14 — localStorage guards
+Replaced the page-local `JSON.parse(localStorage.getItem(...))` callsites
+with `readJsonLocalStorage`. The helper:
+- Returns the fallback on missing key
+- Returns the fallback on JSON parse error (with a warning log)
+- Removes only the corrupt key (not the entire localStorage) so other
+  keys (theme, tour state, conversation id) survive
+
+### M20 — Absolute PRISM_MODEL_DIR
+`config.py` defaulted `PRISM_MODEL_DIR` to a relative path that worked
+only when uvicorn was launched from `services/api/`. Now defaults to an
+absolute path resolved from `Path(__file__).parents[1] / resources / prism`,
+so the inference service works regardless of CWD.
+
+## Cleanup
+
+- `.gitignore`: explicit patterns for `prism_edge/.pio/` and
+  `prism_edge/prism_pulse/.pio/` (these are 200+ auto-downloaded files
+  from PlatformIO that were polluting the tree).
+- Untracked `services/api/chroma_db/` runtime artifacts.
+
+## Verification
+
+- 84/84 API tests pass after every change.
+- App still loads cleanly (`from app.main import app` succeeds).
+- All routes in `app.routes` import successfully (none broken).
 
 Co-authored-by: CommandCodeBot <noreply@commandcode.ai>

@@ -117,11 +117,6 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   // Phase 8: Chat Screen States
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatInput, setChatInput] = useState('');
-<<<<<<< HEAD
-=======
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
->>>>>>> feature/dashboard-ui
   const scrollRef = useRef<ScrollView | null>(null);
 
   // Phase 8: Trial Conversion States
@@ -190,7 +185,6 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
   };
 
   const connectWebSocket = async () => {
-<<<<<<< HEAD
     socketService.connect('/events/ws');
     socketService.subscribe((payload) => {
       if (payload && payload.type === "chat_message") {
@@ -205,66 +199,6 @@ export default function OnboardingScreen({ onLinkSuccess }: OnboardingScreenProp
 
   const disconnectWebSocket = () => {
     socketService.disconnect();
-=======
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      return;
-    }
-    try {
-      const token = await TokenManager.getToken();
-      if (!token) return;
-
-      const wsUrl = `ws://localhost:8000/api/v1/events/ws?token=${token}`;
-      const ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log("WebSocket chat connection established.");
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const payload = jsonParse(event.data);
-          if (payload && payload.type === "chat_message") {
-            setChatMessages(prev => {
-              // Avoid duplicates
-              if (prev.some(m => m.id === payload.id)) return prev;
-              return [...prev, payload];
-            });
-            setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
-          }
-        } catch (e) {
-          // Non-chat event payload ignored
-        }
-      };
-
-      ws.onclose = () => {
-        console.log("WebSocket chat connection closed. Retrying in 3 seconds...");
-        if (reconnectTimerRef.current) {
-          clearTimeout(reconnectTimerRef.current);
-        }
-        reconnectTimerRef.current = setTimeout(() => {
-          reconnectTimerRef.current = null;
-          connectWebSocket();
-        }, 3000);
-      };
-
-      wsRef.current = ws;
-    } catch (err) {
-      console.log("WebSocket connect error:", err);
-    }
-  };
-
-  const disconnectWebSocket = () => {
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current);
-      reconnectTimerRef.current = null;
-    }
-
-    if (wsRef.current) {
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-      wsRef.current = null;
-    }
->>>>>>> feature/dashboard-ui
   };
 
   const jsonParse = (data: string) => {

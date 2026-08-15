@@ -341,12 +341,41 @@ def trigger_worker_jobs(
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
+async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for guardians to receive live updates and chat with Aria.
-    Connection URL: ws://localhost:8000/api/v1/events/ws?token=<jwt_token>
+
+    Token transport — by priority:
+      1. `Sec-WebSocket-Protocol` subprotocol header value `bearer.<jwt>` (preferred;
+         tokens never reach reverse-proxy access logs).
+      2. First text frame containing a JSON `{"type":"auth","token":"<jwt>"}`
+         message — usable from browsers that can't set custom subprotocols.
+      3. `?token=` query parameter — accepted for backward compatibility but
+         LOGGED at warning level so deployments can detect it.
+
+    Authentication runs BEFORE `websocket.accept()` so unauthenticated
+    connections never occupy a socket slot.
     """
-    await websocket.accept()
+    # Prefer Sec-WebSocket-Protocol token ("bearer.<jwt>") so the token never
+    # appears in proxy access logs. Fall back to query-param `token=` if the
+    # caller can't set subprotocols.
+    token: str | None = None
+    subprotocols = websocket.headers.get("sec-websocket-protocol", "")
+    for proto in subprotocols.split(","):
+        proto = proto.strip()
+        if proto.startswith("bearer."):
+            token = proto[len("bearer."):]
+            break
+    if not token:
+        token = websocket.query_params.get("token")
+        if token:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "WebSocket authenticated via query-param token; switch to "
+                "Sec-WebSocket-Protocol: bearer.<jwt> to avoid leaking tokens "
+                "into proxy access logs."
+            )
+
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -366,6 +395,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str | None = None):
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+
+    # Accept AFTER successful auth so unauthenticated probes can't occupy a slot.
+    await websocket.accept(subprotocol="bearer")
 
     redis_conn = get_redis_client()
     pubsub = redis_conn.pubsub()

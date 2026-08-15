@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,6 +11,8 @@ from app.database import get_db
 from app.utils import audit, auth
 from app.utils.ml_engine import run_risk_engine
 from app.utils.redis_client import get_redis_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/physio", tags=["prism-node"])
 
@@ -397,12 +400,13 @@ async def ingest_vitals(
     db.commit()
     db.refresh(reading)
 
-    # Update health cache so the dashboard shows "Connected".
+    # Update health cache so the dashboard shows "Connected". Redis is best-
+    # effort: a Redis outage should never block ingestion.
     try:
         redis_conn = get_redis_client()
         await redis_conn.set("prism:health:vitals", "real", ex=3600)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("prism:health:vitals cache update failed: %s", exc)
 
     # Optionally bridge to MQTT (graceful fallback if no broker).
     if payload.source == "mqtt":

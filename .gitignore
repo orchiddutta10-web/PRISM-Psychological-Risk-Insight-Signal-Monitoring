@@ -62,6 +62,12 @@ prism.db
 chroma_db/
 **/chroma_db/
 
+# PlatformIO build outputs (auto-downloaded by arduino-cli)
+prism_edge/.pio/
+prism_edge/**/*.pio/
+prism_edge/prism_pulse/.pio/
+**/.pio/
+
 # Uploaded files (runtime)
 /uploads/
 uploads/

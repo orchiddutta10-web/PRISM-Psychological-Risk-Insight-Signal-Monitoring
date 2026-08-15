@@ -15,22 +15,26 @@ const API_BASE =
 export const API = API_BASE
 
 /**
- * Attempt to transparently refresh the guardian token by re-logging in.
- * This handles the case where a session expires mid-use without forcing
- * a hard redirect to the login page.
+ * Safe localStorage read for JSON-encoded values. Returns `fallback` if the
+ * key is missing or the stored value is corrupt — protects every page from
+ * crashing on mount when one dashboard key gets into a bad state.
  */
-async function tryRefreshToken(): Promise<string | null> {
+export function readJsonLocalStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback
   try {
-    const gs = localStorage.getItem('prism_guardian')
-    if (!gs) return null
-    const g = JSON.parse(gs)
-    if (!g.email) return null
-
-    // We stored the password hash — can't re-login.  Just signal failure.
-    // The login page will handle re-auth.
-    return null
-  } catch {
-    return null
+    const raw = window.localStorage.getItem(key)
+    if (raw === null) return fallback
+    return JSON.parse(raw) as T
+  } catch (err) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[prism] Failed to parse localStorage[${key}]:`, err)
+    }
+    try {
+      window.localStorage.removeItem(key)
+    } catch {
+      // ignore — quota / privacy mode may block writes
+    }
+    return fallback
   }
 }
 

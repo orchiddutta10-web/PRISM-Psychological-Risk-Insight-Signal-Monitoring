@@ -89,7 +89,13 @@ class Settings(BaseSettings):
     # ── PRISM 57-feature Model Configurations ──────────────────────────
     # The artifacts were trained under scikit-learn 1.6.1. They deserialize
     # cleanly under any 1.6.x / 1.7.x / 1.8.x runtime; we pin the floor at 1.6.
-    PRISM_MODEL_DIR: str = os.getenv("PRISM_MODEL_DIR", "app/resources/prism/")
+    # Default is resolved to an absolute path relative to this config file so
+    # the inference service works regardless of the current working directory
+    # (uvicorn launched from repo root vs services/api).
+    PRISM_MODEL_DIR: str = os.getenv(
+        "PRISM_MODEL_DIR",
+        str(API_DIR / "resources" / "prism") + os.sep,
+    )
 
     # Classifier classes [0, 1, 2] returned by prism_classifier_model.joblib.
     # The semantic meaning of each class index is NOT in the repo and is NOT
@@ -124,18 +130,26 @@ class Settings(BaseSettings):
         super().__init__(**values)
         # Enforce enterprise secret validation: fail start if default keys are found in production
         if self.ENV.lower() == "production":
-            for name, default in _INSECURE_DEFAULTS.items():
-                if getattr(self, name) == default:
-                    raise ValueError(
-                        f"Security Hardening Failure: Default {name} is active in production mode."
-                    )
+            bad = [
+                name
+                for name, default in _INSECURE_DEFAULTS.items()
+                if getattr(self, name) == default
+            ]
+            if bad:
+                raise ValueError(
+                    "Security Hardening Failure: Default values active in "
+                    f"production mode for: {bad}. Set explicit env vars "
+                    "(JWT_SECRET, ENCRYPTION_KEY, META_VERIFY_TOKEN) before "
+                    "deploying."
+                )
         else:
             # Non-production: warn (not fail) so local dev/demo still works, but
             # make it obvious that these defaults must not reach production.
             for name, default in _INSECURE_DEFAULTS.items():
                 if getattr(self, name) == default:
                     logger.warning(
-                        "Using default %s in non-production environment — set it in production!",
+                        "Using default %s in non-production environment — "
+                        "set it via env var before deploying to production.",
                         name,
                     )
 

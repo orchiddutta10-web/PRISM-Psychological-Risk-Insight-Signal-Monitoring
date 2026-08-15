@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 import bcrypt
 from fastapi import Depends, HTTPException, status
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 from app import models
 from app.config import settings
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 
 # OAuth2 scheme for token retrieval
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
@@ -62,8 +65,17 @@ def get_current_user(
         user_id: str = payload.get("sub")
         token_type: str = payload.get("type", "guardian")
         if user_id is None or token_type != "guardian":
+            # Distinguish "wrong token type" from "no token" so log scanners
+            # can spot misconfigured mobile builds sending device JWTs to
+            # guardian routes.
+            logger.warning(
+                "get_current_user rejected JWT: sub=%s type=%s (expected guardian)",
+                payload.get("sub"),
+                payload.get("type"),
+            )
             raise credentials_exception
-    except JWTError:
+    except JWTError as exc:
+        logger.warning("get_current_user JWT decode failed: %s", exc)
         raise credentials_exception
 
     guardian = db.query(models.Guardian).filter(models.Guardian.id == user_id).first()
@@ -90,8 +102,14 @@ def get_current_device(
         device_id: str = payload.get("sub")
         token_type: str = payload.get("type")
         if device_id is None or token_type != "device":
+            logger.warning(
+                "get_current_device rejected JWT: sub=%s type=%s (expected device)",
+                payload.get("sub"),
+                payload.get("type"),
+            )
             raise credentials_exception
-    except JWTError:
+    except JWTError as exc:
+        logger.warning("get_current_device JWT decode failed: %s", exc)
         raise credentials_exception
 
     device = (

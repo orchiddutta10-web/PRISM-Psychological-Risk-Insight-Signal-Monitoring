@@ -70,16 +70,30 @@ def list_guardian_devices(
     current_guardian: models.Guardian = Depends(auth.get_current_user),
 ):
     """
-    List all child devices registered under the authenticated guardian,
-    each with a derived risk score (from the latest alert severity tier)
-    and active consent-grant count. Guardian auth required.
+    List child devices for the authenticated guardian. Admins (ops /
+    guardian-admin) see every device in the system. Each entry carries a
+    derived risk score (from the latest alert severity tier), the latest
+    alert summary, and the count of active consent grants.
     """
-    devices = (
-        db.query(models.ChildDevice)
-        .filter(models.ChildDevice.guardian_id == current_guardian.id)
-        .order_by(models.ChildDevice.name.asc())
-        .all()
-    )
+    if current_guardian.role in ("ops", "guardian-admin"):
+        # Audited because it exposes every device in the system.
+        audit.log_audit_event(
+            db,
+            action="READ_ALL_DEVICES (admin)",
+            guardian_id=str(current_guardian.id),
+        )
+        devices = (
+            db.query(models.ChildDevice)
+            .order_by(models.ChildDevice.name.asc())
+            .all()
+        )
+    else:
+        devices = (
+            db.query(models.ChildDevice)
+            .filter(models.ChildDevice.guardian_id == current_guardian.id)
+            .order_by(models.ChildDevice.name.asc())
+            .all()
+        )
 
     result = []
     for device in devices:
@@ -170,20 +184,3 @@ def register_otp_guardian(
 ):
     ip = request.client.host if request.client else None
     return AuthService.register_otp_guardian(req, db, ip_address=ip)
-
-
-@router.get("/devices", response_model=list[schemas.ChildDeviceResponse])
-def list_guardian_devices(
-    db: Session = Depends(get_db),
-    current_guardian: models.Guardian = Depends(auth.get_current_user),
-):
-    """List all devices registered under the authenticated guardian."""
-    if current_guardian.role in ["ops", "guardian-admin"]:
-        return db.query(models.ChildDevice).all()
-        
-    devices = (
-        db.query(models.ChildDevice)
-        .filter(models.ChildDevice.guardian_id == current_guardian.id)
-        .all()
-    )
-    return devices
