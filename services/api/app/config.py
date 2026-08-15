@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     # (uvicorn launched from repo root vs services/api).
     PRISM_MODEL_DIR: str = os.getenv(
         "PRISM_MODEL_DIR",
-        str(API_DIR / "resources" / "prism") + os.sep,
+        str(API_DIR / "app" / "resources" / "prism") + os.sep,
     )
 
     # Classifier classes [0, 1, 2] returned by prism_classifier_model.joblib.

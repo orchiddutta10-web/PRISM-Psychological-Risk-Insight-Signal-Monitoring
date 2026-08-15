@@ -1,9 +1,7 @@
 'use client'
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { API_BASE } from '@/lib/api'
-
-const API = API_BASE
+import { API } from '@/lib/api'
 
 interface Guardian {
   id: string

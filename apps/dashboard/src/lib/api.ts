@@ -15,6 +15,170 @@ const API_BASE =
 export const API = API_BASE
 
 /**
+ * Backwards-compat alias for `API` — some pages import the older name.
+ * Pages that read the API base directly should prefer `API`.
+ */
+export { API_BASE }
+
+/**
+ * Lightweight auth helpers — use these from pages that don't want to
+ * subscribe to the React `AuthContext` (e.g. one-shot fetches outside of
+ * the protected layout). For interactive flows, prefer `useAuth()` from
+ * `app/lib/auth-context.tsx`.
+ */
+export function getToken(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem('prism_token')
+  } catch {
+    return null
+  }
+}
+
+export interface StoredGuardian {
+  id: string
+  full_name: string
+  email: string
+  role: string
+}
+
+export function getGuardian(): StoredGuardian | null {
+  return readJsonLocalStorage<StoredGuardian | null>('prism_guardian', null)
+}
+
+export function clearAuth(): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem('prism_token')
+    window.localStorage.removeItem('prism_guardian')
+    window.localStorage.removeItem('prism_selected_device')
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Persist the currently-selected device id (the auth-context equivalent of
+ * the same operation).
+ */
+export function setSelectedDevice(deviceId: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem('prism_selected_device', deviceId)
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Wrapped fetch that:
+ *   - Prepends `API` to the path
+ *   - Adds the `Authorization: Bearer <token>` header when a token is passed
+ *   - Returns `fallback` on network error or non-2xx response
+ * Use this from dashboard pages that don't want to throw inside render.
+ */
+export async function apiFetchSafe<T>(
+  path: string,
+  token: string | null,
+  fallback: T,
+  init: RequestInit = {},
+): Promise<T> {
+  if (!token) return fallback
+  try {
+    const headers: Record<string, string> = {
+      ...(init.headers as Record<string, string> | undefined),
+      Authorization: `Bearer ${token}`,
+    }
+    const res = await fetch(`${API}${path}`, { ...init, headers })
+    if (!res.ok) return fallback
+    return (await res.json()) as T
+  } catch (err) {
+    if (typeof console !== 'undefined') {
+      console.warn(`[prism] apiFetchSafe(${path}) failed:`, err)
+    }
+    return fallback
+  }
+}
+
+/* ── Domain types used across pages ───────────────────────────────────── */
+
+export interface ChildDevice {
+  id: string
+  guardian_id?: string
+  name: string
+  platform: string
+  device_token?: string
+  last_seen?: string | null
+  risk_score?: number
+  risk_label?: string
+  latest_alert?: {
+    severity_tier: string
+    summary?: string
+    timestamp: string
+  } | null
+  consent_count?: number
+}
+
+export interface BackendAlert {
+  id: string
+  device_id: string
+  severity_tier: string
+  plain_language_summary: string
+  contributing_factors: string[]
+  is_viewed: boolean
+  timestamp: string
+}
+
+export interface IngestionHealth {
+  status: string
+  modalities?: Record<string, { status: 'real' | 'synthetic' | 'inactive'; last_seen: string | null }>
+  active_modalities?: Record<string, { status: 'real' | 'synthetic' | 'inactive'; last_seen: string | null }>
+}
+
+/* ── Helpers ──────────────────────────────────────────────────────────── */
+
+const MS_PER_SECOND = 1000
+const MS_PER_MINUTE = 60 * MS_PER_SECOND
+const MS_PER_HOUR = 60 * MS_PER_MINUTE
+const MS_PER_DAY = 24 * MS_PER_HOUR
+
+/**
+ * Human-readable "time ago" string for a timestamp. Falls back to the raw
+ * timestamp when the input is unparseable.
+ */
+export function timeAgo(ts: string | number | Date | null | undefined): string {
+  if (ts === null || ts === undefined || ts === '') return ''
+  const d = ts instanceof Date ? ts : new Date(ts)
+  const ms = Date.now() - d.getTime()
+  if (Number.isNaN(ms)) return String(ts)
+  if (ms < 0) return 'just now'
+  if (ms < MS_PER_MINUTE) return `${Math.max(1, Math.round(ms / MS_PER_SECOND))}s ago`
+  if (ms < MS_PER_HOUR) return `${Math.round(ms / MS_PER_MINUTE)}m ago`
+  if (ms < MS_PER_DAY) return `${Math.round(ms / MS_PER_HOUR)}h ago`
+  return `${Math.round(ms / MS_PER_DAY)}d ago`
+}
+
+/**
+ * Map a backend severity tier to the dashboard's "high/medium/low" shape.
+ */
+export function severityOf(
+  tier: string | null | undefined,
+): 'high' | 'medium' | 'low' {
+  switch ((tier || '').toLowerCase()) {
+    case 'red':
+    case 'high':
+    case 'urgent':
+      return 'high'
+    case 'amber':
+    case 'medium':
+    case 'moderate':
+      return 'medium'
+    default:
+      return 'low'
+  }
+}
+
+/**
  * Safe localStorage read for JSON-encoded values. Returns `fallback` if the
  * key is missing or the stored value is corrupt — protects every page from
  * crashing on mount when one dashboard key gets into a bad state.

@@ -1,9 +1,14 @@
-import numpy as np
-import pandas as pd
+import logging
 from typing import List, Dict, Any
 from datetime import datetime, timedelta, timezone
+
+import numpy as np
+import pandas as pd
 from sqlalchemy.orm import Session
+
 from app.models import SensorReading, BehaviorWindow, PhoneEvent
+
+logger = logging.getLogger(__name__)
 
 
 class FeatureStore:
@@ -114,3 +119,17 @@ class FeatureStore:
                 rows.append(feats)
 
         return pd.DataFrame(rows)
+
+    def _empty_features(self) -> Dict[str, float]:
+        """Return the canonical feature vector with zeros — used when the
+        legacy model classes aren't available (post-iot migration)."""
+        return {
+            "avg_active_mins_14d": 0.0,
+            "avg_sleep_hours_14d": 0.0,
+            "sleep_variance_14d": 0.0,
+            "active_variance_14d": 0.0,
+            "unlock_frequency_3d": 0.0,
+            "avg_hr_24h": 0.0,
+            "hr_variance_24h": 0.0,
+            "sleep_z_score_24h": 0.0,
+        }

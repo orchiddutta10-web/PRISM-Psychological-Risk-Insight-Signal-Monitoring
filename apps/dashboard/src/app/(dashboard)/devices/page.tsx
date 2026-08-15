@@ -43,8 +43,13 @@ export default function DevicesPage() {
       )
       // Real ingestion health for stream status
       const health = await apiFetchSafe<IngestionHealth>('/internal/ingestion/health', token, null as any)
-      const mods = health?.active_modalities ?? {}
-      setModalities(mods)
+      const activeModalities = (health?.active_modalities ?? {}) as Record<string, { status: 'real' | 'synthetic' | 'inactive'; last_seen: string | null }>
+      // Flatten to { modalityName: statusString } for quick lookup in JSX.
+      const flatModalities: Record<string, string> = {}
+      for (const [name, info] of Object.entries(activeModalities)) {
+        flatModalities[name] = (info && typeof info === 'object' && 'status' in info) ? info.status : String(info)
+      }
+      setModalities(flatModalities)
 
       const statuses: DeviceStatus[] = devices.map((d, i) => {
         const online = d.last_seen ? (Date.now() - new Date(d.last_seen).getTime()) < 15 * 60 * 1000 : false
@@ -63,14 +68,15 @@ export default function DevicesPage() {
       })
 
       // PRISM PULSE wearable row — status derived from real ingestion health
-      const pulseFlow = mods.pulse === 'real' || mods.pulse === 'synthetic'
+      const pulseStatus = flatModalities.pulse ?? 'inactive'
+      const pulseFlow = pulseStatus === 'real' || pulseStatus === 'synthetic'
       statuses.push({
         id: 'prism-pulse',
         name: 'PRISM PULSE',
         type: 'esp32',
         label: 'ESP32 Wearable',
-        connected: mods.pulse === 'real',
-        lastSeen: pulseFlow ? `Streaming (${mods.pulse})` : 'No data received',
+        connected: pulseStatus === 'real',
+        lastSeen: pulseFlow ? `Streaming (${pulseStatus})` : 'No data received',
         unreadAlerts: 0,
         latency: null,
         readingsPerMin: null,

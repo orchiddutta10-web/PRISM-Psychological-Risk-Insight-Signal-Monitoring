@@ -623,3 +623,70 @@ class PrismPredictionSnapshot(Base):
     @data_sufficiency.setter
     def data_sufficiency(self, val: dict):
         self.data_sufficiency_json = json.dumps(val)
+
+
+# ── Legacy Phase 8 / Phase 12 schema ──────────────────────────────────────
+# These tables are referenced by archival feature_store / ml_pipeline /
+# production_feature_builder code. They preserve access to the existing
+# rows in `prism.db` (which has ~83K sensor_readings, ~264 behavior_windows,
+# ~83K phone_events). Active code paths use RawSignalEvent / BaselineProfile
+# instead; do NOT route new ingestion through these classes.
+
+
+class SensorReading(Base):
+    """Per-device raw sensor reading (heart-rate, step, etc.).
+
+    Legacy schema kept so feature_store / ml_pipeline / production_feature_
+    builder imports continue to resolve. New ingestion writes RawSignalEvent.
+    """
+    __tablename__ = "sensor_readings"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    metric_type = Column(String, nullable=False, index=True)
+    value = Column(Float, nullable=False)
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+
+
+class PhoneEvent(Base):
+    """Per-device phone interaction event (SCREEN_ON, SCREEN_OFF, UNLOCK, etc.).
+
+    Legacy schema — new ingestion writes RawSignalEvent.
+    """
+    __tablename__ = "phone_events"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False, index=True)
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+
+
+class BehaviorWindow(Base):
+    """Aggregated behavior window (active minutes, sleep proxy, etc.).
+
+    Legacy schema — kept so feature_store imports resolve.
+    """
+    __tablename__ = "behavior_windows"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    start_ts = Column(DateTime, nullable=False, index=True)
+    end_ts = Column(DateTime, nullable=False)
+    total_active_mins = Column(Float, nullable=True)
+    sleep_hours_proxy = Column(Float, nullable=True)
+
+
+class RiskScoreV2(Base):
+    """V2 risk score row used by the Phase 10/12 multimodal engine.
+
+    Kept for historical compatibility with the XAI / drift modules that
+    import it. New writes go to the unified `RiskScore` table.
+    """
+    __tablename__ = "risk_scores_v2"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    score = Column(Float, nullable=False)
+    tier = Column(String, nullable=False)  # baseline | change | multiple | high
+    factors_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_now, nullable=False, index=True)

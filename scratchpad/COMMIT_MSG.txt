@@ -1,112 +1,80 @@
-fix(security+correctness): post-audit cleanup — 84/84 tests still pass
+fix(e2e): resolve 3 BROKEN + 3 SUSPECT issues from end-to-end health check
 
-Code-review findings from a fresh-eyes pass. 5 critical, 6 high, 22 medium, 10
-low issues identified; this commit addresses the security- and
-correctness-critical ones and a handful of medium-impact quality items.
+A fresh end-to-end audit (import every Python module, probe every
+endpoint, compile the dashboard, load every .joblib) found 3 broken
+items, 3 suspect items, and 5 notes. This commit fixes the broken
+and suspect items so the project compiles + runs clean.
 
-## Critical fixes
+## Broken → fixed
 
-### C1 — Delete 6 unimportable route modules
-`services/api/app/routes/{sensors,offline,behavior,guardian,ml,demo}.py`
-each failed import (references to missing ORM classes, Pydantic schemas,
-or a deleted `demo_simulation_engine.py`). They were silently broken —
-main.py never registered them — but they invited future contributors to
-wire them up and crash the API on startup. Deleted.
+### 1. PRISM_MODEL_DIR pointed to a non-existent directory
+`config.py` defaulted `PRISM_MODEL_DIR` to `API_DIR / "resources" /
+"prism"` (one level above `app/`). The actual artifacts live at
+`API_DIR / "app" / "resources" / "prism"`. Result: `/api/v1/prism/predict`
+returned 503 with `reason=model_not_loaded` even though all 3 artifacts
+were present and loadable.
 
-### C2 — Lock down `/api/codebase`
-The dashboard route handler exposed the entire repository tree to
-anonymous callers. Now gated:
-- Returns 404 in production (`NODE_ENV === 'production'`)
-- Returns 404 when `NEXT_PUBLIC_ENABLE_CODEBASE_API === 'false'`
-- Excludes more directories (.venv, .pio, .firmware-check, .fwcheck,
-  .mypy_cache, .pytest_cache, dist, build, uploads, chroma_db, mlruns)
-- Wraps fs operations in try/catch so missing subdirs don't 500
-- Removes `function scanDir(...): any` for a typed `Array<Record<string, unknown>>`
+Fix: corrected the default path. End-to-end smoke test now returns
+200 with full 57-feature inference (classifier + regressor + data
+sufficiency + feature_status + model_version).
 
-### C3 — Resolve mobile git conflict markers
-`apps/mobile/src/services/api.ts`, `DashboardScreen.tsx`, `OnboardingScreen.tsx`,
-and `infra/docker-compose.yml` contained unresolved `<<<<<<<`/`>>>>>>>`
-markers. Resulting in 7 API methods calling `this.post('', )` with no
-endpoint. Resolved all four files:
-- `api.ts` TokenManager: kept the try/catch branch (more robust); added
-  proper endpoints + typed responses for all 7 ApiClient methods
-  (login, sendOTP, verifyOTP, registerOTP, registerDevice, updateConsent,
-  seedBaselines).
-- DashboardScreen / OnboardingScreen: kept the clean `socketService`
-  pattern over raw WebSocket; removed the duplicated state machines.
-- docker-compose.yml: kept the safer `CHANGE_ME` placeholders instead
-  of the leaked dev defaults.
+### 2. `app/ml_pipeline/feature_store.py` couldn't import
+Referenced `SensorReading`, `BehaviorWindow`, `PhoneEvent` from
+`app.models` — none of those classes exist post-iot migration. SQLite
+has the legacy tables but no ORM mapping.
 
-### C4 — Merge duplicate `/auth/devices`
-`routes/auth.py` had two `@router.get("/devices")` registrations.
-FastAPI silently keeps only the first, dropping the admin-broader branch.
-Merged: the rich `DeviceWithRiskResponse` shape is kept for guardians,
-admins (`ops` / `guardian-admin`) see every device in the system, and
-the admin path now writes a `READ_ALL_DEVICES (admin)` audit entry.
+Fix: added the 4 legacy ORM classes back to `app/models.py`
+(`SensorReading`, `PhoneEvent`, `BehaviorWindow`, `RiskScoreV2`)
+so the dormant Phase 8/12 archival code keeps working against the
+~250K legacy rows already in `prism.db`. New ingestion continues to
+write to `RawSignalEvent` / `BaselineProfile`.
 
-### C5 — Tighten default-secret guard
-`config.py` already refuses to start in production with default secrets,
-but the warning message was terse. Improved: lists every offending key
-in the ValueError, plus the exact env vars to set. The defaults remain
-in source for dev experience (matching the original PRISM-team design)
-but the warning is louder and the production refusal is unambiguous.
+### 3. 22 TypeScript compile errors in the dashboard
+Pages imported `apiFetchSafe`, `timeAgo`, `severityOf`, `ChildDevice`,
+`BackendAlert`, `IngestionHealth`, `clearAuth`, `setSelectedDevice`,
+`getGuardian`, `getToken`, `API_BASE` from `@/lib/api` — none of them
+were exported.
 
-## High-priority fixes
+Fix: added all 11 missing exports to `apps/dashboard/src/lib/api.ts`
+plus a robust `readJsonLocalStorage` helper, with JSDoc describing
+when to use the React `useAuth()` context vs the standalone helpers.
+Also fixed:
+- `app/lib/auth-context.tsx` now imports `API` (not `API_BASE`)
+- `(dashboard)/devices/page.tsx` now correctly flattens the
+  `active_modalities` API response into `{name: status}` before
+  calling `setModalities`
 
-### H2 — WebSocket auth before accept()
-`telemetry.py` previously called `await websocket.accept()` BEFORE
-decoding the JWT, allowing unauthenticated connection attempts to occupy
-socket slots. Now:
-- Reads the JWT from `Sec-WebSocket-Protocol: bearer.<jwt>` (preferred
-  — never reaches proxy access logs)
-- Falls back to `?token=` query param with a warning log
-- Validates the JWT, then calls `websocket.accept(subprotocol="bearer")`
-  on success, `websocket.close(code=1008)` on failure
+Result: `npx tsc --noEmit` → 0 errors (was 22).
 
-### H5 — JWT type-mismatch logging
-`utils/auth.py get_current_user` / `get_current_device` raised
-`credentials_exception` silently on token-type mismatch. Now logs at
-warning level with the actual sub + type so incident response can
-distinguish "no token" from "wrong token type" (mobile app sending a
-device JWT to a guardian route).
+## Suspect → fixed
 
-## Medium-priority fixes
-
-### M7 — `except Exception: pass` → `logger.warning(...)`
-`routes/physio.py` swallowed Redis-cache errors silently. Now logs the
-failure with the exception text so operators can spot Redis outages.
-
-### M11 — Delete dead `tryRefreshToken`
-`lib/api.ts` had a 14-line function that always returned null and was
-never called. Replaced with a typed `readJsonLocalStorage<T>(key, fallback)`
-helper that every dashboard page can use to defend against corrupted
-localStorage entries (the next step is to update page-level call sites).
-
-### M12 / M14 — localStorage guards
-Replaced the page-local `JSON.parse(localStorage.getItem(...))` callsites
-with `readJsonLocalStorage`. The helper:
-- Returns the fallback on missing key
-- Returns the fallback on JSON parse error (with a warning log)
-- Removes only the corrupt key (not the entire localStorage) so other
-  keys (theme, tour state, conversation id) survive
-
-### M20 — Absolute PRISM_MODEL_DIR
-`config.py` defaulted `PRISM_MODEL_DIR` to a relative path that worked
-only when uvicorn was launched from `services/api/`. Now defaults to an
-absolute path resolved from `Path(__file__).parents[1] / resources / prism`,
-so the inference service works regardless of CWD.
-
-## Cleanup
-
-- `.gitignore`: explicit patterns for `prism_edge/.pio/` and
-  `prism_edge/prism_pulse/.pio/` (these are 200+ auto-downloaded files
-  from PlatformIO that were polluting the tree).
-- Untracked `services/api/chroma_db/` runtime artifacts.
+`app/utils/{prism_ml_engine,production_feature_builder,drift_monitor}.py`
+each referenced `_m.SensorReading / BehaviorWindow / PhoneEvent /
+RiskScoreV2` from the missing model classes. They are still
+unreachable (the iot merge deleted `routes/ml.py` and the `/api/v1/ml/*`
+endpoints), but with the legacy ORM classes restored above they
+won't 500 if anyone wires them back up.
 
 ## Verification
 
-- 84/84 API tests pass after every change.
-- App still loads cleanly (`from app.main import app` succeeds).
-- All routes in `app.routes` import successfully (none broken).
+- 84 / 84 API tests still pass
+- `from app.main import app` loads 17 routes cleanly
+- `npx tsc --noEmit` → 0 errors
+- `/api/v1/prism/predict/{device_id}` returns 200 with full 57-feature
+  inference (verified end-to-end: register → login → register device
+  → predict)
+- `/api/v1/medical/status` returns 200 (GET, not POST as the audit
+  originally guessed)
+- All 14 .joblib artifacts load successfully
+
+## Notes (documented, not fixed)
+
+- scikit-learn version mismatch warnings on every .joblib load
+  (trained under 1.6.1, current runtime 1.9.0). Functional but
+  noisy.
+- `full_name` regex disallows digits, `signal_type` for /consent is
+  constrained to `location|typing|app_usage`, `/api/v1/audit/logs/{id}`
+  doesn't exist (use `/api/v1/audit` GET) — these are docs/spec
+  mismatches, not code defects.
 
 Co-authored-by: CommandCodeBot <noreply@commandcode.ai>
