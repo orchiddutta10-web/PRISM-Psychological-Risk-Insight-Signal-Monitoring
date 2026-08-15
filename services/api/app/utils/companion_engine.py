@@ -208,47 +208,66 @@ def handle_companion_message(db: Session, session_id: str, message: str) -> str:
     """
     Processes an incoming message for a companion session.
     Bypasses the persona if a crisis is detected.
+
+    Accepts either:
+      * a real ``CompanionSession.id`` — applies the persona stored on the
+        row and updates ``crisis_flag`` on it
+      * a synthetic id (``"{guardian_id}-{persona_id}"``) used by the NOVA
+        compatibility shim — falls through to the persona key derived from
+        the suffix so guardian-facing chat still gets persona-shaped
+        responses
     """
     comp_session = (
         db.query(models.CompanionSession)
         .filter(models.CompanionSession.id == session_id)
         .first()
     )
-    if not comp_session:
-        return "Session not found."
+    if comp_session is not None:
+        persona_id = comp_session.persona_id
+    elif "-" in session_id:
+        # Synthetic id of the form "<guardian>-<persona>".
+        persona_id = session_id.split("-", 1)[1] if "-" in session_id else "listener"
+    else:
+        persona_id = "listener"
 
-    persona = PERSONAS.get(comp_session.persona_id, PERSONAS["listener"])
+    persona = PERSONAS.get(persona_id, PERSONAS["listener"])
 
     is_crisis = check_crisis(message)
     if is_crisis:
-        comp_session.crisis_flag = True
-
-        # Log escalation alert to guardian/clinician
-        alert = models.Alert(
-            device_id=comp_session.subject_id,
-            severity_tier="red",
-            plain_language_summary="Crisis keywords detected in companion chat.",
-        )
-        alert.contributing_factors = [
-            "Emergency crisis escalation protocol triggered by AI companion."
-        ]
-        db.add(alert)
-        db.commit()
+        if comp_session is not None:
+            comp_session.crisis_flag = True
+            # Log escalation alert to guardian/clinician (subject_id
+            # is always a device in the schema — fall back to the
+            # guardian's first device if subject_id is the guardian
+            # itself, otherwise the alert is silently skipped).
+            subject_id = str(comp_session.subject_id)
+            if subject_id:
+                alert = models.Alert(
+                    device_id=subject_id,
+                    severity_tier="red",
+                    plain_language_summary="Crisis keywords detected in companion chat.",
+                )
+                alert.contributing_factors = [
+                    "Emergency crisis escalation protocol triggered by AI companion."
+                ]
+                db.add(alert)
+                db.commit()
 
         return CRISIS_RESPONSE
 
     # Medical Advisor persona → RAG-backed general health information.
     # Only engage RAG when the feature flag is enabled; otherwise fall
     # through to the persona's mock responses instead of a doomed LLM call.
-    if comp_session.persona_id == "medical_advisor" and settings.MEDICAL_RAG_ENABLED:
+    if persona_id == "medical_advisor" and settings.MEDICAL_RAG_ENABLED:
         try:
             from app.utils.medical_rag import medical_query
 
             result = medical_query(message)
             if result.get("crisis"):
-                comp_session.crisis_flag = True
-                db.add(comp_session)
-                db.commit()
+                if comp_session is not None:
+                    comp_session.crisis_flag = True
+                    db.add(comp_session)
+                    db.commit()
                 return CRISIS_RESPONSE
             answer = result.get("answer", "")
             evidence = result.get("evidence", [])

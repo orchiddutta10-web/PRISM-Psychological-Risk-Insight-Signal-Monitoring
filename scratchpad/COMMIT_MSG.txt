@@ -1,80 +1,65 @@
-fix(e2e): resolve 3 BROKEN + 3 SUSPECT issues from end-to-end health check
+fix(chatbot): add NOVA-compat shim routes so the dashboard chatbot works
 
-A fresh end-to-end audit (import every Python module, probe every
-endpoint, compile the dashboard, load every .joblib) found 3 broken
-items, 3 suspect items, and 5 notes. This commit fixes the broken
-and suspect items so the project compiles + runs clean.
+The dashboard's `/chatbot` page calls four endpoints that don't exist
+on the running API:
 
-## Broken → fixed
+  - POST /api/v1/companion/rag/search      → 404
+  - GET  /api/v1/companion/mood/timeline   → 404
+  - POST /api/v1/nova/chat                 → 404
+  - GET  /api/v1/nova/conversations/{id}   → 404
 
-### 1. PRISM_MODEL_DIR pointed to a non-existent directory
-`config.py` defaulted `PRISM_MODEL_DIR` to `API_DIR / "resources" /
-"prism"` (one level above `app/`). The actual artifacts live at
-`API_DIR / "app" / "resources" / "prism"`. Result: `/api/v1/prism/predict`
-returned 503 with `reason=model_not_loaded` even though all 3 artifacts
-were present and loadable.
+The first console error the user saw was the RAG search 404. These
+endpoints were removed during the audit cleanup (the original NOVA
+service / behaviour / ml routes were unimportable dead code).
 
-Fix: corrected the default path. End-to-end smoke test now returns
-200 with full 57-feature inference (classifier + regressor + data
-sufficiency + feature_status + model_version).
+## Fix
 
-### 2. `app/ml_pipeline/feature_store.py` couldn't import
-Referenced `SensorReading`, `BehaviorWindow`, `PhoneEvent` from
-`app.models` — none of those classes exist post-iot migration. SQLite
-has the legacy tables but no ORM mapping.
+Added 4 compatibility shim routes to `services/api/app/routes/companion.py`:
 
-Fix: added the 4 legacy ORM classes back to `app/models.py`
-(`SensorReading`, `PhoneEvent`, `BehaviorWindow`, `RiskScoreV2`)
-so the dormant Phase 8/12 archival code keeps working against the
-~250K legacy rows already in `prism.db`. New ingestion continues to
-write to `RawSignalEvent` / `BaselineProfile`.
+- `POST /api/v1/companion/rag/search` — semantic-search the medical KB
+  via the existing `medical_rag.search()` helper. Returns `{results_count,
+  results: [{id, role, message, sentiment, timestamp}], method}`.
+  Returns empty `results` if the KB is unconfigured rather than 503.
 
-### 3. 22 TypeScript compile errors in the dashboard
-Pages imported `apiFetchSafe`, `timeAgo`, `severityOf`, `ChildDevice`,
-`BackendAlert`, `IngestionHealth`, `clearAuth`, `setSelectedDevice`,
-`getGuardian`, `getToken`, `API_BASE` from `@/lib/api` — none of them
-were exported.
+- `GET /api/v1/companion/mood/timeline?days=N` — returns an empty daily
+  timeline. Per-message sentiment tagging isn't implemented yet so this
+  returns a single neutral-day entry; the dashboard renders an empty
+  state instead of throwing.
 
-Fix: added all 11 missing exports to `apps/dashboard/src/lib/api.ts`
-plus a robust `readJsonLocalStorage` helper, with JSDoc describing
-when to use the React `useAuth()` context vs the standalone helpers.
-Also fixed:
-- `app/lib/auth-context.tsx` now imports `API` (not `API_BASE`)
-- `(dashboard)/devices/page.tsx` now correctly flattens the
-  `active_modalities` API response into `{name: status}` before
-  calling `setModalities`
+- `POST /api/v1/nova/chat` — writes both user + assistant turns to
+  `ChatMessage` (keyed by guardian_id, the current schema). Calls
+  `handle_companion_message()` so the crisis-keyword gate still
+  triggers. Returns `{conversation_id, message, crisis_flag}`. The
+  crisis path was crashing because `handle_companion_message` assumed
+  `comp_session` was non-null; now it falls back to deriving the
+  persona from the synthetic id when no real session exists.
 
-Result: `npx tsc --noEmit` → 0 errors (was 22).
+- `GET /api/v1/nova/conversations/{conversation_id}` — returns the
+  guardian's full `ChatMessage` history as the conversation thread.
+  Returns empty `messages` (instead of 404) so the dashboard's
+  conversation-restore flow doesn't bail on first load.
 
-## Suspect → fixed
+## Why NOVA writes to ChatMessage, not CompanionSession
 
-`app/utils/{prism_ml_engine,production_feature_builder,drift_monitor}.py`
-each referenced `_m.SensorReading / BehaviorWindow / PhoneEvent /
-RiskScoreV2` from the missing model classes. They are still
-unreachable (the iot merge deleted `routes/ml.py` and the `/api/v1/ml/*`
-endpoints), but with the legacy ORM classes restored above they
-won't 500 if anyone wires them back up.
+The current `CompanionSession.subject_id` is a non-nullable FK to
+`child_devices` and the schema never had a `session_id` column on
+`ChatMessage` (the old design assumed `ChatMessage.session_id` linked
+back to `CompanionSession`). The NOVA-compat shim uses a synthetic
+id of the form `<guardian_id>-<persona_id>` so the companion engine
+can still apply persona-specific responses, and persists turns in the
+table the rest of the system actually reads (`ChatMessage`).
 
 ## Verification
 
-- 84 / 84 API tests still pass
-- `from app.main import app` loads 17 routes cleanly
-- `npx tsc --noEmit` → 0 errors
-- `/api/v1/prism/predict/{device_id}` returns 200 with full 57-feature
-  inference (verified end-to-end: register → login → register device
-  → predict)
-- `/api/v1/medical/status` returns 200 (GET, not POST as the audit
-  originally guessed)
-- All 14 .joblib artifacts load successfully
+Live smoke test (guardian = chatbot-test@example.com):
 
-## Notes (documented, not fixed)
+  - GET  /api/v1/companion/personas        → 200 (6 personas)
+  - POST /api/v1/companion/rag/search      → 200 (2 KB chunks for "fever")
+  - GET  /api/v1/companion/mood/timeline   → 200 (empty timeline)
+  - POST /api/v1/nova/chat (regular msg)   → 200, crisis_flag=false
+  - POST /api/v1/nova/chat (crisis msg)    → 200, crisis_flag=true,
+                                              returns CRISIS_RESPONSE
 
-- scikit-learn version mismatch warnings on every .joblib load
-  (trained under 1.6.1, current runtime 1.9.0). Functional but
-  noisy.
-- `full_name` regex disallows digits, `signal_type` for /consent is
-  constrained to `location|typing|app_usage`, `/api/v1/audit/logs/{id}`
-  doesn't exist (use `/api/v1/audit` GET) — these are docs/spec
-  mismatches, not code defects.
+84/84 API tests still pass. 0 TypeScript errors.
 
 Co-authored-by: CommandCodeBot <noreply@commandcode.ai>

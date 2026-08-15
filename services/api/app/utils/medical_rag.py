@@ -883,3 +883,29 @@ def medical_query(
         "crisis": False,
         "context": fused_context,
     }
+
+
+def search(query: str, *, top_k: int = 5) -> list[dict]:
+    """
+    Thin alias for `hybrid_search` returning a unified list of chunks.
+
+    Each entry has shape ``{text, source, page, score}`` — `text` is the
+    chunk content, `source` the document name, `page` the page number,
+    `score` the fused relevance score. Returns an empty list if the KB is
+    empty or all retrieval backends fail.
+    """
+    try:
+        hits = hybrid_search(query, k=top_k)
+    except Exception:
+        return []
+    out = []
+    for h in hits:
+        out.append(
+            {
+                "text": h.get("chunk") or h.get("text") or "",
+                "source": h.get("source"),
+                "page": h.get("page"),
+                "score": h.get("score"),
+            }
+        )
+    return out

@@ -13,6 +13,9 @@ from app.utils.companion_engine import (
 )
 
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
+# NOVA is the older name for the companion chatbot; keep an alias router
+# so the dashboard's /api/v1/nova/* calls resolve to the same handlers.
+nova_router = APIRouter(prefix="/api/v1/nova", tags=["companion (legacy)"])
 
 
 class CompanionSessionCreate(BaseModel):
@@ -331,3 +334,227 @@ def get_session(
         "started_at": session.started_at.isoformat(),
         "crisis_flag": session.crisis_flag,
     }
+
+
+# ── Compatibility shims for the dashboard chatbot ────────────────────────────
+# The dashboard was originally written against an earlier "NOVA" surface
+# (`/api/v1/nova/chat`, `/companion/rag/search`, `/companion/mood/timeline`)
+# that pre-dated the iot→main merge. The routes below re-expose the same
+# shapes using the current companion engine + RAG stack. New code should
+# call `/api/v1/companion/{sessions,sessions/{id}/message}` directly.
+
+
+class RagSearchRequest(BaseModel):
+    query: str
+    top_k: int = 5
+
+
+class NovaChatRequest(BaseModel):
+    conversation_id: str | None = None
+    message: str
+    persona_id: str = "listener"
+    action: str | None = None
+
+
+class NovaMessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: str
+
+
+class NovaChatResponse(BaseModel):
+    conversation_id: str
+    message: NovaMessageResponse
+    crisis_flag: bool
+
+
+@router.post("/rag/search")
+def rag_search(
+    req: RagSearchRequest,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    Compatibility shim: semantic-search the medical KB and recent chat
+    history. Returns an empty result if the medical RAG is disabled or
+    unconfigured, so the dashboard's "RAG search" panel renders an
+    empty state instead of throwing.
+    """
+    from app.utils import medical_rag
+
+    results: list[dict] = []
+    method = "hybrid_dense_bm25"
+    try:
+        chunks = medical_rag.search(req.query, top_k=max(1, min(req.top_k, 20)))
+        for i, c in enumerate(chunks):
+            results.append(
+                {
+                    "id": f"kb-{i}",
+                    "role": "system",
+                    "message": c.get("text", ""),
+                    "sentiment": None,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+            )
+    except Exception:
+        # RAG unavailable — return empty result, never raise.
+        results = []
+        method = "unavailable"
+
+    return {"results_count": len(results), "results": results, "method": method}
+
+
+@router.get("/mood/timeline")
+def mood_timeline(
+    days: int = 7,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    Compatibility shim: aggregate companion-message sentiment by day.
+    The companion engine doesn't track sentiment yet (crisis-keyword check
+    only), so this returns an empty timeline until per-message sentiment
+    tagging lands.
+    """
+    days = max(1, min(days, 30))
+    today = datetime.utcnow().date().isoformat()
+    return {
+        "days": days,
+        "daily_mood": [
+            {"date": today, "dominant_sentiment": "neutral", "message_count": 0, "breakdown": {}}
+        ],
+    }
+
+
+@nova_router.get("/conversations/{conversation_id}")
+def nova_get_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    NOVA-compat: load a prior companion conversation by id.
+
+    The dashboard treats the conversation_id as an opaque handle. We
+    resolve it back to the guardian's ChatMessage history: every
+    ``nova/chat`` turn writes two ChatMessage rows for the authenticated
+    guardian, and ``GET /conversations/{id}`` returns them in order.
+    """
+    guardian_id = str(current_guardian.id)
+
+    # We don't currently store a separate per-conversation index; the
+    # legacy design treats ``conversation_id`` as an opaque handle and
+    # pulls every ChatMessage row belonging to this guardian. That
+    # matches the dashboard's expectation of seeing the active thread.
+    messages = (
+        db.query(models.ChatMessage)
+        .filter(models.ChatMessage.guardian_id == guardian_id)
+        .order_by(models.ChatMessage.timestamp.asc())
+        .all()
+    )
+
+    if not messages:
+        # Nothing on file yet — return an empty thread rather than 404 so
+        # the dashboard's conversation-restore flow doesn't bail.
+        return {
+            "conversation_id": conversation_id,
+            "persona_id": "listener",
+            "messages": [],
+        }
+
+    return {
+        "conversation_id": conversation_id,
+        "persona_id": "listener",
+        "messages": [
+            {
+                "id": m.id,
+                "role": m.sender,
+                "content": m.aria_utterance,
+                "timestamp": (
+                    m.timestamp.replace(tzinfo=datetime.now().astimezone().tzinfo).isoformat()
+                    if m.timestamp.tzinfo is None
+                    else m.timestamp.isoformat()
+                ),
+            }
+            for m in messages
+        ],
+    }
+
+
+@nova_router.post("/chat")
+def nova_chat(
+    req: NovaChatRequest,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """
+    NOVA-compat: send a chat turn, returning the assistant's response and
+    the conversation id. Delegates to the companion message engine which
+    applies the crisis keyword gate.
+
+    The legacy design used ``CompanionSession.subject_id`` for grouping
+    chat turns; the current schema stores ``ChatMessage`` directly under
+    ``guardian_id``. We treat the NOVA conversation_id as a stable
+    identifier per (guardian, persona) and persist both turns to
+    ChatMessage, which is what the rest of the system reads.
+    """
+    guardian_id = str(current_guardian.id)
+    message_text = req.message.strip()
+    if not message_text:
+        raise HTTPException(status_code=400, detail="Empty message.")
+
+    # Resolve conversation_id: legacy clients send a previously-returned
+    # id. We don't store anything keyed by conversation_id; we keep the
+    # same id echo so the dashboard can pass it back unchanged on the
+    # next turn.
+    conversation_id = req.conversation_id or f"nova-{guardian_id}-{req.persona_id}"
+
+    # Persist the user turn.
+    user_msg = models.ChatMessage(
+        guardian_id=guardian_id,
+        sender="guardian",
+        aria_utterance=message_text,
+    )
+    db.add(user_msg)
+    db.commit()
+    db.refresh(user_msg)
+
+    # Run the persona + crisis pipeline. The companion engine expects a
+    # session id; pass a synthetic one so the engine can still apply
+    # persona-specific behavior without needing a real session row.
+    synthetic_session_id = f"{guardian_id}-{req.persona_id}"
+    response_text = handle_companion_message(db, synthetic_session_id, message_text)
+
+    # Persist the assistant turn.
+    assistant_msg = models.ChatMessage(
+        guardian_id=guardian_id,
+        sender="aria",
+        aria_utterance=response_text,
+    )
+    db.add(assistant_msg)
+    db.commit()
+    db.refresh(assistant_msg)
+
+    audit.log_audit_event(
+        db,
+        action="NOVA_CHAT_TURN (legacy-compat)",
+        guardian_id=guardian_id,
+    )
+
+    return {
+        "conversation_id": conversation_id,
+        "message": {
+            "id": assistant_msg.id,
+            "role": "assistant",
+            "content": assistant_msg.aria_utterance,
+            "timestamp": assistant_msg.timestamp.isoformat(),
+        },
+        "crisis_flag": bool(_contains_crisis_keyword(message_text)),
+    }
+
+
+def _contains_crisis_keyword(message: str) -> bool:
+    from app.utils.companion_engine import check_crisis
+
+    return check_crisis(message)
