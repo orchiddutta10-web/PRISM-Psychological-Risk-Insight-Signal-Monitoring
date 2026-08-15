@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 from datetime import datetime
 
@@ -9,8 +9,20 @@ from app.utils import auth, audit
 from app.utils.companion_engine import (
     PERSONAS,
     DISCLOSURE_BANNER,
+    CRISIS_RESPONSE,
+    check_crisis,
     handle_companion_message,
 )
+from app.services.nova_ai_service import NovaTurn, generate_response
+
+ACTION_INSTRUCTIONS = {
+    "risk_report",
+    "mood_patterns",
+    "system_status",
+    "privacy_protocol",
+}
+
+NOVA_ACTIONS = ACTION_INSTRUCTIONS
 
 router = APIRouter(prefix="/api/v1/companion", tags=["companion"])
 # NOVA is the older name for the companion chatbot; keep an alias router
@@ -355,6 +367,21 @@ class NovaChatRequest(BaseModel):
     persona_id: str = "listener"
     action: str | None = None
 
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be empty.")
+        return value
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: str | None) -> str | None:
+        if value is not None and value not in NOVA_ACTIONS:
+            raise ValueError("Invalid NOVA quick action.")
+        return value
+
 
 class NovaMessageResponse(BaseModel):
     id: str
@@ -442,15 +469,25 @@ def nova_get_conversation(
     guardian, and ``GET /conversations/{id}`` returns them in order.
     """
     guardian_id = str(current_guardian.id)
+    if not conversation_id.startswith(f"nova-{guardian_id}-"):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
 
-    # We don't currently store a separate per-conversation index; the
-    # legacy design treats ``conversation_id`` as an opaque handle and
-    # pulls every ChatMessage row belonging to this guardian. That
-    # matches the dashboard's expectation of seeing the active thread.
+    device = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == guardian_id)
+        .order_by(models.ChildDevice.name.asc())
+        .first()
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+
     messages = (
-        db.query(models.ChatMessage)
-        .filter(models.ChatMessage.guardian_id == guardian_id)
-        .order_by(models.ChatMessage.timestamp.asc())
+        db.query(models.ConversationMemory)
+        .filter(
+            models.ConversationMemory.subject_id == device.id,
+            models.ConversationMemory.session_id == conversation_id,
+        )
+        .order_by(models.ConversationMemory.timestamp.asc())
         .all()
     )
 
@@ -469,8 +506,8 @@ def nova_get_conversation(
         "messages": [
             {
                 "id": m.id,
-                "role": m.sender,
-                "content": m.aria_utterance,
+                "role": "assistant" if m.role == "assistant" else "user",
+                "content": m.message,
                 "timestamp": (
                     m.timestamp.replace(tzinfo=datetime.now().astimezone().tzinfo).isoformat()
                     if m.timestamp.tzinfo is None
@@ -482,79 +519,107 @@ def nova_get_conversation(
     }
 
 
+def _build_nova_context(db: Session, device_id: str) -> str:
+    window = (
+        db.query(models.BehaviorWindow)
+        .filter(models.BehaviorWindow.subject_id == device_id)
+        .order_by(models.BehaviorWindow.start_ts.desc())
+        .first()
+    )
+    risk = None
+    if window:
+        risk = (
+            db.query(models.RiskScoreV2)
+            .filter(models.RiskScoreV2.window_id == window.id)
+            .first()
+        )
+    if not risk:
+        return "No authorized PRISM observations are available for this request."
+    factors = ", ".join(risk.contributing_factors)
+    return (
+        f"Authorized PRISM observations: score={risk.score_value}; "
+        f"risk_level={risk.risk_level}; contributing_factors={factors or 'none'}"
+    )
+
+
 @nova_router.post("/chat")
 def nova_chat(
     req: NovaChatRequest,
     db: Session = Depends(get_db),
     current_guardian: models.Guardian = Depends(auth.get_current_user),
 ):
-    """
-    NOVA-compat: send a chat turn, returning the assistant's response and
-    the conversation id. Delegates to the companion message engine which
-    applies the crisis keyword gate.
-
-    The legacy design used ``CompanionSession.subject_id`` for grouping
-    chat turns; the current schema stores ``ChatMessage`` directly under
-    ``guardian_id``. We treat the NOVA conversation_id as a stable
-    identifier per (guardian, persona) and persist both turns to
-    ChatMessage, which is what the rest of the system reads.
-    """
     guardian_id = str(current_guardian.id)
-    message_text = req.message.strip()
-    if not message_text:
-        raise HTTPException(status_code=400, detail="Empty message.")
+    device = (
+        db.query(models.ChildDevice)
+        .filter(models.ChildDevice.guardian_id == guardian_id)
+        .order_by(models.ChildDevice.name.asc())
+        .first()
+    )
+    if not device:
+        raise HTTPException(status_code=404, detail="No linked PRISM device found.")
 
-    # Resolve conversation_id: legacy clients send a previously-returned
-    # id. We don't store anything keyed by conversation_id; we keep the
-    # same id echo so the dashboard can pass it back unchanged on the
-    # next turn.
     conversation_id = req.conversation_id or f"nova-{guardian_id}-{req.persona_id}"
-
-    # Persist the user turn.
-    user_msg = models.ChatMessage(
-        guardian_id=guardian_id,
-        sender="guardian",
-        aria_utterance=message_text,
+    history_rows = (
+        db.query(models.ConversationMemory)
+        .filter(
+            models.ConversationMemory.subject_id == device.id,
+            models.ConversationMemory.session_id == conversation_id,
+        )
+        .order_by(models.ConversationMemory.timestamp.asc())
+        .all()
     )
-    db.add(user_msg)
-    db.commit()
-    db.refresh(user_msg)
+    history = [NovaTurn(role=row.role, content=row.message) for row in history_rows]
+    history.append(NovaTurn(role="user", content=req.message))
 
-    # Run the persona + crisis pipeline. The companion engine expects a
-    # session id; pass a synthetic one so the engine can still apply
-    # persona-specific behavior without needing a real session row.
-    synthetic_session_id = f"{guardian_id}-{req.persona_id}"
-    response_text = handle_companion_message(db, synthetic_session_id, message_text)
+    if check_crisis(req.message):
+        response_text = CRISIS_RESPONSE
+    else:
+        try:
+            provider_kwargs = {
+                "context": _build_nova_context(db, str(device.id)),
+                "persona_id": req.persona_id,
+            }
+            if req.action is not None:
+                provider_kwargs["action"] = req.action
+            response_text = generate_response(history, **provider_kwargs)
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=502, detail="NOVA provider unavailable.") from exc
 
-    # Persist the assistant turn.
-    assistant_msg = models.ChatMessage(
-        guardian_id=guardian_id,
-        sender="aria",
-        aria_utterance=response_text,
+    user_memory = models.ConversationMemory(
+        subject_id=device.id,
+        session_id=conversation_id,
+        message=req.message,
+        role="user",
     )
-    db.add(assistant_msg)
+    assistant_memory = models.ConversationMemory(
+        subject_id=device.id,
+        session_id=conversation_id,
+        message=response_text,
+        role="assistant",
+    )
+    db.add_all([user_memory, assistant_memory])
     db.commit()
-    db.refresh(assistant_msg)
+    db.refresh(assistant_memory)
 
     audit.log_audit_event(
         db,
         action="NOVA_CHAT_TURN (legacy-compat)",
         guardian_id=guardian_id,
+        device_id=str(device.id),
     )
 
     return {
         "conversation_id": conversation_id,
         "message": {
-            "id": assistant_msg.id,
+            "id": assistant_memory.id,
             "role": "assistant",
-            "content": assistant_msg.aria_utterance,
-            "timestamp": assistant_msg.timestamp.isoformat(),
+            "content": response_text,
+            "timestamp": assistant_memory.timestamp.isoformat(),
         },
-        "crisis_flag": bool(_contains_crisis_keyword(message_text)),
+        "crisis_flag": check_crisis(req.message),
     }
 
 
 def _contains_crisis_keyword(message: str) -> bool:
-    from app.utils.companion_engine import check_crisis
-
     return check_crisis(message)

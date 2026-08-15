@@ -26,6 +26,27 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    email = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, default="guardian", nullable=False)
+    created_at = Column(DateTime, default=_now, nullable=False)
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    device_type = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=_now, nullable=False)
+
+
 class Guardian(Base):
     __tablename__ = "guardians"
 
@@ -285,6 +306,21 @@ class ChatMessage(Base):
         String, nullable=False
     )  # Guardian <-> Aria AI companion dialogue (NOT teen content)
     timestamp = Column(DateTime, default=_now, nullable=False)
+
+
+class ConversationMemory(Base):
+    __tablename__ = "conversation_memories"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    session_id = Column(String, nullable=False, index=True)
+    message = Column(Text, nullable=False)
+    role = Column(String, nullable=False)
+    sentiment = Column(String, nullable=True)
+    tags_json = Column(Text, nullable=False, default="[]")
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+
+    device = relationship("ChildDevice")
 
 
 # --- PRISM Node / Expanded IoT & Multimodal Models ---
@@ -648,6 +684,34 @@ class SensorReading(Base):
     timestamp = Column(DateTime, default=_now, nullable=False, index=True)
 
 
+class VisionFeature(Base):
+    """Non-diagnostic vision metadata from the edge node."""
+
+    __tablename__ = "vision_features"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+    blink_rate_bpm = Column(Float, nullable=False)
+    is_slouching = Column(Boolean, default=False, nullable=False)
+
+    device = relationship("ChildDevice")
+
+
+class AudioFeature(Base):
+    """Non-diagnostic audio metadata from the edge node."""
+
+    __tablename__ = "audio_features"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+    speech_segments = Column(Float, nullable=False)
+    silence_ratio = Column(Float, nullable=False)
+
+    device = relationship("ChildDevice")
+
+
 class PhoneEvent(Base):
     """Per-device phone interaction event (SCREEN_ON, SCREEN_OFF, UNLOCK, etc.).
 
@@ -658,6 +722,7 @@ class PhoneEvent(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
     event_type = Column(String, nullable=False, index=True)
+    package_name = Column(String, nullable=True)
     timestamp = Column(DateTime, default=_now, nullable=False, index=True)
 
 
@@ -677,16 +742,46 @@ class BehaviorWindow(Base):
 
 
 class RiskScoreV2(Base):
-    """V2 risk score row used by the Phase 10/12 multimodal engine.
+    """Legacy risk score contract used by the Phase 10/12 ML engine."""
 
-    Kept for historical compatibility with the XAI / drift modules that
-    import it. New writes go to the unified `RiskScore` table.
-    """
     __tablename__ = "risk_scores_v2"
 
     id = Column(String, primary_key=True, default=generate_uuid)
+    window_id = Column(
+        String,
+        ForeignKey("behavior_windows.id"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    score_value = Column(Float, nullable=False)
+    risk_level = Column(String, nullable=False)
+    contributing_factors_json = Column(Text, nullable=False, default="[]")
+
+    window = relationship("BehaviorWindow")
+
+    @property
+    def contributing_factors(self) -> list:
+        try:
+            return json.loads(str(self.contributing_factors_json))
+        except Exception:
+            return []
+
+    @contributing_factors.setter
+    def contributing_factors(self, factors: list):
+        self.contributing_factors_json = json.dumps(factors)
+
+
+class AlertV2(Base):
+    """Legacy alert contract emitted by the Phase 10 ML engine."""
+
+    __tablename__ = "alerts_v2"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
-    score = Column(Float, nullable=False)
-    tier = Column(String, nullable=False)  # baseline | change | multiple | high
-    factors_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=_now, nullable=False, index=True)
+    risk_score_id = Column(String, ForeignKey("risk_scores_v2.id"), nullable=True)
+    created_at = Column(DateTime, default=_now, nullable=False)
+    summary = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+
+    risk_score = relationship("RiskScoreV2")

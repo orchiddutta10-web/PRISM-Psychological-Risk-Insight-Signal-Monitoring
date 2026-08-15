@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { API } from '@/lib/api'
+import { API, authFetch } from '@/lib/api'
 
 // PRISM Node — Physiological Wearable Monitor (v4.0 Multi-Factor Edition)
 // Hardware: ESP32 + Analog Pulse Sensor (GPIO34) + MPU6050 (I2C) + ISD1820 + I2C LCD
@@ -97,80 +97,133 @@ export default function PrismNodePage() {
   const [tab, setTab] = useState<Tab>('vitals')
   const [token, setToken] = useState<string | null>(null)
   const [deviceId, setDeviceId] = useState<string | null>(null)
+  const [deviceName, setDeviceName] = useState<string | null>(null)
   const [pulseReadings, setPulseReadings] = useState<PulseReading[]>([])
   const [ppgReadings, setPpgReadings] = useState<PhysioReading[]>([])
   const [sleepWindows, setSleepWindows] = useState<SleepWindow[]>([])
   const [nodeStatus, setNodeStatus] = useState<NodeStatus>({ connected: false, last_seen: null, sensor: null })
   const [isDemoMode, setIsDemoMode] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [devicesAvailable, setDevicesAvailable] = useState(true)
+  const [pageError, setPageError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date())
 
   useEffect(() => {
     const tk = localStorage.getItem('prism_token')
-    if (!tk) { router.push('/'); return }
+    if (!tk) {
+      router.push('/')
+      setIsLoading(false)
+      return
+    }
     setToken(tk)
-    
-    // Fetch devices to validate or auto-select
-    fetch(`${API}/auth/devices`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
-      .then(r => r.ok ? r.json() : [])
-      .then((devices: any[]) => {
+
+    const loadDevices = async () => {
+      try {
+        const response = await authFetch('/auth/devices', {
+          headers: { Authorization: `Bearer ${tk}` },
+          cache: 'no-store',
+        })
+        if (!response.ok) {
+          setDevicesAvailable(false)
+          setPageError(
+            response.status === 401
+              ? 'Your session has expired. Please sign in again.'
+              : 'PRISM Node could not load your devices. Check that the API is running.',
+          )
+          return
+        }
+
+        const devices = (await response.json()) as Array<{ id: string; name?: string }>
+        if (!Array.isArray(devices)) {
+          throw new Error('Invalid device response')
+        }
+
+        setDevicesAvailable(devices.length > 0)
         if (devices.length > 0) {
           const saved = localStorage.getItem('prism_selected_device')
-          const isValid = devices.some(d => d.id === saved)
-          if (saved && isValid) {
-            setDeviceId(saved)
-          } else {
-            localStorage.setItem('prism_selected_device', devices[0].id)
-            setDeviceId(devices[0].id)
-          }
+          const match = devices.find(d => d.id === saved)
+          const selected = match ?? devices[0]
+          localStorage.setItem('prism_selected_device', selected.id)
+          setDeviceId(selected.id)
+          setDeviceName(selected.name ?? null)
         }
-      })
-      .catch(() => {})
+      } catch {
+        setDevicesAvailable(false)
+        setPageError('PRISM Node could not connect to the API. Check that localhost:8000 is running.')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    void loadDevices()
   }, [router])
 
   const fetchVitals = useCallback(async (tk: string, did: string) => {
     try {
-      // Fetch from PRISM PULSE multi-factor endpoint (ESP32 BPM + G-Force)
-      const pulseRes = await fetch(`${API}/physio/pulse/readings/${did}?limit=60&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
-      // Also try legacy PPG readings
-      const ppgRes = await fetch(`${API}/physio/readings/${did}?sensor_type=ppg&limit=60&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
+      const headers = { Authorization: `Bearer ${tk}` }
+      const [pulseRes, ppgRes] = await Promise.all([
+        authFetch(`/physio/pulse/readings/${did}?limit=60&_t=${Date.now()}`, { headers, cache: 'no-store' }),
+        authFetch(`/physio/readings/${did}?sensor_type=ppg&limit=60&_t=${Date.now()}`, { headers, cache: 'no-store' }),
+      ])
 
       let pulseData: PulseReading[] = []
       let ppgData: PhysioReading[] = []
 
       if (pulseRes.ok) {
-        pulseData = await pulseRes.json()
+        const data = await pulseRes.json()
+        if (!Array.isArray(data)) throw new Error('Invalid pulse response')
+        pulseData = data
+      } else if (pulseRes.status === 403) {
+        const fallback = await pickOwnedDeviceId(tk)
+        if (fallback) {
+          setDeviceId(fallback.id)
+          setDeviceName(fallback.name ?? null)
+        }
+      } else {
+        throw new Error(`Pulse request failed: ${pulseRes.status}`)
       }
+
       if (ppgRes.ok) {
-        ppgData = await ppgRes.json()
+        const data = await ppgRes.json()
+        if (!Array.isArray(data)) throw new Error('Invalid PPG response')
+        ppgData = data
       }
 
       setPulseReadings([...pulseData].reverse())
       setPpgReadings([...ppgData].reverse())
       setIsDemoMode(false)
+      setPageError(null)
     } catch {
-      setPulseReadings([])
-      setPpgReadings([])
-      setIsDemoMode(false)
+      setPageError('PRISM Node telemetry is unavailable. Check the API or device connection.')
     }
     setLastRefresh(new Date())
   }, [])
 
   const fetchSleep = useCallback(async (tk: string, did: string) => {
     try {
-      const res = await fetch(`${API}/physio/sleep/${did}?limit=30&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
-      if (!res.ok) throw new Error(`Sleep API returned ${res.status}`)
+      const res = await authFetch(`/physio/sleep/${did}?limit=30&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
+      if (!res.ok) {
+        setSleepWindows([])
+        return
+      }
       const data = await res.json()
       setSleepWindows(Array.isArray(data) ? data : [])
-    } catch { setSleepWindows([]) }
+    } catch {
+      setSleepWindows([])
+    }
   }, [])
 
   const fetchStatus = useCallback(async (tk: string, did: string) => {
     try {
-      const res = await fetch(`${API}/physio/status/${did}?_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
-      if (!res.ok) throw new Error(`Status API returned ${res.status}`)
+      const res = await authFetch(`/physio/status/${did}?_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
+      if (!res.ok) {
+        setNodeStatus({ connected: false, last_seen: null, sensor: null })
+        return
+      }
       setNodeStatus(await res.json())
-    } catch { setNodeStatus({ connected: false, last_seen: null, sensor: null }) }
+    } catch {
+      setNodeStatus({ connected: false, last_seen: null, sensor: null })
+    }
   }, [])
 
   useEffect(() => {
@@ -184,6 +237,26 @@ export default function PrismNodePage() {
     const iv = setInterval(() => { fetchVitals(token, deviceId); fetchStatus(token, deviceId) }, 5000)
     return () => clearInterval(iv)
   }, [token, deviceId, fetchVitals, fetchSleep, fetchStatus])
+
+  /**
+   * If the dashboard has a stale device id (e.g. user switched accounts,
+   * a device was deleted, or the token belongs to a different guardian)
+   * the API returns 403. Pick the first device owned by the current
+   * guardian and switch to it transparently.
+   */
+  async function pickOwnedDeviceId(tk: string): Promise<{ id: string; name?: string } | null> {
+    try {
+      const res = await fetch(`${API}/auth/devices`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
+      if (!res.ok) return null
+      const list = (await res.json()) as Array<{ id: string; name?: string }>
+      if (!list.length) return null
+      const first = list[0]
+      localStorage.setItem('prism_selected_device', first.id)
+      return first
+    } catch {
+      return null
+    }
+  }
 
   // Only label a reading live when it arrived during the polling window.
   const latestPulse = pulseReadings.length ? pulseReadings[pulseReadings.length - 1] : null
@@ -219,6 +292,70 @@ export default function PrismNodePage() {
     )
   }
 
+  if (pageError && !deviceId) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>
+        <header style={{ borderBottom: '1px solid var(--border)', padding: '16px 24px', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 40 }}>
+          <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+            <button onClick={() => router.push('/overview')} style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6 }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 11L5 7l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              Dashboard
+            </button>
+            <span style={{ color: 'var(--border)', opacity: 0.5 }}>|</span>
+            <span style={{ fontWeight: 800, fontSize: 16 }}>PRISM Node</span>
+          </div>
+        </header>
+        <main style={{ maxWidth: 720, margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
+          <div style={{ width: 96, height: 96, borderRadius: '50%', margin: '0 auto 24px', background: 'rgba(239,68,68,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>⚠️</div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 12 }}>PRISM Node is unavailable</h2>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 28 }}>{pageError}</p>
+          <button onClick={() => window.location.reload()} style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(99,102,241,0.4)', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+            Try Again
+          </button>
+        </main>
+      </div>
+    )
+  }
+
+  // Render an empty-state when the guardian has no devices at all.
+  if (!devicesAvailable) {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>
+        <header style={{ borderBottom: '1px solid var(--border)', padding: '16px 24px', background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(12px)', position: 'sticky', top: 0, zIndex: 40 }}>
+          <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <button onClick={() => router.push('/overview')} style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px', borderRadius: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 11L5 7l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                Dashboard
+              </button>
+              <span style={{ color: 'var(--border)', opacity: 0.5 }}>|</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', flexShrink: 0 }} />
+                <div>
+                  <span style={{ fontWeight: 800, fontSize: 16 }}>PRISM Node</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: -2 }}>Multi-Factor Physiological Monitor (v4.0)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </header>
+        <main style={{ maxWidth: 720, margin: '0 auto', padding: '80px 24px', textAlign: 'center' }}>
+          <div style={{ width: 96, height: 96, borderRadius: '50%', margin: '0 auto 24px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 44 }}>📡</div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 12 }}>No PRISM Node devices yet</h2>
+          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 28 }}>
+            Register a PRISM PULSE ESP32 wearable to see live heart rate, G-force, and sleep windows here. Devices registered under your guardian account will appear automatically once telemetry starts flowing.
+          </p>
+          <button
+            onClick={() => router.push('/devices')}
+            style={{ padding: '10px 20px', borderRadius: 10, border: '1px solid rgba(99,102,241,0.4)', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+          >
+            Go to Devices &amp; Identity →
+          </button>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-main)', color: 'var(--text-primary)', fontFamily: "'Inter', sans-serif" }}>
       {/* moved node/animation keyframes to globals.css */}
@@ -240,10 +377,11 @@ export default function PrismNodePage() {
               <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', animation: 'nodePulse 3s ease-in-out infinite', flexShrink: 0 }} />
               <div>
                 <span style={{ fontWeight: 800, fontSize: 16, letterSpacing: '-0.02em' }}>PRISM Node</span>
-                <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: -2 }}>Multi-Factor Physiological Monitor (v4.0)</span>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', display: 'block', marginTop: -2 }}>
+                  {deviceName ? `${deviceName} • ` : ''}Multi-Factor Physiological Monitor (v4.0)
+                </span>
               </div>
             </div>
-          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {isDemoMode && (
               <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)', color: '#a5b4fc', letterSpacing: '0.05em' }}>
@@ -255,6 +393,7 @@ export default function PrismNodePage() {
             </span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Refreshed {lastRefresh.toLocaleTimeString()}</span>
           </div>
+        </div>
         </div>
       </header>
 
@@ -339,49 +478,9 @@ export default function PrismNodePage() {
           <div className="pn-slide">
             <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Live Camera Feed</h2>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24, maxWidth: 620, lineHeight: 1.6 }}>
-              Live webcam feed from the monitoring station. Connects to any USB camera on the local machine or an RTSP stream from the Raspberry Pi.
+              Live webcam feed from the monitoring station. Connects to any USB camera on the local machine or an RTSP stream from the Raspberry Pi. The camera endpoint is optional — if no camera hardware is configured, this panel shows a friendly empty state instead of a broken image.
             </p>
-            <div style={{ maxWidth: 800, margin: '0 auto' }}>
-              <div style={{ background: '#000', borderRadius: 20, overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
-                <img
-                  src={token ? `${API}/camera/stream?token=${token}` : ''}
-                  alt="Live camera feed"
-                  style={{ width: '100%', display: 'block', minHeight: 400, objectFit: 'cover' }}
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement
-                    target.style.display = 'none'
-                    const parent = target.parentElement
-                    if (parent) {
-                      const fallback = document.createElement('div')
-                      fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;min-height:400px;flex-direction:column;gap:12px;'
-                      fallback.innerHTML = '<div style="font-size:48px">📷</div><p style="color:#9ca3af;font-size:14px;font-weight:600">Camera not available</p><p style="color:#6b7280;font-size:12px;max-width:300px;text-align:center">Connect a USB webcam or set PRISM_CAMERA_URL to an RTSP stream from the RPi</p>'
-                      parent.appendChild(fallback)
-                    }
-                  }}
-                />
-                <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.6)', padding: '4px 12px', borderRadius: 20, backdropFilter: 'blur(8px)' }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'nodePulse 1.5s ease-in-out infinite' }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>LIVE</span>
-                </div>
-              </div>
-              <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-                <button
-                  onClick={() => {
-                    const img = document.querySelector('img[alt="Live camera feed"]') as HTMLImageElement
-                    if (img) img.src = `${API}/camera/stream?token=${token}&t=${Date.now()}`
-                  }}
-                  style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  ↻ Refresh Stream
-                </button>
-                <button
-                  onClick={() => window.open(`${API}/camera/frame?token=${token}`, '_blank')}
-                  style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  📸 Snapshot
-                </button>
-              </div>
-            </div>
+            <CameraPanel token={token} apiBase={API} />
           </div>
         )}
 
@@ -494,6 +593,105 @@ export default function PrismNodePage() {
           </div>
         )}
       </main>
+    </div>
+  )
+}
+
+/* ── CameraPanel ──────────────────────────────────────────────────────────── */
+
+/**
+ * Camera feed panel that gracefully handles the absence of the camera
+ * endpoint. Probes `/camera/stream` with the current bearer token; if the
+ * endpoint is missing (404) or refuses (403/401) the panel renders a
+ * friendly empty state instead of leaving a broken image element.
+ */
+function CameraPanel({ token, apiBase }: { token: string | null; apiBase: string }) {
+  const [streamUrl, setStreamUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  useEffect(() => {
+    if (!token) {
+      setError('No active session — log in to enable camera stream.')
+      setStreamUrl(null)
+      return
+    }
+    const url = `${apiBase}/camera/stream?token=${encodeURIComponent(token)}`
+    setStreamUrl(url)
+    setError(null)
+  }, [token, apiBase, reloadKey])
+
+  const handleImageError = useCallback(() => {
+    setError(
+      'Camera stream is not configured on this backend. ' +
+      'Connect a USB webcam to the PRISM host or set PRISM_CAMERA_URL to an RTSP stream from the RPi.',
+    )
+    setStreamUrl(null)
+  }, [])
+
+  const refresh = useCallback(() => {
+    setStreamUrl(null)
+    setError(null)
+    setReloadKey((k) => k + 1)
+  }, [])
+
+  if (!token) {
+    return (
+      <div style={{ maxWidth: 800, margin: '0 auto', padding: '60px 20px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 20 }}>
+        <div style={{ fontSize: 44, marginBottom: 12 }}>📷</div>
+        <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>Sign in to view the camera feed</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Your session token is required to authenticate the live stream.</p>
+      </div>
+    )
+  }
+
+  if (error || !streamUrl) {
+    return (
+      <div style={{ maxWidth: 800, margin: '0 auto', padding: '60px 20px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 20 }}>
+        <div style={{ fontSize: 44, marginBottom: 12 }}>📷</div>
+        <h3 style={{ fontSize: 16, fontWeight: 800, marginBottom: 8 }}>Camera not available</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', maxWidth: 480, margin: '0 auto 16px', lineHeight: 1.6 }}>
+          {error ?? 'No camera hardware configured. Connect a USB webcam to the PRISM host or set PRISM_CAMERA_URL to an RTSP stream from the RPi.'}
+        </p>
+        <button
+          onClick={refresh}
+          style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          ↻ Try Again
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <div style={{ background: '#000', borderRadius: 20, overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
+        <img
+          key={reloadKey}
+          src={streamUrl}
+          alt="Live camera feed"
+          style={{ width: '100%', display: 'block', minHeight: 400, objectFit: 'cover' }}
+          onError={handleImageError}
+        />
+        <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.6)', padding: '4px 12px', borderRadius: 20, backdropFilter: 'blur(8px)' }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'nodePulse 1.5s ease-in-out infinite' }} />
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>LIVE</span>
+        </div>
+      </div>
+      <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
+        <button
+          onClick={refresh}
+          style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          ↻ Refresh Stream
+        </button>
+        <button
+          onClick={() => token && window.open(`${apiBase}/camera/frame?token=${encodeURIComponent(token)}`, '_blank')}
+          style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+        >
+          📸 Snapshot
+        </button>
+      </div>
     </div>
   )
 }

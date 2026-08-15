@@ -50,6 +50,8 @@ def llm_configured() -> bool:
     provider = settings.MEDICAL_LLM_PROVIDER.lower()
     if provider == "openai":
         return bool(settings.OPENAI_API_KEY)
+    if provider == "gemini":
+        return bool(settings.GEMINI_API_KEY)
     if provider == "ollama":
         return bool(settings.OLLAMA_BASE_URL)
     return False
@@ -81,6 +83,19 @@ def get_llm():
             temperature=0.2,
         )
         return _llm_cache
+    if provider == "gemini":
+        if not settings.GEMINI_API_KEY:
+            raise ValueError(
+                "MEDICAL_LLM_PROVIDER=gemini requires GEMINI_API_KEY to be set."
+            )
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        logger.info("Medical RAG using Gemini model %s", settings.GEMINI_MODEL)
+        _llm_cache = ChatGoogleGenerativeAI(
+            model=settings.GEMINI_MODEL,
+            api_key=settings.GEMINI_API_KEY,
+            temperature=0.7,
+        )
+        return _llm_cache
     if provider == "ollama":
         logger.info(
             "Medical RAG using local Ollama model %s @ %s",
@@ -95,7 +110,7 @@ def get_llm():
         return _llm_cache
     raise ValueError(
         f"Unknown MEDICAL_LLM_PROVIDER '{settings.MEDICAL_LLM_PROVIDER}'. "
-        "Use 'openai' or 'ollama'."
+        "Use 'openai', 'gemini', or 'ollama'."
     )
 
 

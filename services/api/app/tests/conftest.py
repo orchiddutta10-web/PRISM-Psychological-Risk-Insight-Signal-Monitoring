@@ -1,6 +1,7 @@
 import os
 
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+os.environ.setdefault("DEMO_MODE", "false")
 
 import pytest
 import warnings
@@ -29,7 +30,9 @@ def mock_redis(monkeypatch):
 
 # ─── Shared in-memory SQLite engine (single connection across all test files) ─
 
-from app.database import Base  # noqa: E402
+from app import main  # noqa: E402
+from app.database import Base, get_db  # noqa: E402
+app = main.app
 from app.utils.risk_registry import seed_registry  # noqa: E402
 
 TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -67,3 +70,6 @@ def override_get_db():
         yield db
     finally:
         db.close()
+
+
+app.dependency_overrides[get_db] = override_get_db

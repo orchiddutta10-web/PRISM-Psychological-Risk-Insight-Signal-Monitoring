@@ -289,3 +289,87 @@ class PrismInsufficientDataResponse(BaseModel):
     message: str
     details: Dict[str, str] = {}
 
+
+# --- Phase 12 Sensor and Offline Ingestion ---
+
+
+class SensorReadingIngest(BaseModel):
+    device_id: str
+    metric_type: str = Field(..., pattern=r"^(bpm|g_force|temperature)$")
+    value: float
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class VisionFeatureIngest(BaseModel):
+    device_id: str
+    blink_rate_bpm: float = Field(..., ge=0, le=200)
+    is_slouching: bool = False
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AudioFeatureIngest(BaseModel):
+    device_id: str
+    speech_segments: float = Field(..., ge=0)
+    silence_ratio: float = Field(..., ge=0, le=1)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PhoneEventIngest(BaseModel):
+    device_id: str
+    event_type: str = Field(
+        ..., pattern=r"^(SCREEN_ON|SCREEN_OFF|APP_USAGE|APP_INSTALL)$"
+    )
+    package_name: str | None = None
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class IngestionResponse(BaseModel):
+    status: str
+    id: str
+    detail: str | None = None
+
+
+class DashboardSummaryResponse(BaseModel):
+    device_id: str | None = None
+    insight_score: float | None = None
+    tier_label: str | None = None
+    recent_alerts: list[dict] = []
+    sensor_status: dict[str, str] = {}
+    daily_averages: dict[str, float] = {}
+    system_health: str = "online"
+
+
+class AlertListResponse(BaseModel):
+    alerts: list[dict]
+    total: int
+    unread: int
+    page: int = 1
+    page_size: int = 50
+
+
+class BatchEventItem(BaseModel):
+    timestamp: datetime
+    source: str
+    payload: dict[str, Any]
+
+
+class BatchIngestRequest(BaseModel):
+    batch_id: str
+    device_id: str
+    events: list[BatchEventItem] = Field(..., min_length=1, max_length=100)
+
+
+class BatchResultItem(BaseModel):
+    row_index: int
+    status: str
+    cloud_id: str | None = None
+    error: str | None = None
+    code: str | None = None
+
+
+class BatchIngestResponse(BaseModel):
+    batch_id: str
+    accepted: int
+    rejected: int
+    results: list[BatchResultItem]
+

@@ -59,9 +59,10 @@ class AuthService:
     def login_guardian(
         login_data: schemas.LoginRequest, db: Session, ip_address: Optional[str] = None
     ) -> dict:
+        normalized_email = str(login_data.email).strip().lower()
         guardian = (
             db.query(models.Guardian)
-            .filter(models.Guardian.email == login_data.email)
+            .filter(models.Guardian.email == normalized_email)
             .first()
         )
         if not guardian or not auth.verify_password(
@@ -69,7 +70,7 @@ class AuthService:
         ):
             audit.log_audit_event(
                 db,
-                action=f"Failed login attempt for email {login_data.email}",
+                action=f"Failed login attempt for email {normalized_email}",
                 ip_address=ip_address,
             )
             raise HTTPException(

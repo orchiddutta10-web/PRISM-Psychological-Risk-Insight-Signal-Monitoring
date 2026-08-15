@@ -11,14 +11,21 @@ from app.database import SessionLocal, engine
 from app.routes import (
     audit,
     auth,
+    behavior,
     companion,
     consent,
+    demo,
+    guardian,
     medical,
+    ml,
+    offline,
     physio,
     prism,
+    sensors,
     telemetry,
     voice,
 )
+from app.demo_simulation_engine import start_simulation, stop_simulation
 from app.utils.observability import APMMiddleware, setup_structured_logging
 
 # Initialize structured JSON logging
@@ -149,7 +156,12 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
+    if settings.DEMO_MODE:
+        start_simulation()
+    try:
+        yield
+    finally:
+        stop_simulation()
 
 
 app = FastAPI(
@@ -245,12 +257,18 @@ def readiness_check():
 # Register routers
 app.include_router(auth.router)
 app.include_router(consent.router)
+app.include_router(behavior.router)
+app.include_router(guardian.router)
+app.include_router(ml.router)
+app.include_router(offline.router)
+app.include_router(sensors.router)
 app.include_router(telemetry.router)
 app.include_router(telemetry.internal_router)
 app.include_router(audit.router)
 app.include_router(voice.router)
 app.include_router(companion.router)
 app.include_router(companion.nova_router)
+app.include_router(demo.router)
 app.include_router(physio.router)
 app.include_router(medical.router)
 app.include_router(prism.router)

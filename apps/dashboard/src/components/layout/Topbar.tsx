@@ -21,7 +21,6 @@ const TITLES: Record<string, { eyebrow: string; title: string }> = {
   '/guardian': { eyebrow: 'Governance', title: 'Guardian Policies' },
   '/overview/audit': { eyebrow: 'Governance', title: 'Audit Log' },
   '/prism-node': { eyebrow: 'Hardware', title: 'PRISM Node' },
-  '/codebase': { eyebrow: 'System', title: 'Codebase' },
 }
 
 export function Topbar({ onMenuClick, wsStatus, unreadAlerts }: TopbarProps) {
