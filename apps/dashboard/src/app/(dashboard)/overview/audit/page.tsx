@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ShieldCheck, ArrowLeft, Search, Filter, Database, FileText, User } from 'lucide-react'
+import { API } from '@/lib/api'
 
 interface AuditEntry {
   id: string
@@ -45,7 +46,7 @@ export default function AuditLogPage() {
 
     const fetchAuditEntries = async () => {
       try {
-        const res = await fetch('/api/v1/audit/entries', {
+        const res = await fetch(`${API}/audit/entries`, {
           headers: { 'Authorization': `Bearer ${activeToken}` }
         })
         if (res.status === 403) {

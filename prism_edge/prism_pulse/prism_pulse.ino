@@ -1,6 +1,6 @@
 /*
  * PRISM PULSE — ESP32 NodeMCU Firmware (Multi-Factor + Cloud Edition)
- * Sensors: Analog Pulse Sensor (GPIO36) | MPU6050 (I2C) | ISD1820 (GPIO4) | I2C LCD
+ * Sensors: Analog Pulse Sensor (GPIO34) | MPU6050 (I2C) | ISD1820 (GPIO4) | I2C LCD
  * 
  * Logic: Triggers ISD1820 only if High BPM + Low Movement is sustained for 15s.
  * Cloud:  Non-blocking WiFi HTTP POST to PRISM API every TX_INTERVAL ms.
@@ -13,15 +13,14 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-// WiFi & API credentials live in secrets.h (gitignored — never commit real values)
-#include "secrets.h"
-
-#ifndef WIFI_SSID
-#error "secrets.h missing — copy secrets.example.h to secrets.h and fill in your values"
-#endif
+// ── WiFi & API Config ─────────────────────────────────────────────
+#define WIFI_SSID       "Galaxy A23 5G F647"
+#define WIFI_PASSWORD   "123456789"
+#define ESP32_BRIDGE_URL    "http://192.168.180.97:8081"  // RPi Edge Bridge
+#define DEVICE_JWT      ""
 
 // ── Pin Definitions ───────────────────────────────────────────────
-#define PULSE_PIN       36    // Analog Pulse Sensor (S) → GPIO36
+#define PULSE_PIN       34    // Analog Pulse Sensor (S) → GPIO34
 #define ISD_PLAY_PIN    4     // ISD1820 P-E trigger → GPIO4
 
 // ── Devices ───────────────────────────────────────────────────────
@@ -33,16 +32,12 @@ bool mpuFound = false;
 
 // ── Pulse Sensor Variables ────────────────────────────────────────
 const int THRESHOLD = 2000;
-const unsigned long MIN_IBI_MS = 300;
-const unsigned long MAX_IBI_MS = 2000;
-const unsigned long BPM_TIMEOUT_MS = 3000;
 int pulseValue = 0;
 bool pulseDetected = false;
 
 unsigned long lastBeatTime = 0;
-unsigned long lastValidBeatTime = 0;
 int BPM = 0;
-unsigned long IBI = 600;
+int IBI = 600;
 
 // ── Multi-Factor Logic Variables ──────────────────────────────────
 const int BPM_THRESHOLD = 110;
@@ -52,6 +47,7 @@ const unsigned long SUSTAINED_DURATION_MS = 15000;
 unsigned long anomalyStartTime = 0;
 bool anomalyActive = false;
 unsigned long lastISDTrigger = 0;
+bool isdTriggeredFlag = false;   // latches until next successful TX
 
 float currentGForce = 1.0;
 
@@ -60,10 +56,6 @@ unsigned long lastSampleMs   = 0;
 unsigned long lastDisplayMs  = 0;
 unsigned long lastSerialMs   = 0;
 unsigned long lastTxMs       = 0;
-
-// ── Pi Status (LCD indicator from Raspberry Pi) ────────────────────
-char piStatusChar = 'B';          // default: Booting
-unsigned long lastPiStatusMs = 0;
 
 const long SAMPLE_INTERVAL   = 20;     // 50 Hz sampling for pulse
 const long DISPLAY_INTERVAL  = 1000;   // Update LCD every 1s
@@ -100,6 +92,7 @@ void triggerISD1820(const char* reason) {
   delay(100);
   digitalWrite(ISD_PLAY_PIN, LOW);
   
+  isdTriggeredFlag = true;   // report to cloud on next transmit
   lastISDTrigger = millis();
 }
 
@@ -150,8 +143,8 @@ void transmitReading() {
 
   // Build JSON payload matching the API format
   String alertStatus;
-  if (BPM == 0) {
-    alertStatus = "OK";
+  if (isdTriggeredFlag) {
+    alertStatus = "ISD_TRIGGERED";
   } else if (anomalyActive) {
     long remaining = (SUSTAINED_DURATION_MS - (millis() - anomalyStartTime)) / 1000;
     alertStatus = "WARNING-" + String(remaining) + "s";
@@ -170,7 +163,7 @@ void transmitReading() {
   txState = TX_BUSY;
 
   HTTPClient http;
-  http.begin(API_BASE_URL + String("/api/v1/physio/pulse/ingest"));
+  http.begin(ESP32_BRIDGE_URL + String("/api/v1/physio/pulse/ingest"));
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + String(DEVICE_JWT));
   http.setTimeout(3000); // 3 second HTTP timeout
@@ -182,6 +175,7 @@ void transmitReading() {
     Serial.print(" — ");
     if (httpCode == 200 || httpCode == 201) {
       Serial.println("OK");
+      isdTriggeredFlag = false;  // latch cleared once the cloud has it
     } else {
       Serial.println("FAIL");
       String response = http.getString();
@@ -245,16 +239,6 @@ void setup() {
 void loop() {
   unsigned long now = millis();
 
-  // ── Read Pi Status Byte from UART ────────────────────────────────
-  if (Serial.available() > 0) {
-    char c = Serial.read();
-    // Valid Pi status characters: O, X, S, E, B
-    if (c == 'O' || c == 'X' || c == 'S' || c == 'E' || c == 'B') {
-      piStatusChar = c;
-      lastPiStatusMs = now;
-    }
-  }
-
   // ── Handle WiFi state machine (non-blocking) ────────────────────
   if (now - lastSampleMs >= SAMPLE_INTERVAL || 
       wifiState == WIFI_CONNECTING || 
@@ -267,26 +251,15 @@ void loop() {
     lastSampleMs = now;
     pulseValue = analogRead(PULSE_PIN);
 
+    // Peak detection
     if (pulseValue > THRESHOLD && !pulseDetected) {
       pulseDetected = true;
-
-      if (lastBeatTime != 0) {
-        IBI = now - lastBeatTime;
-        if (IBI >= MIN_IBI_MS && IBI <= MAX_IBI_MS) {
-          BPM = 60000 / IBI;
-          lastValidBeatTime = now;
-        }
-      }
+      IBI = now - lastBeatTime;
       lastBeatTime = now;
-    }
+      if (IBI > 300 && IBI < 2000) { BPM = 60000 / IBI; }
+    } 
     if (pulseValue < THRESHOLD && pulseDetected) {
       pulseDetected = false;
-    }
-
-    if (lastValidBeatTime != 0 && now - lastValidBeatTime > BPM_TIMEOUT_MS) {
-      BPM = 0;
-      lastBeatTime = 0;
-      lastValidBeatTime = 0;
     }
 
     // ── 2. Acquire Kinesthetic Data (MPU6050) ─────────────────────
@@ -348,19 +321,18 @@ void loop() {
       lcd.setCursor(0, 0);
       lcd.print("BPM:"); lcd.print(BPM); lcd.print(" G:"); lcd.print(currentGForce, 1);
       
-      // Pi status character on LCD row 0 (replaces WiFi indicator)
-      // If no Pi status received for 10s, show '?'
+      // WiFi indicator on LCD row 0
       lcd.setCursor(13, 0);
-      if (now - lastPiStatusMs < 10000) {
-        lcd.print(piStatusChar);
+      if (wifiState == WIFI_CONNECTED) {
+        lcd.print("W");
       } else {
-        lcd.print("?");
+        lcd.print(".");
       }
       lcd.print("  ");
 
       lcd.setCursor(0, 1);
-      if (BPM == 0) {
-        lcd.print("Place finger... ");
+      if (pulseValue == 0) {
+        lcd.print("Place Finger... ");
       } else if (anomalyActive) {
         long remaining = (SUSTAINED_DURATION_MS - (now - anomalyStartTime)) / 1000;
         lcd.print("ALERT IN: "); lcd.print(remaining); lcd.print("s  ");

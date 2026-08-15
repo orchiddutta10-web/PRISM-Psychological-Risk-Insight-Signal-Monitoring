@@ -57,15 +57,15 @@ MOTION_IDLE_CONFIRMATION_SEC: float = float(
 FEATURE_INTERVAL_SEC: float = float(os.getenv("PRISM_FEATURE_INTERVAL_SEC", "2.0"))
 
 # ── PRISM API Server ──────────────────────────────────────────────────
-API_BASE_URL: str = os.getenv("PRISM_API_BASE_URL", "http://127.0.0.1:8000")
-API_DEVICE_ID: str = os.getenv("PRISM_DEVICE_ID", "prism-edge-rpi4b-001")
-API_DEVICE_JWT: str = os.getenv("PRISM_DEVICE_JWT", "")
-API_WEBSOCKET_URL: str = os.getenv("PRISM_API_WEBSOCKET_URL", "")
+API_BASE_URL: str = os.getenv("PRISM_API_BASE_URL", "http://127.0.0.1:8000").strip()
+API_DEVICE_ID: str = os.getenv("PRISM_DEVICE_ID", "prism-edge-rpi4b-001").strip()
+API_DEVICE_JWT: str = os.getenv("PRISM_DEVICE_JWT", "").strip()
+API_WEBSOCKET_URL: str = os.getenv("PRISM_API_WEBSOCKET_URL", "").strip()
 API_INGEST_ENDPOINT: str = "/api/v1/events/ingest/unified"
 API_PULSE_ENDPOINT: str = "/api/v1/physio/pulse/ingest"
 
 # ── ESP32 Bridge ──────────────────────────────────────────────────────
-ESP32_BRIDGE_HOST: str = os.getenv("PRISM_ESP32_BRIDGE_HOST", "0.0.0.0")
+ESP32_BRIDGE_HOST: str = os.getenv("PRISM_ESP32_BRIDGE_HOST", "0.0.0.0").strip()
 ESP32_BRIDGE_PORT: int = int(os.getenv("PRISM_ESP32_BRIDGE_PORT", "8081"))
 # Shared bearer token the ESP32 must present. Empty string disables auth
 # (backward compatible) — set it in the Pi .env to harden the LAN hop.

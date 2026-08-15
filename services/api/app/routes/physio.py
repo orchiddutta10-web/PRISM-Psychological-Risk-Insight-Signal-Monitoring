@@ -14,6 +14,37 @@ from app.utils.redis_client import get_redis_client
 router = APIRouter(prefix="/api/v1/physio", tags=["prism-node"])
 
 
+class VitalsIngest(BaseModel):
+    """Module 10: unified vitals sample from an edge node (ESP32/MAX30102/RPi).
+
+    All channels are optional; a node sends only what its sensors provide.
+    Raw waveforms are rejected at the schema level — only derived scalars.
+    """
+    device_id: str
+    heart_rate_bpm: Optional[float] = None
+    spo2_percent: Optional[float] = None
+    temperature_c: Optional[float] = None
+    ecg_mv: Optional[float] = None
+    gsr_microsiemens: Optional[float] = None
+    source: str = "http"  # "http" | "mqtt"
+    ts_ms: Optional[float] = None
+    device_meta: dict = {}
+
+
+class VitalsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    subject_id: str
+    timestamp: datetime
+    source: str
+    heart_rate_bpm: Optional[float] = None
+    spo2_percent: Optional[float] = None
+    temperature_c: Optional[float] = None
+    ecg_mv: Optional[float] = None
+    gsr_microsiemens: Optional[float] = None
+
+
 class PhysioReadingIn(BaseModel):
     sensor_type: str = Field(..., pattern=r"^(gsr|ppg)$")  # 'gsr' or 'ppg'
     value: float
@@ -310,6 +341,109 @@ def get_pulse_readings(
         db.query(models.PulseMultiFactorReading)
         .filter(models.PulseMultiFactorReading.subject_id == device_id)
         .order_by(models.PulseMultiFactorReading.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+@router.post("/vitals/ingest", response_model=dict)
+async def ingest_vitals(
+    payload: VitalsIngest,
+    db: Session = Depends(get_db),
+    current_device: models.ChildDevice = Depends(auth.get_current_device),
+):
+    """
+    Module 10: Future IoT Integration — unified vitals ingestion.
+
+    Accepts a multi-channel sample from an ESP32 / MAX30102 / Raspberry Pi
+    node (heart rate, SpO2, temperature, ECG, GSR). Only derived scalars are
+    stored — raw waveforms are never persisted (PRISM constraint). Requires
+    active consent for the 'physio' modality. If `source` is "mqtt", the
+    reading is additionally bridged to the MQTT broker.
+    """
+    if payload.device_id != current_device.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Authenticated device ID does not match payload device ID.",
+        )
+
+    # Consent gate (physio modality — same gate as GSR/PPG ingestion).
+    consent = (
+        db.query(models.ConsentGrant)
+        .filter(
+            models.ConsentGrant.subject_id == current_device.id,
+            models.ConsentGrant.modality == "gsr",
+        )
+        .first()
+    )
+    if not consent or not consent.is_granted:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Physio ingestion rejected: active consent is not granted.",
+        )
+
+    reading = models.VitalsReading(
+        subject_id=current_device.id,
+        source=payload.source,
+        heart_rate_bpm=payload.heart_rate_bpm,
+        spo2_percent=payload.spo2_percent,
+        temperature_c=payload.temperature_c,
+        ecg_mv=payload.ecg_mv,
+        gsr_microsiemens=payload.gsr_microsiemens,
+    )
+    if payload.device_meta:
+        reading.device_meta = payload.device_meta
+    db.add(reading)
+    db.commit()
+    db.refresh(reading)
+
+    # Update health cache so the dashboard shows "Connected".
+    try:
+        redis_conn = get_redis_client()
+        await redis_conn.set("prism:health:vitals", "real", ex=3600)
+    except Exception:
+        pass
+
+    # Optionally bridge to MQTT (graceful fallback if no broker).
+    if payload.source == "mqtt":
+        from app.utils.mqtt_bridge import publish_vitals_mqtt
+
+        await publish_vitals_mqtt(
+            str(current_device.id),
+            {
+                "heart_rate_bpm": payload.heart_rate_bpm,
+                "spo2_percent": payload.spo2_percent,
+                "temperature_c": payload.temperature_c,
+                "ecg_mv": payload.ecg_mv,
+                "gsr_microsiemens": payload.gsr_microsiemens,
+            },
+        )
+
+    audit.log_audit_event(
+        db,
+        action=(
+            f"Vitals ingested via {payload.source}: HR={payload.heart_rate_bpm} "
+            f"SpO2={payload.spo2_percent} T={payload.temperature_c}"
+        ),
+        device_id=str(current_device.id),
+    )
+
+    return {"status": "accepted", "reading_id": reading.id}
+
+
+@router.get("/vitals/{device_id}", response_model=List[VitalsOut])
+def get_vitals(
+    device_id: str,
+    limit: int = 120,
+    db: Session = Depends(get_db),
+    current_guardian: models.Guardian = Depends(auth.get_current_user),
+):
+    """Return recent unified vitals readings for a child device (guardian authz)."""
+    auth.verify_guardian_device_access(current_guardian, device_id, db)
+    return (
+        db.query(models.VitalsReading)
+        .filter(models.VitalsReading.subject_id == device_id)
+        .order_by(models.VitalsReading.timestamp.desc())
         .limit(limit)
         .all()
     )

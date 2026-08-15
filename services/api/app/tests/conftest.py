@@ -1,63 +1,15 @@
+import pytest
 import warnings
 from unittest.mock import AsyncMock
 
-import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.config import settings
-
-# The test suite makes many rapid calls to the same auth endpoints from one
-# testclient IP; disable rate limiting to avoid self-lockout. Rate limiting is
-# enabled by default in all environments (see app/utils/rate_limiter.py).
-settings.RATE_LIMIT_ENABLED = False
-settings.DEMO_MODE = False
-
-from app import models
-from app.database import Base, get_db
-from app.main import app
 # Suppress upstream Starlette deprecation warning about httpx vs httpx2
 warnings.filterwarnings(
     "ignore", message=".*httpx.*testclient.*deprecated.*", module="starlette.testclient"
 )
-# Suppress sklearn feature-names warning from numpy arrays passed to pandas-fitted models
-warnings.filterwarnings("ignore", message="X does not have valid feature names")
-
-# ── Shared in-memory SQLite engine for all tests ─────────────────────
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-_test_engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_test_engine)
-
-
-@pytest.fixture(scope="function", autouse=True)
-def setup_db():
-    """Fresh schema + seed data before each test."""
-    Base.metadata.drop_all(bind=_test_engine)
-    Base.metadata.create_all(bind=_test_engine)
-    from app.utils.risk_registry import seed_registry
-
-    db = TestingSessionLocal()
-    seed_registry(db)
-    db.close()
-    yield
-    Base.metadata.drop_all(bind=_test_engine)
-
-
-def _override_get_db():
-    try:
-        db = TestingSessionLocal()
-        yield db
-    finally:
-        db.close()
-
-
-# Register the override once — all test modules share it
-app.dependency_overrides[get_db] = _override_get_db
 
 
 @pytest.fixture(autouse=True)
@@ -69,3 +21,45 @@ def mock_redis(monkeypatch):
     monkeypatch.setattr("app.routes.telemetry.get_redis_client", lambda: mock_client)
     monkeypatch.setattr("app.routes.physio.get_redis_client", lambda: mock_client)
     monkeypatch.setattr("app.utils.ml_engine.get_redis_client", lambda: mock_client)
+
+
+# ─── Shared in-memory SQLite engine (single connection across all test files) ─
+
+from app.database import Base  # noqa: E402
+from app.utils.risk_registry import seed_registry  # noqa: E402
+
+TEST_DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    # StaticPool shares ONE connection so all test files see the same tables
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def create_tables_once():
+    """Create all tables once per pytest session on the shared engine."""
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(scope="function", autouse=True)
+def setup_db(create_tables_once):
+    """Reset + reseed the DB before every test."""
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    seed_registry(db)
+    db.close()
+    yield
+
+
+def override_get_db():
+    try:
+        db = TestingSessionLocal()
+        yield db
+    finally:
+        db.close()

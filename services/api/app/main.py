@@ -11,20 +11,15 @@ from app.database import SessionLocal, engine
 from app.routes import (
     audit,
     auth,
-    behavior,
     companion,
     consent,
-    guardian,
-    ml,
-    offline,
+    medical,
     physio,
-    sensors,
+    prism,
     telemetry,
     voice,
 )
-from app.routes.ml import set_ml_engine
 from app.utils.observability import APMMiddleware, setup_structured_logging
-from app.utils.prism_ml_engine import PrismMLEngine
 
 # Initialize structured JSON logging
 setup_structured_logging()
@@ -76,12 +71,18 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         method = request.method
         action = None
 
-        if "physio" in path:
-            action = "WRITE_PHYSIO_TELEMETRY"
-        elif "physio/pulse/ingest" in path:
+        if "physio/pulse/ingest" in path:
             action = "WRITE_PULSE_TELEMETRY"
+        elif "physio/vitals/ingest" in path:
+            action = "WRITE_VITALS_TELEMETRY"
+        elif "physio" in path:
+            action = "WRITE_PHYSIO_TELEMETRY"
         elif "events/ingest" in path:
             action = "WRITE_TELEMETRY"
+        elif "events/typing/insights" in path or "events/typing/behavioral" in path:
+            action = "WRITE_TYPING_TELEMETRY"
+        elif "events/trends" in path:
+            action = "READ_TRENDS"
         elif "events/alerts" in path:
             action = "READ_ALERTS"
         elif "events/scores" in path:
@@ -94,6 +95,16 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             action = "SEED_BASELINE"
         elif "companion/sessions" in path and method == "POST":
             action = "START_COMPANION_SESSION"
+        elif "medical/chat" in path:
+            action = "READ_MEDICAL_CHAT"
+        elif "medical/status" in path:
+            action = "READ_MEDICAL_STATUS"
+        elif "medical/ingest" in path or "medical/kb/upload" in path:
+            action = "WRITE_MEDICAL_KB"
+        elif "prism/predict" in path:
+            action = "READ_PRISM_PREDICTION"
+        elif "prism/history" in path:
+            action = "READ_PRISM_HISTORY"
         elif "consent" in path:
             action = "WRITE_CONSENT" if method == "POST" else "READ_CONSENT"
         elif "audit" in path:
@@ -110,35 +121,16 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
             try:
                 from datetime import datetime, timezone
 
-                from app.utils.audit import compute_entry_hash
-
-                # Chain onto the most recent entry's hash (None for the first entry).
-                last = (
-                    db.query(models.AuditLogEntry)
-                    .order_by(
-                        models.AuditLogEntry.timestamp.desc(),
-                        models.AuditLogEntry.id.desc(),
-                    )
-                    .first()
-                )
-                prev_hash = last.entry_hash if last else None
-
-                now = datetime.now(timezone.utc)
                 entry = models.AuditLogEntry(
                     actor_id=actor_id,
                     action=action,
                     resource=f"{method} {path}",
-                    timestamp=now,
-                    prev_hash=prev_hash,
+                    timestamp=now := datetime.now(timezone.utc),
                 )
-                ctx = {
+                entry.context = {
                     "ip": request.client.host if request.client else None,
                     "status_code": response.status_code,
                 }
-                entry.context = ctx
-                entry.entry_hash = compute_entry_hash(
-                    prev_hash, actor_id, action, entry.resource, now, ctx
-                )
                 db.add(entry)
                 db.commit()
             except Exception as e:
@@ -151,19 +143,11 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# ── Lifespan — replaces deprecated @app.on_event("startup") ────────────
+# ── Lifespan ──────────────────────────────────────────────────────────────
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    set_ml_engine(PrismMLEngine(SessionLocal))
-    if settings.DEMO_MODE:
-        import logging
-
-        logging.getLogger(__name__).info("Starting Demo Mode simulation engine...")
-        from app.demo_simulation_engine import start_simulation
-
-        start_simulation()
     yield
 
 
@@ -173,6 +157,31 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+
+@app.on_event("startup")
+def _prewarm_medical_rag():
+    """
+    Pre-warm the medical RAG stack so the first chatbot query doesn't pay the
+    cold-start cost (embedding-model load, vector-store build). Runs in a
+    background thread so startup isn't blocked.
+    """
+    import threading
+
+    def _warm():
+        try:
+            from app.utils import medical_rag
+
+            medical_rag.load_medical_documents()
+            medical_rag.build_or_get_vectorstore()
+            from app.utils.llm_provider import get_embeddings
+
+            get_embeddings()
+        except Exception as e:
+            logging.getLogger(__name__).warning("Medical RAG pre-warm failed: %s", str(e))
+
+    threading.Thread(target=_warm, daemon=True).start()
+
 
 # Enable CORS
 app.add_middleware(
@@ -211,14 +220,11 @@ def health_check():
 
 @app.get("/ready")
 def readiness_check():
-    """Readiness probe: database connectivity and ML service loaded."""
+    """Readiness probe: database connectivity."""
+    from fastapi import HTTPException
     from sqlalchemy import text
-    from app.services.colab_ml_service import ColabMLService
 
     db_ok = False
-    ml_ok = False
-
-    # Check DB
     try:
         session = SessionLocal()
         session.execute(text("SELECT 1"))
@@ -227,19 +233,12 @@ def readiness_check():
     except Exception as e:
         logging.getLogger(__name__).error("Readiness DB check failed: %s", e)
 
-    # Check ML Service
-    try:
-        ml_service = ColabMLService()
-        if ml_service.classifier is not None and ml_service.regressor is not None and ml_service.scaler is not None:
-            ml_ok = True
-    except Exception as e:
-        logging.getLogger(__name__).error("Readiness ML check failed: %s", e)
-
-    if db_ok and ml_ok:
+    if db_ok:
         return {"status": "ready"}
 
-    from fastapi import HTTPException
-    raise HTTPException(status_code=503, detail={"status": "not ready", "db": db_ok, "ml": ml_ok})
+    raise HTTPException(
+        status_code=503, detail={"status": "not ready", "db": db_ok}
+    )
 
 
 # Register routers
@@ -250,15 +249,6 @@ app.include_router(telemetry.internal_router)
 app.include_router(audit.router)
 app.include_router(voice.router)
 app.include_router(companion.router)
-app.include_router(companion.nova_router)
 app.include_router(physio.router)
-app.include_router(ml.router)
-app.include_router(sensors.router)
-app.include_router(behavior.router)
-app.include_router(guardian.router)
-app.include_router(offline.router)
-
-if settings.DEMO_MODE:
-    from app.routes import demo
-
-    app.include_router(demo.router)
+app.include_router(medical.router)
+app.include_router(prism.router)

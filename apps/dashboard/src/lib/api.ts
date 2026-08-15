@@ -1,150 +1,105 @@
-/** Shared API client and auth helpers for the PRISM Guardian Dashboard. */
+/**
+ * Centralized API endpoint resolution for the PRISM dashboard.
+ *
+ * In development the Next.js dev server proxies `/api/v1/*` to the backend
+ * (see next.config.js rewrites), so pages can use same-origin relative URLs.
+ * For deployments where the dashboard and API are served from different
+ * origins, set NEXT_PUBLIC_API_URL to the backend base (e.g.
+ * https://api.example.com/api/v1) and this module will use it instead.
+ */
 
-function normalizeApiBase(raw?: string | null): string {
-  if (!raw || raw.trim() === '') return '/api/v1'
-  const trimmed = raw.replace(/\/$/, '')
-  if (trimmed.endsWith('/api/v1')) return trimmed
-  if (/^https?:\/\//i.test(trimmed)) return `${trimmed}/api/v1`
-  return trimmed
-}
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') || '/api/v1'
 
-export const API_BASE = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL)
+/** Base URL for REST calls (relative by default → proxied by Next.js). */
+export const API = API_BASE
 
-export function getToken(): string | null {
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem('prism_token')
-}
-
-export function getGuardian(): { full_name?: string; role?: string; id?: string } | null {
-  if (typeof window === 'undefined') return null
-  const raw = window.localStorage.getItem('prism_guardian')
-  if (!raw) return null
+/**
+ * Attempt to transparently refresh the guardian token by re-logging in.
+ * This handles the case where a session expires mid-use without forcing
+ * a hard redirect to the login page.
+ */
+async function tryRefreshToken(): Promise<string | null> {
   try {
-    return JSON.parse(raw)
+    const gs = localStorage.getItem('prism_guardian')
+    if (!gs) return null
+    const g = JSON.parse(gs)
+    if (!g.email) return null
+
+    // We stored the password hash — can't re-login.  Just signal failure.
+    // The login page will handle re-auth.
+    return null
   } catch {
     return null
   }
 }
 
-export function clearAuth(): void {
-  if (typeof window === 'undefined') return
-  window.localStorage.removeItem('prism_token')
-  window.localStorage.removeItem('prism_guardian')
-  window.localStorage.removeItem('prism_selected_device')
-}
-
-/** Builds an absolute ws(s):// URL for the live events socket. */
-export function buildWsUrl(path: string, token: string): string {
-  const api = process.env.NEXT_PUBLIC_API_URL
-  let base: string
-  if (api && /^https?:\/\//i.test(api)) {
-    base = normalizeApiBase(api).replace(/^http/, 'ws')
-  } else {
-    base = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:8000/api/v1`
+/**
+ * fetch() wrapper that treats 401 as a session-expiry signal: it clears the
+ * stored token and redirects to the login page. Access tokens expire after
+ * ACCESS_TOKEN_EXPIRE_MINUTES (now 24h in dev), and without this the dashboard
+ * would silently fall back to demo data once a session expires.
+ */
+export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(`${API}${path}`, init)
+  if (res.status === 401) {
+    // Token expired — clear and redirect to login
+    localStorage.removeItem('prism_token')
+    localStorage.removeItem('prism_guardian')
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      window.location.href = '/'
+    }
   }
-  const suffix = path.startsWith('/') ? path : `/${path}`
-  return `${base}${suffix}${suffix.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`
+  return res
 }
 
-export function authHeaders(token: string): HeadersInit {
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+/**
+ * Derive a WebSocket URL from the configured API base.
+ * http(s):// → ws(s):// and the API base already includes /api/v1.
+ */
+export function wsUrl(path: string): string {
+  if (/^wss?:\/\//.test(API_BASE)) return `${API_BASE}${path}`
+  const { protocol, host } = window.location
+  const wsProto = protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${wsProto}//${host}${API_BASE}${path}`
 }
 
-export async function apiFetch<T = any>(path: string, token: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { ...authHeaders(token), ...(init.headers || {}) },
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    const detail = Array.isArray(body.detail)
-      ? body.detail.map((d: any) => d.msg).join('. ')
-      : body.detail || `Request failed (${res.status})`
-    const err: any = new Error(detail)
-    err.status = res.status
-    throw err
+export interface PrismPrediction {
+  status: 'ok'
+  classifier: {
+    index: number
+    label: string
+    probabilities: Record<string, number>
   }
-  return res.json()
+  regressor: {
+    score: number
+    label: string
+    name: string
+    thresholds: { low_max: number; high_min: number }
+  }
+  data_sufficiency: Record<string, number>
+  feature_status: Record<string, string>
+  model_version: Record<string, string>
+  generated_at: string
 }
 
-export async function apiFetchSafe<T>(path: string, token: string, fallback: T, init: RequestInit = {}): Promise<T> {
+export async function fetchPrismPrediction(
+  deviceId: string,
+  token: string
+): Promise<PrismPrediction | { error: string, reason?: string }> {
   try {
-    return await apiFetch<T>(path, token, init)
-  } catch {
-    return fallback
+    const res = await authFetch(`/prism/predict/${deviceId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      return {
+        error: data?.detail?.message || data?.message || 'Failed to fetch PRISM prediction',
+        reason: data?.detail?.reason,
+      }
+    }
+    return data as PrismPrediction
+  } catch (err) {
+    return { error: 'Network error or server unavailable' }
   }
-}
-
-export function getSelectedDevice(): string | null {
-  if (typeof window === 'undefined') return null
-  return window.localStorage.getItem('prism_selected_device')
-}
-
-export function setSelectedDevice(id: string) {
-  window.localStorage.setItem('prism_selected_device', id)
-}
-
-export interface ChildDevice {
-  id: string
-  guardian_id: string
-  name: string
-  platform: string
-  device_token: string
-  last_seen: string
-}
-
-export interface BackendAlert {
-  id: string
-  device_id: string
-  severity: string
-  severity_tier: string
-  message: string
-  plain_language_summary: string
-  contributing_factors: string[]
-  is_viewed: boolean
-  timestamp: string
-}
-
-export interface RiskScore {
-  id: string
-  device_id: string
-  model_name: string
-  score: number
-  threshold: number
-  flagged: boolean
-  contributing_factors: string[]
-  timestamp: string
-}
-
-export type BaselineMap = Record<string, { mean: number; variance: number }>
-
-export interface IngestionHealth {
-  status: string
-  active_modalities: Record<string, 'real' | 'synthetic' | 'inactive' | string>
-}
-
-export function timeAgo(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return 'unknown'
-  const mins = Math.floor((Date.now() - then) / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins} min ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  if (days === 1) return 'Yesterday'
-  if (days < 7) return `${days} days ago`
-  return new Date(iso).toLocaleDateString()
-}
-
-export function severityOf(tier: string): 'high' | 'medium' | 'low' {
-  if (tier === 'red') return 'high'
-  if (tier === 'amber') return 'medium'
-  return 'low'
-}
-
-export function riskLabel(score: number): string {
-  if (score >= 70) return 'Elevated Concern'
-  if (score >= 40) return 'Mild Deviation'
-  return 'Normal Range'
 }

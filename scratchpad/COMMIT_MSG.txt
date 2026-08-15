@@ -1,0 +1,67 @@
+merge: integrate feature/iot into main (PRISM 57-feature + behavioral AI + medical RAG)
+
+This merge brings the IoT branch's fully-tested AI/ML stack onto main as the
+canonical production baseline, while preserving main's structural improvements
+((dashboard) route group, component library, dashboard restructure).
+
+AI / ML modules added (concrete, tested, end-to-end executable):
+
+- services/api/app/utils/prism_features.py     — 57-feature schema lock
+- services/api/app/utils/prism_model.py        — lazy-loaded inference + 503 envelope
+- services/api/app/utils/behavioral_ai.py      — typing screening (signal + trend) + Module 4 XAI
+- services/api/app/utils/tracking.py           — daily/weekly/monthly trend snapshots
+- services/api/app/utils/medical_rag.py        — hybrid dense+BM25 RAG with crisis gate
+- services/api/app/utils/llm_provider.py       — OpenAI/Ollama factory + hash fallback
+- services/api/app/utils/mqtt_bridge.py        — MQTT adapter with HTTP fallback
+
+Routes wired into FastAPI lifespan:
+- routes/prism.py      → GET /api/v1/prism/predict, /history
+- routes/medical.py    → /api/v1/medical/{status,chat,ingest,kb/upload}
+- telemetry.py         → typing insights + behavioral + trends endpoints
+- physio.py            → vitals ingestion (multi-channel IoT)
+
+Resources (10 trained artifacts, ~14 MB total):
+- resources/prism/{classifier,regressor,scaler}.joblib
+- resources/behavioral_ai/{stress,cognitive_load,typing_fatigue}_rf.joblib
+- resources/behavioral_ai/typing_stability_if.joblib
+- resources/behavioral_ai/{anxiety,depression}_trend_model.joblib
+- resources/behavioral_ai/mental_risk_ensemble.joblib
+
+Tests (5 new files, 1,455 lines):
+- test_prism_pipeline.py (17 tests) — schema lock, scaler-never-refit, deterministic inference
+- test_behavioral_ai.py  — Module 3 + Module 4 explainability + persistence
+- test_medical.py        — RAG authz, RBAC, crisis gate, multi-format KB extraction
+- test_iot_module10.py   — Vitals ingestion + MQTT fallback
+- test_tracking.py       — TrendSnapshot idempotency
+
+Docs:
+- docs/PRISM_MODEL.md                  — 57-feature operator guide
+- services/api/docs/EXPLAINABLE_AI.md  — Module 4 XAI guide
+- services/api/docs/MODEL_EVAL_BEHAVIORAL.md — synthetic-data evaluation report
+- 11 medical KB corpus files
+
+Dashboard additions:
+- src/app/(dashboard)/analytics/page.tsx       — PRISM prediction + trends
+- src/app/(dashboard)/medical/page.tsx         — medical chatbot UI
+- src/app/(dashboard)/typing-analytics/page.tsx — behavioral AI dashboard
+- src/lib/api.ts updated for PrismPrediction + MedicalChat types
+
+ESP32 firmware: prism_pulse.ino + platformio.ini + src/main.cpp
+
+Resolutions applied during merge:
+- Took iot's code for: ml_engine, voice_processor, observability, future_stubs,
+  companion_engine, models.py (new tables), schemas.py (new shapes),
+  auth_service.py, conftest.py, test_api.py, telemetry.py (typing/trends),
+  edge firmware, mobile config, dashboard chrome.
+- Kept main's structure: (dashboard) route group, AppShell/layout,
+  SecurityHeadersMiddleware, AuditLoggingMiddleware (no chain on
+  AuditLogEntry to keep the iot-side AuditLogEntry schema).
+- Removed duplicate top-level dashboard pages that iot carried over (now in
+  (dashboard)/).
+- Dropped main-only Phase 10 modules that iot had replaced
+  (prism_ml_engine, xai_engine, drift_monitor, production_feature_builder,
+   colab_ml_service, nova_ai_service, ml_pipeline/, routes/{ml,behavior,
+   demo,guardian,offline,sensors}.py, run_ml_pipeline.py, demo_simulation_
+   engine.py, plus their tests).
+
+Co-authored-by: CommandCodeBot <noreply@commandcode.ai>

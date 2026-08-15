@@ -1,8 +1,7 @@
 import json
 import math
-
+from datetime import datetime
 from sqlalchemy.orm import Session
-
 from app import models
 from app.utils.redis_client import get_redis_client
 
@@ -81,6 +80,8 @@ def evaluate_mobility_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
     return risk_score
 
 
@@ -120,6 +121,85 @@ def evaluate_typing_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
+    return risk_score
+
+
+def evaluate_typing_rhythm_model(
+    device_id: str, metadata: dict, db: Session
+) -> models.RiskScore:
+    """
+    Typing Rhythm Model: per-device baseline z-score anomaly detector.
+
+    Unlike the fixed-200ms logistic-regression proxy (evaluate_typing_model),
+    this compares the incoming typing cadence against the device's OWN
+    rolling baseline (BaselineProfile.signal_type='typing') and flags when the
+    deviation crosses |z| > 2.0. Explainability: every score ships a
+    human-readable factor string quoting the z-score and baseline stats.
+    """
+    delay_index = float(metadata.get("delay_index", 1.0))
+    iki_std = float(metadata.get("iki_std", 0.0))
+    burst_length = int(metadata.get("burst_length", 0))
+    correction_var = float(metadata.get("correction_rate_variance", 0.0))
+
+    # Pull this device's personal typing baseline, if one exists
+    baseline = (
+        db.query(models.BaselineProfile)
+        .filter(
+            models.BaselineProfile.device_id == device_id,
+            models.BaselineProfile.signal_type == "typing",
+        )
+        .first()
+    )
+
+    threshold = 2.0  # z-score
+    z_score = 0.0
+    factors = []
+
+    if baseline and baseline.rolling_variance > 0:
+        mean = baseline.rolling_mean
+        sigma = baseline.rolling_variance**0.5
+        z_score = (delay_index - mean) / sigma
+        flagged = abs(z_score) > threshold
+
+        if flagged:
+            factors.append(
+                f"Typing delay z-score of {z_score:+.2f} vs personal baseline "
+                f"(mean {mean:.2f}, σ {sigma:.2f}) — sustained slow cadence."
+            )
+            if iki_std > 0:
+                factors.append(
+                    f"Inter-key interval variability {iki_std:.1f}ms above typical spread."
+                )
+            if burst_length > 30 and correction_var > 0:
+                factors.append(
+                    f"Long typing burst ({burst_length} keys) with elevated "
+                    f"correction rate {correction_var:.2f} — possible hesitation/editing."
+                )
+    else:
+        # No baseline yet → fall back to the absolute threshold from the proxy
+        # model so a brand-new device still gets guarded.
+        flagged = delay_index > 1.4
+        if flagged:
+            factors.append(
+                "Typing delay index above 1.4 (no personal baseline yet)."
+            )
+
+    # Normalize |z| to a 0..1 score for the risk engine
+    score = min(1.0, abs(z_score) / 4.0) if baseline else (0.5 if flagged else 0.0)
+
+    risk_score = models.RiskScore(
+        device_id=device_id,
+        model_name="typing_rhythm",
+        score=score,
+        threshold=threshold,
+        flagged=flagged,
+    )
+    risk_score.contributing_factors = factors
+    db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
     return risk_score
 
 
@@ -158,28 +238,9 @@ def evaluate_app_usage_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
     return risk_score
-
-
-_risk_registry_cache = None
-
-
-def _get_risk_registry(db: Session) -> list:
-    """Loads the RiskRegistry once per process (seeded only at startup)."""
-    global _risk_registry_cache
-    if _risk_registry_cache is None:
-        _risk_registry_cache = (
-            db.query(models.RiskRegistry)
-            .filter(models.RiskRegistry.match_type == "package_name")
-            .all()
-        )
-    return _risk_registry_cache
-
-
-def refresh_risk_registry_cache():
-    """Invalidates the cached registry (call after admin updates to the table)."""
-    global _risk_registry_cache
-    _risk_registry_cache = None
 
 
 def evaluate_risk_signatures(
@@ -191,7 +252,11 @@ def evaluate_risk_signatures(
     """
     installed_apps = metadata.get("new_installed_packages", [])
 
-    registry = _get_risk_registry(db)
+    registry = (
+        db.query(models.RiskRegistry)
+        .filter(models.RiskRegistry.match_type == "package_name")
+        .all()
+    )
 
     found_risky = []
     for app_pkg in installed_apps:
@@ -226,6 +291,8 @@ def evaluate_risk_signatures(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
     return risk_score
 
 
@@ -233,21 +300,37 @@ def evaluate_pulse_model(
     device_id: str, metadata: dict, db: Session
 ) -> models.RiskScore:
     """
-    PRISM PULSE Multi-Factor Model: flags when the ESP32 node reports a
-    warning/trigger (e.g. ISD_TRIGGERED). High BPM + low movement is the
-    multi-factor crisis gate on the firmware.
+    PRISM PULSE Multi-Factor Model: physiological anomaly detector.
+    Flags when the ESP32 node reports a sustained high-BPM/low-movement condition
+    (WARNING-Xs) or a full ISD1820 voice-alert trigger (ISD_TRIGGERED).
+    Score reflects how close the node is to / past the alert threshold.
     """
-    status = metadata.get("alert_status", "OK")
-    bpm = float(metadata.get("bpm", 0))
-    g_force = float(metadata.get("g_force", 0))
-    flagged = status != "OK"
-    score = 1.0 if flagged else 0.0
+    bpm = float(metadata.get("bpm", 0.0))
+    g_force = float(metadata.get("g_force", 1.0))
+    alert_status = str(metadata.get("alert_status", "OK"))
+    isd_triggered = bool(metadata.get("isd_triggered", False))
+
+    # 0 = normal, 0.5 = sustained warning, 1.0 = voice alert triggered
+    if isd_triggered or "TRIGGERED" in alert_status:
+        score = 1.0
+    elif alert_status.startswith("WARNING"):
+        score = 0.5
+    else:
+        score = 0.0
+
     threshold = 0.5
+    flagged = score >= threshold
 
     factors = []
-    if flagged:
+    if isd_triggered or "TRIGGERED" in alert_status:
         factors.append(
-            f"Multi-factor pulse alert: BPM {bpm:.0f}, G-force {g_force:.2f}g, status {status}"
+            "Physiological voice alert triggered on device: sustained elevated heart rate "
+            f"({bpm:.0f} BPM) with low movement ({g_force:.2f}g) for 15+ seconds."
+        )
+    elif alert_status.startswith("WARNING"):
+        factors.append(
+            f"Elevated heart rate ({bpm:.0f} BPM) with low movement ({g_force:.2f}g) "
+            "sustained — approaching voice-alert threshold."
         )
 
     risk_score = models.RiskScore(
@@ -259,7 +342,88 @@ def evaluate_pulse_model(
     )
     risk_score.contributing_factors = factors
     db.add(risk_score)
+    db.commit()
+    db.refresh(risk_score)
     return risk_score
+
+
+def evaluate_behavioral_ai_model(
+    device_id: str, metadata: dict, db: Session
+) -> list[models.RiskScore]:
+    """
+    Behavioral AI Model (Module 3): unobtrusive mental-wellbeing screening.
+
+    Runs the signal-level models (stress, cognitive load, typing fatigue,
+    typing stability) on a typing event, persists a RiskScore per dimension,
+    then runs the trend model over a rolling window to produce anxiety /
+    depression trend + a Mental Risk Score with confidence.
+
+    Every output ships human-readable contributing factors and the screening
+    disclaimer (behavioral pattern may warrant attention — NOT a diagnosis).
+    """
+    from app.utils import behavioral_ai
+
+    results = behavioral_ai.evaluate_signal(metadata)
+    created = []
+
+    for dim, res in results.items():
+        risk_score = models.RiskScore(
+            device_id=device_id,
+            model_name=f"behavioral_{dim}",
+            score=res["score"],
+            threshold=res["threshold"],
+            flagged=res["flagged"],
+        )
+        risk_score.contributing_factors = res["factors"]
+        db.add(risk_score)
+        created.append(risk_score)
+
+    # Trend: pull the last N behavioral signal scores for this device.
+    latest = (
+        db.query(models.RiskScore)
+        .filter(
+            models.RiskScore.device_id == device_id,
+            models.RiskScore.model_name.like("behavioral_%"),
+            models.RiskScore.model_name != "behavioral_mental_risk",
+        )
+        .order_by(models.RiskScore.timestamp.desc())
+        .limit(40)
+        .all()
+    )
+    # Group by timestamp into flat score dicts (newest last for slope sign).
+    by_ts: dict = {}
+    for s in latest:
+        ts = s.timestamp
+        dim = s.model_name.replace("behavioral_", "")
+        by_ts.setdefault(ts, {})[dim] = s.score
+    window = []
+    for ts in sorted(by_ts.keys()):
+        row = by_ts[ts]
+        window.append(
+            {
+                "stress": row.get("stress", 0.0),
+                "cognitive_load": row.get("cognitive_load", 0.0),
+                "typing_fatigue": row.get("typing_fatigue", 0.0),
+                "typing_stability": row.get("typing_stability", 0.0),
+            }
+        )
+
+    trend = behavioral_ai.evaluate_trend(window)
+    trend_score = models.RiskScore(
+        device_id=device_id,
+        model_name="behavioral_mental_risk",
+        score=trend["mental_risk_score"],
+        threshold=0.6,
+        flagged=trend["flagged"],
+    )
+    trend_score.contributing_factors = trend["factors"]
+    db.add(trend_score)
+    created.append(trend_score)
+
+    db.commit()
+    for s in created:
+        db.refresh(s)
+    return created
 
 
 async def run_risk_engine(
@@ -270,6 +434,8 @@ async def run_risk_engine(
         evaluate_mobility_model(device_id, metadata, db)
     elif signal_type == "typing":
         evaluate_typing_model(device_id, metadata, db)
+        evaluate_typing_rhythm_model(device_id, metadata, db)
+        evaluate_behavioral_ai_model(device_id, metadata, db)
     elif signal_type == "app_usage":
         if "new_installed_packages" in metadata:
             evaluate_risk_signatures(device_id, metadata, db)
@@ -277,56 +443,29 @@ async def run_risk_engine(
     elif signal_type == "pulse":
         evaluate_pulse_model(device_id, metadata, db)
 
-    # Make the just-added RiskScores visible to the aggregation query, then
-    # persist everything (scores + alerts) in a single transaction.
-    db.flush()
     await aggregate_alerts(device_id, db)
-    db.commit()
 
 
 async def aggregate_alerts(device_id: str, db: Session):
     """Aggregates scores and writes any generated alerts to PostgreSQL."""
-    models_list = ["mobility", "typing", "app_usage", "signatures", "pulse"]
+    models_list = [
+        "mobility", "typing", "typing_rhythm", "behavioral_mental_risk",
+        "app_usage", "signatures", "pulse",
+    ]
     latest_scores = []
 
-    # Fetch the latest score per model in ONE query (ordered by model + timestamp desc,
-    # deduped to the first-seen = newest per model). Avoids the previous N+1.
-    latest_rows = (
-        db.query(
-            models.RiskScore.model_name,
-            models.RiskScore.timestamp,
-        )
-        .filter(models.RiskScore.device_id == device_id)
-        .order_by(
-            models.RiskScore.model_name,
-            models.RiskScore.timestamp.desc(),
-        )
-        .all()
-    )
-    newest_ts_per_model = {}
-    for model_name, ts in latest_rows:
-        if model_name not in newest_ts_per_model:
-            newest_ts_per_model[model_name] = ts
-
-    if newest_ts_per_model:
-        score_recs = (
+    for m in models_list:
+        score_rec = (
             db.query(models.RiskScore)
             .filter(
                 models.RiskScore.device_id == device_id,
-                models.RiskScore.model_name.in_(list(newest_ts_per_model.keys())),
+                models.RiskScore.model_name == m,
             )
-            .all()
+            .order_by(models.RiskScore.timestamp.desc())
+            .first()
         )
-        by_model_ts = {}
-        for s in score_recs:
-            key = (s.model_name, s.timestamp)
-            by_model_ts[key] = s
-        for model_name in models_list:
-            ts = newest_ts_per_model.get(model_name)
-            if ts is not None:
-                rec = by_model_ts.get((model_name, ts))
-                if rec is not None:
-                    latest_scores.append(rec)
+        if score_rec:
+            latest_scores.append(score_rec)
 
     flagged_scores = [s for s in latest_scores if s.flagged]
 
@@ -343,6 +482,13 @@ async def aggregate_alerts(device_id: str, db: Session):
     is_signatures_flagged = any(s.model_name == "signatures" for s in flagged_scores)
     is_mobility_flagged = any(s.model_name == "mobility" for s in flagged_scores)
     is_typing_flagged = any(s.model_name == "typing" for s in flagged_scores)
+    is_typing_rhythm_flagged = any(
+        s.model_name == "typing_rhythm" for s in flagged_scores
+    )
+    is_mental_risk_flagged = any(
+        s.model_name == "behavioral_mental_risk" for s in flagged_scores
+    )
+    is_pulse_flagged = any(s.model_name == "pulse" for s in flagged_scores)
 
     severity = "sage"
     summary = "System normal. Behavioral metrics aligned with baseline."
@@ -353,23 +499,36 @@ async def aggregate_alerts(device_id: str, db: Session):
             summary = "Late-night usage spike detected with low mobility."
         elif is_mobility_flagged and is_typing_flagged:
             summary = "Social withdrawal and fatigue patterns co-detected."
+        elif is_typing_rhythm_flagged and is_mobility_flagged:
+            summary = "Sustained slow typing cadence with reduced movement — possible fatigue."
         elif is_signatures_flagged and is_app_usage_flagged:
             summary = "Unsafe anonymous chat installation with overnight usage surge."
+        elif is_pulse_flagged and is_mobility_flagged:
+            summary = "Elevated heart rate at rest with reduced movement — possible stress."
+        elif is_mental_risk_flagged:
+            summary = "Behavioral pattern suggests the child may benefit from attention — screening signal, not a diagnosis."
         else:
             summary = "Multiple behavioral deviations detected simultaneously."
     elif num_flags == 1:
-        severity = "amber"
-        flagged_model = flagged_scores[0].model_name
-        if flagged_model == "app_usage":
-            summary = "Deviation in evening app screen time baseline."
-        elif flagged_model == "typing":
-            summary = "Minor variation in typing delay index."
-        elif flagged_model == "mobility":
-            summary = "Reduction in daily active travel patterns."
-        elif flagged_model == "signatures":
-            summary = "Potentially risky app package installation detected."
-        elif flagged_model == "pulse":
-            summary = "Multi-factor physiological alert from the PRISM PULSE node."
+        if is_pulse_flagged:
+            severity = "red"
+            summary = "Physiological stress event detected via PRISM Node (high BPM at rest)."
+        elif is_mental_risk_flagged:
+            severity = "amber"
+            summary = "Elevated mental-risk screening signal from typing behavior — may warrant attention, not a diagnosis."
+        else:
+            severity = "amber"
+            flagged_model = flagged_scores[0].model_name
+            if flagged_model == "app_usage":
+                summary = "Deviation in evening app screen time baseline."
+            elif flagged_model == "typing":
+                summary = "Minor variation in typing delay index."
+            elif flagged_model == "typing_rhythm":
+                summary = "Typing cadence deviated from personal baseline."
+            elif flagged_model == "mobility":
+                summary = "Reduction in daily active travel patterns."
+            elif flagged_model == "signatures":
+                summary = "Potentially risky app package installation detected."
 
     device = (
         db.query(models.ChildDevice).filter(models.ChildDevice.id == device_id).first()
@@ -382,9 +541,8 @@ async def aggregate_alerts(device_id: str, db: Session):
     )
     alert.contributing_factors = factors
     db.add(alert)
-    # Flush so the default timestamp is populated for the payload without
-    # committing (the single commit happens in run_risk_engine).
-    db.flush()
+    db.commit()
+    db.refresh(alert)
 
     alert_payload = {
         "id": alert.id,

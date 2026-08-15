@@ -5,12 +5,7 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web",
-    "env:dev": "copy .env.development .env && expo start",
-    "env:staging": "copy .env.staging .env && expo start",
-    "env:prod": "copy .env.production .env && expo start",
-    "doctor": "node -e \"console.log('Environment configuration looks healthy. Use npm run env:dev to start in dev mode.')\"",
-    "clean": "del /Q node_modules && del /Q package-lock.json && npm install"
+    "web": "expo start --web"
   },
   "dependencies": {
     "expo": "~50.0.0",
@@ -20,8 +15,7 @@
     "expo-status-bar": "~1.11.1",
     "lucide-react-native": "^0.300.0",
     "react": "18.2.0",
-    "react-native": "0.73.4",
-    "zod": "^4.4.3"
+    "react-native": "0.73.4"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
@@ -32,8 +26,12 @@
   "overrides": {
     "postcss": "^8.5.10",
     "ip": "^2.0.1",
-    "tar": "^6.2.1",
-    "uuid": "^9.0.1"
+    "tar": "^7.5.21",
+    "uuid": "^11.1.1",
+    "semver": "^7.6.3",
+    "@xmldom/xmldom": "^0.8.13",
+    "brace-expansion": "^2.0.1",
+    "cacache": "^18.0.4"
   },
   "private": true
 }

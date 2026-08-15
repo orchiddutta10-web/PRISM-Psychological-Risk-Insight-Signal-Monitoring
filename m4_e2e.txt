@@ -1,0 +1,3 @@
+register: 422
+login: 401
+LOGIN BODY: {'detail': 'Incorrect email or password'}

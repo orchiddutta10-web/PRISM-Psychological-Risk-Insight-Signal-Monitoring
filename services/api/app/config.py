@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         "JWT_SECRET", "super-secret-jwt-key-change-in-production-123456"
     )
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h dev default
 
     # Symmetric Fernet key for encrypting sensitive fields at rest (e.g. GPS coordinates).
     # Default is a valid Fernet key for dev/test; MUST be overridden in production.
@@ -68,6 +68,57 @@ class Settings(BaseSettings):
     NOVA_AI_BACKOFF_MAX_SECONDS: float = float(
         os.getenv("NOVA_AI_BACKOFF_MAX_SECONDS", "8")
     )
+
+    # ── Medical AI Healthcare Assistant (RAG) ──────────────────────────
+    # Defaults OFF so existing behavior/tests stay hermetic until configured.
+    MEDICAL_RAG_ENABLED: bool = (
+        os.getenv("MEDICAL_RAG_ENABLED", "false").lower() == "true"
+    )
+    # LLM backend: "openai" (requires OPENAI_API_KEY) or "ollama" (local).
+    MEDICAL_LLM_PROVIDER: str = os.getenv("MEDICAL_LLM_PROVIDER", "ollama")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3.1")
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+    CHROMA_PERSIST_DIR: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
+    CHROMA_COLLECTION: str = os.getenv("CHROMA_COLLECTION", "medical_kb")
+    MEDICAL_KB_DIR: str = os.getenv("MEDICAL_KB_DIR", "./medical_kb")
+    CHAT_HISTORY_LIMIT: int = 10
+
+    # ── PRISM 57-feature Model Configurations ──────────────────────────
+    # The artifacts were trained under scikit-learn 1.6.1. They deserialize
+    # cleanly under any 1.6.x / 1.7.x / 1.8.x runtime; we pin the floor at 1.6.
+    PRISM_MODEL_DIR: str = os.getenv("PRISM_MODEL_DIR", "app/resources/prism/")
+
+    # Classifier classes [0, 1, 2] returned by prism_classifier_model.joblib.
+    # The semantic meaning of each class index is NOT in the repo and is NOT
+    # derivable from the codebase. The strings below are safe placeholder
+    # names pending confirmation against the original training documentation.
+    # Override via env vars PRISM_LABEL_0 / PRISM_LABEL_1 / PRISM_LABEL_2.
+    PRISM_LABEL_0: str = os.getenv("PRISM_LABEL_0", "Stable")          # REQUIRES CONFIRMATION
+    PRISM_LABEL_1: str = os.getenv("PRISM_LABEL_1", "Watch")           # REQUIRES CONFIRMATION
+    PRISM_LABEL_2: str = os.getenv("PRISM_LABEL_2", "Attention")       # REQUIRES CONFIRMATION
+
+    PRISM_CLASSIFIER_LABELS: dict[int, str] = {
+        0: PRISM_LABEL_0,
+        1: PRISM_LABEL_1,
+        2: PRISM_LABEL_2,
+    }
+
+    # Regressor tier thresholds on the [0, 1] continuous output.
+    # The semantic meaning / units of the regressor output are NOT in the repo.
+    # Override via env vars PRISM_REGRESSOR_LOW_MAX / PRISM_REGRESSOR_HIGH_MIN.
+    PRISM_REGRESSOR_LOW_MAX: float = float(os.getenv("PRISM_REGRESSOR_LOW_MAX", "0.33"))
+    PRISM_REGRESSOR_HIGH_MIN: float = float(os.getenv("PRISM_REGRESSOR_HIGH_MIN", "0.66"))
+    PRISM_REGRESSOR_NAME: str = os.getenv("PRISM_REGRESSOR_NAME", "Prism continuous score")
+    PRISM_INSUFFICIENT_DATA_MESSAGE: str = (
+        "Insufficient data to run PRISM 57-feature prediction."
+    )
+
+    # ── Module 10: Future IoT Integration (MQTT bridge) ──────────────
+    MQTT_BROKER_URL: str = os.getenv("MQTT_BROKER_URL", "mqtt://localhost:1883")
+    MQTT_TOPIC_PREFIX: str = os.getenv("MQTT_TOPIC_PREFIX", "prism/vitals")
 
     def __init__(self, **values):
         super().__init__(**values)

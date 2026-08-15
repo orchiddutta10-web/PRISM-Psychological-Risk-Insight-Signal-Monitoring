@@ -1,24 +1,20 @@
-import json
-import json
 import uuid
-from datetime import datetime, timezone
-
+import json
 from sqlalchemy import (
-    Boolean,
     Column,
-    DateTime,
-    Float,
-    ForeignKey,
-    Integer,
     String,
-    Text,
-    Index,
+    Boolean,
+    DateTime,
+    ForeignKey,
     Table,
+    Text,
+    Float,
+    Integer,
 )
 from sqlalchemy.orm import relationship
-
+from datetime import datetime, timezone
 from app.database import Base
-from app.utils.crypto import decrypt_field, encrypt_field
+from app.utils.crypto import encrypt_field, decrypt_field
 
 
 def generate_uuid():
@@ -75,9 +71,6 @@ class ChildDevice(Base):
 
 class ConsentRecord(Base):
     __tablename__ = "consent_records"
-    __table_args__ = (
-        Index("ix_consent_records_device_signal", "device_id", "signal_type"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -94,9 +87,6 @@ class ConsentRecord(Base):
 
 class RawSignalEvent(Base):
     __tablename__ = "raw_signal_events"
-    __table_args__ = (
-        Index("ix_raw_signal_device_type_ts", "device_id", "signal_type", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -158,9 +148,6 @@ class BaselineProfile(Base):
 
 class RiskScore(Base):
     __tablename__ = "risk_scores"
-    __table_args__ = (
-        Index("ix_risk_scores_device_model_ts", "device_id", "model_name", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -195,9 +182,6 @@ class RiskScore(Base):
 
 class Alert(Base):
     __tablename__ = "alerts"
-    __table_args__ = (
-        Index("ix_alerts_device_ts", "device_id", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     device_id = Column(
@@ -229,10 +213,6 @@ class Alert(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    __table_args__ = (
-        Index("ix_audit_guardian_ts", "guardian_id", "timestamp"),
-        Index("ix_audit_device_ts", "device_id", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     guardian_id = Column(String, ForeignKey("guardians.id"), nullable=True, index=True)
@@ -260,9 +240,6 @@ class AuditLogEntry(Base):
     audit_detail_json = Column(
         Text, nullable=False
     )  # Immutable audit metadata (not user content)
-    # Tamper-evident hash chain: each entry links to the previous entry's hash.
-    prev_hash = Column(String, nullable=True)
-    entry_hash = Column(String, nullable=False, default=generate_uuid)
 
     @property
     def context(self) -> dict:
@@ -300,9 +277,6 @@ class PhysiologicalBaseline(Base):
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
-    __table_args__ = (
-        Index("ix_chat_guardian_ts", "guardian_id", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     guardian_id = Column(String, ForeignKey("guardians.id"), nullable=False, index=True)
@@ -323,9 +297,6 @@ class UnifiedEvent(Base):
     """
 
     __tablename__ = "unified_events"
-    __table_args__ = (
-        Index("ix_unified_subject_modality_ts", "subject_id", "modality", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -355,9 +326,6 @@ class UnifiedEvent(Base):
 
 class PhysioReading(Base):
     __tablename__ = "physio_readings"
-    __table_args__ = (
-        Index("ix_physio_subject_ts", "subject_id", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -402,9 +370,6 @@ class VoiceSession(Base):
 
 class SleepWindow(Base):
     __tablename__ = "sleep_windows"
-    __table_args__ = (
-        Index("ix_sleep_subject_start", "subject_id", "estimated_start"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -453,9 +418,6 @@ class RiskRegistryHit(Base):
 
 class CompanionSession(Base):
     __tablename__ = "companion_sessions"
-    __table_args__ = (
-        Index("ix_companion_subject_channel", "subject_id", "channel"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -473,9 +435,6 @@ class ConsentGrant(Base):
     """Granular consent per modality, superseding/complementing ConsentRecord."""
 
     __tablename__ = "consent_grants"
-    __table_args__ = (
-        Index("ix_consent_grants_subject_modality", "subject_id", "modality"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -520,9 +479,6 @@ class PulseMultiFactorReading(Base):
     """ESP32 PRISM PULSE: Multi-factor pulse sensor + accelerometer fused reading."""
 
     __tablename__ = "pulse_readings"
-    __table_args__ = (
-        Index("ix_pulse_subject_ts", "subject_id", "timestamp"),
-    )
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
@@ -542,379 +498,128 @@ class PulseMultiFactorReading(Base):
     device = relationship("ChildDevice")
 
 
-# =====================================================================
-# --- Phase 8 Prototype Schema (Simplified 5-Day Architecture) ---
-# =====================================================================
+class TrendSnapshot(Base):
+    """
+    Module 6: Long-Term Behaviour Tracking.
 
+    Aggregated, de-identified trend snapshots for a device at a given
+    granularity (daily / weekly / monthly). Stores the mean behavioral AI
+    scores (stress, cognitive load, typing fatigue, typing stability) and the
+    mental-risk composite over the window, so the dashboard can render long
+    horizon trends without recomputing over raw events.
 
-class User(Base):
-    """Replaces Guardian/Teen split for the simplified prototype."""
+    The scores are stored as a compact JSON blob (encrypted at rest) plus a
+    single composite `wellness` value (higher = more attention-worthy) for
+    quick risk-meter rendering.
+    """
 
-    __tablename__ = "users"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
-    role = Column(String, default="guardian", nullable=False)
-    created_at = Column(DateTime, default=_now, nullable=False)
-
-    devices = relationship(
-        "Device", back_populates="user", cascade="all, delete-orphan"
-    )
-
-
-class Device(Base):
-    """Replaces ChildDevice for the simplified prototype."""
-
-    __tablename__ = "devices"
+    __tablename__ = "trend_snapshots"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    name = Column(String, nullable=False)
-    device_type = Column(String, nullable=False)  # 'android_phone', 'rpi_edge'
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=_now, nullable=False)
-
-    user = relationship("User", back_populates="devices")
-    sensor_readings = relationship(
-        "SensorReading", back_populates="device", cascade="all, delete-orphan"
-    )
-    phone_events = relationship(
-        "PhoneEvent", back_populates="device", cascade="all, delete-orphan"
-    )
-    vision_features = relationship(
-        "VisionFeature", back_populates="device", cascade="all, delete-orphan"
-    )
-    audio_features = relationship(
-        "AudioFeature", back_populates="device", cascade="all, delete-orphan"
-    )
-
-
-class SensorReading(Base):
-    """Time-series physical sensor data (pulse, accel)."""
-
-    __tablename__ = "sensor_readings"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    device_id = Column(String, ForeignKey("devices.id"), nullable=False, index=True)
-    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
-    metric_type = Column(String, nullable=False)  # 'bpm', 'g_force'
-    value = Column(Float, nullable=False)
-
-    device = relationship("Device", back_populates="sensor_readings")
-
-
-class PhoneEvent(Base):
-    """Behavioral metadata from Android (screen state, app usage)."""
-
-    __tablename__ = "phone_events"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    device_id = Column(String, ForeignKey("devices.id"), nullable=False, index=True)
-    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
-    event_type = Column(String, nullable=False)  # 'SCREEN_ON', 'APP_USAGE'
-    package_name = Column(String, nullable=True)
-
-    device = relationship("Device", back_populates="phone_events")
-
-
-class VisionFeature(Base):
-    """Non-diagnostic CV metadata (gaze, posture) from Edge."""
-
-    __tablename__ = "vision_features"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    device_id = Column(String, ForeignKey("devices.id"), nullable=False, index=True)
-    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
-    blink_rate_bpm = Column(Float, nullable=False)
-    is_slouching = Column(Boolean, default=False, nullable=False)
-
-    device = relationship("Device", back_populates="vision_features")
-
-
-class AudioFeature(Base):
-    """Non-diagnostic acoustic metadata (speech rate) from Edge."""
-
-    __tablename__ = "audio_features"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    device_id = Column(String, ForeignKey("devices.id"), nullable=False, index=True)
-    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
-    speech_segments = Column(
-        Float, nullable=False
-    )  # Stored as float for consistency or int
-    silence_ratio = Column(Float, nullable=False)
-
-    device = relationship("Device", back_populates="audio_features")
-
-
-class BehaviorWindow(Base):
-    """Aggregated daily summaries."""
-
-    __tablename__ = "behavior_windows"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    subject_id = Column(
+    device_id = Column(
         String, ForeignKey("child_devices.id"), nullable=False, index=True
     )
-    start_ts = Column(DateTime, nullable=False, index=True)
-    end_ts = Column(DateTime, nullable=False)
-    total_active_mins = Column(Float, nullable=False)
-    sleep_hours_proxy = Column(Float, nullable=False)
+    granularity = Column(String, nullable=False)  # "daily" | "weekly" | "monthly"
+    period_start = Column(DateTime, nullable=False, index=True)
+    period_end = Column(DateTime, nullable=False)
+    wellness = Column(Float, nullable=False)  # 0..1 composite (mental-risk proxy)
+    sample_count = Column(Integer, nullable=False, default=0)
+    encrypted_scores = Column(Text, nullable=False)  # JSON blob of dimension means
 
     device = relationship("ChildDevice")
-    risk_score = relationship(
-        "RiskScoreV2",
-        back_populates="window",
-        uselist=False,
-        cascade="all, delete-orphan",
-    )
-
-
-class RiskScoreV2(Base):
-    """Heuristic risk evaluation for a window."""
-
-    __tablename__ = "risk_scores_v2"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    window_id = Column(
-        String,
-        ForeignKey("behavior_windows.id"),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
-    score_value = Column(Float, nullable=False)  # 0-100
-    risk_level = Column(String, nullable=False)  # 'LOW', 'MEDIUM', 'HIGH'
-
-    # Store JSON string for simplicity across SQLite/Postgres dev environments
-    contributing_factors_json = Column(Text, nullable=False, default="[]")
-
-    window = relationship("BehaviorWindow", back_populates="risk_score")
 
     @property
-    def contributing_factors(self) -> list:
+    def scores(self) -> dict:
+        val = decrypt_field(str(self.encrypted_scores))
         try:
-            return json.loads(str(self.contributing_factors_json))
-        except Exception:
-            return []
-
-    @contributing_factors.setter
-    def contributing_factors(self, factors: list):
-        self.contributing_factors_json = json.dumps(factors)
-
-
-class AlertV2(Base):
-    """Guardian notifications."""
-
-    __tablename__ = "alerts_v2"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    subject_id = Column(
-        String, ForeignKey("child_devices.id"), nullable=False, index=True
-    )
-    risk_score_id = Column(String, ForeignKey("risk_scores_v2.id"), nullable=True)
-    created_at = Column(DateTime, default=_now, nullable=False)
-    summary = Column(Text, nullable=False)
-    is_read = Column(Boolean, default=False, nullable=False)
-
-    device = relationship("ChildDevice")
-    risk_score = relationship("RiskScoreV2")
-
-
-# =====================================================================
-# --- Phase 12 Continuous Learning Tables ---
-# =====================================================================
-
-
-class ModelRegistry(Base):
-    """Records every model version trained or deployed for audit trail and rollback."""
-
-    __tablename__ = "model_registry"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    subject_id = Column(
-        String, ForeignKey("child_devices.id"), nullable=True, index=True
-    )
-    model_type = Column(
-        String, nullable=False
-    )  # "isolation_forest" | "behavioural_classifier" | "fusion_engine"
-    version = Column(String, nullable=False)  # "20260728_172921"
-    file_path = Column(String, nullable=False)
-    metrics_json = Column(Text, nullable=False)  # {"f1_macro": 0.81, ...}
-    status = Column(
-        String, default="draft", nullable=False
-    )  # draft | shadow | active | archived
-    deployed_at = Column(DateTime, nullable=True)
-    previous_version = Column(String, nullable=True)  # rollback link
-    audit_log_id = Column(String, ForeignKey("audit_log_entries.id"), nullable=True)
-    created_at = Column(DateTime, default=_now, nullable=False)
-
-    device = relationship("ChildDevice")
-    audit_log = relationship("AuditLogEntry")
-
-    @property
-    def metrics(self) -> dict:
-        try:
-            return json.loads(str(self.metrics_json))
+            return json.loads(val)
         except Exception:
             return {}
 
-    @metrics.setter
-    def metrics(self, raw: dict):
-        self.metrics_json = json.dumps(raw)
+    @scores.setter
+    def scores(self, raw_scores: dict):
+        self.encrypted_scores = encrypt_field(json.dumps(raw_scores))  # type: ignore[assignment]
 
 
-class FeedbackRecord(Base):
-    """Stores guardian, clinician, and system feedback on PRISM predictions."""
+class VitalsReading(Base):
+    """
+    Module 10: Future IoT Integration — unified multi-modal vitals reading.
 
-    __tablename__ = "feedback_records"
+    One row per edge-node sample (ESP32, MAX30102, Raspberry Pi) carrying the
+    physiological channels PRISM is designed to consume: heart rate, SpO2,
+    temperature, ECG, GSR. Raw waveforms are NEVER stored (PRISM constraint);
+    only derived scalar vitals are persisted. `source` records the ingestion
+    path (http | mqtt) and `device_meta` a small encrypted JSON blob of
+    non-sensitive device context (firmware version, sensor flags).
+    """
 
-    id = Column(String, primary_key=True, default=generate_uuid)
-    subject_id = Column(
-        String, ForeignKey("child_devices.id"), nullable=False, index=True
-    )
-    source = Column(String, nullable=False)  # "guardian" | "clinician" | "system"
-    feedback_type = Column(
-        String, nullable=False
-    )  # "helpful" | "not_helpful" | "false_alert" | "missed_alert" | "correct" | "incorrect"
-    insight_score_at_time = Column(Float, nullable=True)
-    risk_level_at_time = Column(String, nullable=True)
-    comment = Column(Text, nullable=True)
-    timestamp = Column(DateTime, default=_now, nullable=False)
-
-    device = relationship("ChildDevice")
-
-
-# =====================================================================
-# --- Phase 13 Behavioral AI: Typing + Memory Tables ---
-# =====================================================================
-
-
-class TypingSession(Base):
-    """Stores typing dynamics session summaries from Android keystroke events."""
-
-    __tablename__ = "typing_sessions"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    device_id = Column(
-        String, ForeignKey("child_devices.id"), nullable=False, index=True
-    )
-    session_id = Column(String, nullable=False, index=True)
-    total_events = Column(Integer, default=0)
-    avg_hold_time_ms = Column(Float, default=0.0)
-    avg_flight_time_ms = Column(Float, default=0.0)
-    wpm = Column(Float, default=0.0)
-    error_rate = Column(Float, default=0.0)
-    pause_count = Column(Integer, default=0)
-    typing_entropy = Column(Float, default=0.0)
-    confidence = Column(Float, default=1.0)
-    created_at = Column(DateTime, default=_now, nullable=False)
-
-    device = relationship("ChildDevice")
-
-
-class ConversationMemory(Base):
-    """Long-term conversation memory with sentiment + tags."""
-
-    __tablename__ = "conversation_memory"
+    __tablename__ = "vitals_readings"
 
     id = Column(String, primary_key=True, default=generate_uuid)
     subject_id = Column(
         String, ForeignKey("child_devices.id"), nullable=False, index=True
     )
-    session_id = Column(String, nullable=False, index=True)
-    message = Column(Text, nullable=False)
-    role = Column(String, default="user")  # user | assistant | system
-    sentiment = Column(String, nullable=True)  # positive | negative | neutral
-    tags_json = Column(Text, default="[]")
-    timestamp = Column(DateTime, default=_now, nullable=False)
+    timestamp = Column(DateTime, default=_now, nullable=False, index=True)
+    source = Column(String, default="http", nullable=False)  # "http" | "mqtt"
+    # Derived scalar vitals (all optional — a sample may carry a subset).
+    heart_rate_bpm = Column(Float, nullable=True)
+    spo2_percent = Column(Float, nullable=True)
+    temperature_c = Column(Float, nullable=True)
+    ecg_mv = Column(Float, nullable=True)
+    gsr_microsiemens = Column(Float, nullable=True)
+    device_meta_json = Column(Text, nullable=True)  # encrypted device context
 
     device = relationship("ChildDevice")
-
-
-# =====================================================================
-# --- Phase 14 Guardian Feature Models ---
-# =====================================================================
-
-
-class GuardianConnection(Base):
-    """Represents a guardian-user relationship with consent tracking."""
-
-    __tablename__ = "guardian_connections"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    guardian_id = Column(String, ForeignKey("guardians.id"), nullable=False, index=True)
-    device_id = Column(
-        String, ForeignKey("child_devices.id"), nullable=False, index=True
-    )
-    status = Column(
-        String, default="pending", nullable=False
-    )  # pending | active | paused | revoked
-    invited_at = Column(DateTime, default=_now, nullable=False)
-    accepted_at = Column(DateTime, nullable=True)
-    revoked_at = Column(DateTime, nullable=True)
-    paused_until = Column(DateTime, nullable=True)
-
-    guardian = relationship("Guardian")
-    device = relationship("ChildDevice")
-
-
-class GuardianAlert(Base):
-    """Privacy-preserving trend-based alerts for guardians."""
-
-    __tablename__ = "guardian_alerts"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    connection_id = Column(
-        String, ForeignKey("guardian_connections.id"), nullable=False, index=True
-    )
-    severity = Column(
-        String, nullable=False
-    )  # info | observation | attention | urgent | critical
-    category = Column(
-        String, nullable=False
-    )  # behavior | wellbeing | safety | isolation | sleep | routine | mood | risk_escalation | positive
-    title = Column(String, nullable=False)
-    summary = Column(Text, nullable=False)
-    contributing_observations_json = Column(Text, nullable=False, default="[]")
-    interpretation = Column(Text, nullable=True)
-    suggested_approach = Column(Text, nullable=True)
-    conversation_starter = Column(Text, nullable=True)
-    confidence = Column(Float, default=0.0)
-    is_acknowledged = Column(Boolean, default=False)
-    acknowledged_at = Column(DateTime, nullable=True)
-    detected_at = Column(DateTime, default=_now, nullable=False)
-    resolved_at = Column(DateTime, nullable=True)
-
-    connection = relationship("GuardianConnection")
 
     @property
-    def contributing_observations(self) -> list:
+    def device_meta(self) -> dict:
+        if not self.device_meta_json:
+            return {}
+        val = decrypt_field(str(self.device_meta_json))
         try:
-            return json.loads(str(self.contributing_observations_json))
+            return json.loads(val)
         except Exception:
-            return []
+            return {}
 
-    @contributing_observations.setter
-    def contributing_observations(self, obs: list):
-        self.contributing_observations_json = json.dumps(obs)
+    @device_meta.setter
+    def device_meta(self, raw_payload: dict):
+        self.device_meta_json = encrypt_field(json.dumps(raw_payload))  # type: ignore[assignment]
 
 
-class GuardianAccessLog(Base):
-    """Immutable log of every guardian data access event — visible to both parties."""
-
-    __tablename__ = "guardian_access_logs"
+class PrismPredictionSnapshot(Base):
+    """Stores the prediction result from the PRISM 57-feature ML artifacts."""
+    __tablename__ = "prism_prediction_snapshots"
 
     id = Column(String, primary_key=True, default=generate_uuid)
-    connection_id = Column(
-        String, ForeignKey("guardian_connections.id"), nullable=False, index=True
-    )
-    action = Column(
-        String, nullable=False
-    )  # VIEW_DASHBOARD | VIEW_ALERT | VIEW_TIMELINE | ACKNOWLEDGE_ALERT
-    resource = Column(String, nullable=True)
-    ip_address = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=_now, nullable=False)
+    device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    generated_at = Column(DateTime, default=_now, nullable=False, index=True)
+    classifier_label = Column(String, nullable=False)
+    classifier_index = Column(Integer, nullable=False)
+    classifier_probabilities_json = Column(Text, nullable=False)
+    regressor_score = Column(Float, nullable=False)
+    regressor_label = Column(String, nullable=False)
+    data_sufficiency_json = Column(Text, nullable=False)
 
-    connection = relationship("GuardianConnection")
+    device = relationship("ChildDevice")
+
+    @property
+    def classifier_probabilities(self) -> dict:
+        try:
+            return json.loads(self.classifier_probabilities_json)
+        except Exception:
+            return {}
+
+    @classifier_probabilities.setter
+    def classifier_probabilities(self, val: dict):
+        self.classifier_probabilities_json = json.dumps(val)
+
+    @property
+    def data_sufficiency(self) -> dict:
+        try:
+            return json.loads(self.data_sufficiency_json)
+        except Exception:
+            return {}
+
+    @data_sufficiency.setter
+    def data_sufficiency(self, val: dict):
+        self.data_sufficiency_json = json.dumps(val)
