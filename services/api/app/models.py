@@ -584,3 +584,42 @@ class VitalsReading(Base):
     @device_meta.setter
     def device_meta(self, raw_payload: dict):
         self.device_meta_json = encrypt_field(json.dumps(raw_payload))  # type: ignore[assignment]
+
+
+class PrismPredictionSnapshot(Base):
+    """Stores the prediction result from the PRISM 57-feature ML artifacts."""
+    __tablename__ = "prism_prediction_snapshots"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    device_id = Column(String, ForeignKey("child_devices.id"), nullable=False, index=True)
+    generated_at = Column(DateTime, default=_now, nullable=False, index=True)
+    classifier_label = Column(String, nullable=False)
+    classifier_index = Column(Integer, nullable=False)
+    classifier_probabilities_json = Column(Text, nullable=False)
+    regressor_score = Column(Float, nullable=False)
+    regressor_label = Column(String, nullable=False)
+    data_sufficiency_json = Column(Text, nullable=False)
+
+    device = relationship("ChildDevice")
+
+    @property
+    def classifier_probabilities(self) -> dict:
+        try:
+            return json.loads(self.classifier_probabilities_json)
+        except Exception:
+            return {}
+
+    @classifier_probabilities.setter
+    def classifier_probabilities(self, val: dict):
+        self.classifier_probabilities_json = json.dumps(val)
+
+    @property
+    def data_sufficiency(self) -> dict:
+        try:
+            return json.loads(self.data_sufficiency_json)
+        except Exception:
+            return {}
+
+    @data_sufficiency.setter
+    def data_sufficiency(self, val: dict):
+        self.data_sufficiency_json = json.dumps(val)

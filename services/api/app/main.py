@@ -14,6 +14,7 @@ from app.routes import (
     companion,
     physio,
     medical,
+    prism,
 )
 from app.config import settings
 from app.utils.observability import setup_structured_logging, APMMiddleware
@@ -165,3 +166,4 @@ app.include_router(voice.router)
 app.include_router(companion.router)
 app.include_router(physio.router)
 app.include_router(medical.router)
+app.include_router(prism.router)

@@ -19,8 +19,8 @@ module.exports = {
         }
       },
       fontFamily: {
-        sans: ['var(--font-humanist)', 'Open Sans', 'Fira Sans', 'system-ui', 'sans-serif'],
-        mono: ['var(--font-geometric)', 'Space Grotesk', 'Inter', 'monospace'],
+        sans: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-space-grotesk)', 'Space Grotesk', 'JetBrains Mono', 'monospace'],
       }
     },
   },

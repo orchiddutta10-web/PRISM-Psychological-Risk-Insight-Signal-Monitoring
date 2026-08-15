@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         "JWT_SECRET", "super-secret-jwt-key-change-in-production-123456"
     )
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24h dev default
 
     # Symmetric Fernet key for encrypting sensitive fields at rest (e.g. GPS coordinates).
     ENCRYPTION_KEY: str = os.getenv(
@@ -40,6 +40,36 @@ class Settings(BaseSettings):
     CHROMA_COLLECTION: str = os.getenv("CHROMA_COLLECTION", "medical_kb")
     MEDICAL_KB_DIR: str = os.getenv("MEDICAL_KB_DIR", "./medical_kb")
     CHAT_HISTORY_LIMIT: int = 10
+
+    # ── PRISM 57-feature Model Configurations ──────────────────────────
+    # The artifacts were trained under scikit-learn 1.6.1. They deserialize
+    # cleanly under any 1.6.x / 1.7.x / 1.8.x runtime; we pin the floor at 1.6.
+    PRISM_MODEL_DIR: str = os.getenv("PRISM_MODEL_DIR", "app/resources/prism/")
+
+    # Classifier classes [0, 1, 2] returned by prism_classifier_model.joblib.
+    # The semantic meaning of each class index is NOT in the repo and is NOT
+    # derivable from the codebase. The strings below are safe placeholder
+    # names pending confirmation against the original training documentation.
+    # Override via env vars PRISM_LABEL_0 / PRISM_LABEL_1 / PRISM_LABEL_2.
+    PRISM_LABEL_0: str = os.getenv("PRISM_LABEL_0", "Stable")          # REQUIRES CONFIRMATION
+    PRISM_LABEL_1: str = os.getenv("PRISM_LABEL_1", "Watch")           # REQUIRES CONFIRMATION
+    PRISM_LABEL_2: str = os.getenv("PRISM_LABEL_2", "Attention")       # REQUIRES CONFIRMATION
+
+    PRISM_CLASSIFIER_LABELS: dict[int, str] = {
+        0: PRISM_LABEL_0,
+        1: PRISM_LABEL_1,
+        2: PRISM_LABEL_2,
+    }
+
+    # Regressor tier thresholds on the [0, 1] continuous output.
+    # The semantic meaning / units of the regressor output are NOT in the repo.
+    # Override via env vars PRISM_REGRESSOR_LOW_MAX / PRISM_REGRESSOR_HIGH_MIN.
+    PRISM_REGRESSOR_LOW_MAX: float = float(os.getenv("PRISM_REGRESSOR_LOW_MAX", "0.33"))
+    PRISM_REGRESSOR_HIGH_MIN: float = float(os.getenv("PRISM_REGRESSOR_HIGH_MIN", "0.66"))
+    PRISM_REGRESSOR_NAME: str = os.getenv("PRISM_REGRESSOR_NAME", "Prism continuous score")
+    PRISM_INSUFFICIENT_DATA_MESSAGE: str = (
+        "Insufficient data to run PRISM 57-feature prediction."
+    )
 
     # ── Module 10: Future IoT Integration (MQTT bridge) ──────────────
     MQTT_BROKER_URL: str = os.getenv("MQTT_BROKER_URL", "mqtt://localhost:1883")

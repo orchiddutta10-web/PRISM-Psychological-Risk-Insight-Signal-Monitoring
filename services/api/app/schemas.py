@@ -255,3 +255,37 @@ class ChatMessageResponse(BaseModel):
     sender: str
     aria_utterance: str
     timestamp: datetime
+
+
+# --- PRISM ML Inference ---
+
+
+class PrismClassifierResponse(BaseModel):
+    index: int
+    label: str
+    probabilities: Dict[str, float]
+
+
+class PrismRegressorResponse(BaseModel):
+    score: float
+    label: str
+    name: str
+    thresholds: Dict[str, float]
+
+
+class PrismPredictionResponse(BaseModel):
+    status: str = "ok"
+    classifier: PrismClassifierResponse
+    regressor: PrismRegressorResponse
+    data_sufficiency: Dict[str, int]
+    feature_status: Dict[str, str]
+    model_version: Dict[str, str]
+    generated_at: str
+
+
+class PrismInsufficientDataResponse(BaseModel):
+    status: str = "insufficient_data"
+    reason: str
+    message: str
+    details: Dict[str, str] = {}
+

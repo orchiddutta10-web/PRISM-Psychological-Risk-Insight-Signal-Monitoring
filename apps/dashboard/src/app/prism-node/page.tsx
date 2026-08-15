@@ -8,7 +8,7 @@ import { API } from '@/lib/api'
 // Hardware: ESP32 + Analog Pulse Sensor (GPIO34) + MPU6050 (I2C) + ISD1820 + I2C LCD
 // This surface is intentionally isolated — no imports from the behavior dashboard.
 
-type Tab = 'vitals' | 'sleep' | 'status' | 'about'
+type Tab = 'vitals' | 'sleep' | 'status' | 'about' | 'camera'
 
 interface PulseReading {
   id: string
@@ -42,52 +42,6 @@ interface NodeStatus {
   connected: boolean
   last_seen: string | null
   sensor: string | null
-}
-
-function generateSyntheticPulseReadings(count = 60): PulseReading[] {
-  const now = Date.now()
-  return Array.from({ length: count }, (_, i) => {
-    const t = (i / count) * Math.PI * 4
-    const bpmBase = 72
-    const bpmNoise = (Math.random() - 0.5) * 6
-    const bpmWave = Math.sin(t) * 4
-    const bpm = Math.max(40, Math.min(180, bpmBase + bpmWave + bpmNoise))
-
-    const gBase = 1.0
-    const gNoise = (Math.random() - 0.5) * 0.15
-    const gForce = Math.max(0.5, gBase + gNoise)
-
-    const pulseRaw = 1800 + Math.sin(t * 2) * 300 + (Math.random() - 0.5) * 200
-
-    return {
-      id: `synth-pulse-${i}`,
-      subject_id: 'demo',
-      ts_ms: now - (count - i) * 5000,
-      pulse_raw: Math.round(pulseRaw),
-      bpm: Math.round(bpm),
-      g_force: parseFloat(gForce.toFixed(2)),
-      alert_status: bpm > 110 && gForce < 1.2 ? 'WARNING' : 'OK',
-      timestamp: new Date(now - (count - i) * 5000).toISOString(),
-    }
-  })
-}
-
-function generateSyntheticReadings(type: 'ppg', count = 60): PhysioReading[] {
-  const now = Date.now()
-  return Array.from({ length: count }, (_, i) => {
-    const t = (i / count) * Math.PI * 4
-    const base = 65
-    const noise = (Math.random() - 0.5) * 4
-    const wave = Math.sin(t) * 3
-    return {
-      id: `synth-${i}`,
-      subject_id: 'demo',
-      sensor_type: type,
-      value: base + wave + noise,
-      variance: 0.1,
-      timestamp: new Date(now - (count - i) * 5000).toISOString(),
-    }
-  })
 }
 
 function Sparkline({
@@ -155,15 +109,31 @@ export default function PrismNodePage() {
     const tk = localStorage.getItem('prism_token')
     if (!tk) { router.push('/'); return }
     setToken(tk)
-    setDeviceId(localStorage.getItem('prism_selected_device') || '')
+    
+    // Fetch devices to validate or auto-select
+    fetch(`${API}/auth/devices`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
+      .then(r => r.ok ? r.json() : [])
+      .then((devices: any[]) => {
+        if (devices.length > 0) {
+          const saved = localStorage.getItem('prism_selected_device')
+          const isValid = devices.some(d => d.id === saved)
+          if (saved && isValid) {
+            setDeviceId(saved)
+          } else {
+            localStorage.setItem('prism_selected_device', devices[0].id)
+            setDeviceId(devices[0].id)
+          }
+        }
+      })
+      .catch(() => {})
   }, [router])
 
   const fetchVitals = useCallback(async (tk: string, did: string) => {
     try {
       // Fetch from PRISM PULSE multi-factor endpoint (ESP32 BPM + G-Force)
-      const pulseRes = await fetch(`${API}/physio/pulse/readings/${did}?limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
+      const pulseRes = await fetch(`${API}/physio/pulse/readings/${did}?limit=60&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
       // Also try legacy PPG readings
-      const ppgRes = await fetch(`${API}/physio/readings/${did}?sensor_type=ppg&limit=60`, { headers: { Authorization: `Bearer ${tk}` } })
+      const ppgRes = await fetch(`${API}/physio/readings/${did}?sensor_type=ppg&limit=60&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
 
       let pulseData: PulseReading[] = []
       let ppgData: PhysioReading[] = []
@@ -175,27 +145,20 @@ export default function PrismNodePage() {
         ppgData = await ppgRes.json()
       }
 
-      if (pulseData.length === 0 && ppgData.length === 0) {
-        // No real data — fall back to synthetic demo
-        setPulseReadings(generateSyntheticPulseReadings())
-        setPpgReadings(generateSyntheticReadings('ppg'))
-        setIsDemoMode(true)
-      } else {
-        setPulseReadings([...pulseData].reverse())
-        setPpgReadings([...ppgData].reverse())
-        setIsDemoMode(false)
-      }
+      setPulseReadings([...pulseData].reverse())
+      setPpgReadings([...ppgData].reverse())
+      setIsDemoMode(false)
     } catch {
-      setPulseReadings(generateSyntheticPulseReadings())
-      setPpgReadings(generateSyntheticReadings('ppg'))
-      setIsDemoMode(true)
+      setPulseReadings([])
+      setPpgReadings([])
+      setIsDemoMode(false)
     }
     setLastRefresh(new Date())
   }, [])
 
   const fetchSleep = useCallback(async (tk: string, did: string) => {
     try {
-      const res = await fetch(`${API}/physio/sleep/${did}?limit=30`, { headers: { Authorization: `Bearer ${tk}` } })
+      const res = await fetch(`${API}/physio/sleep/${did}?limit=30&_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
       if (!res.ok) throw new Error(`Sleep API returned ${res.status}`)
       const data = await res.json()
       setSleepWindows(Array.isArray(data) ? data : [])
@@ -204,7 +167,7 @@ export default function PrismNodePage() {
 
   const fetchStatus = useCallback(async (tk: string, did: string) => {
     try {
-      const res = await fetch(`${API}/physio/status/${did}`, { headers: { Authorization: `Bearer ${tk}` } })
+      const res = await fetch(`${API}/physio/status/${did}?_t=${Date.now()}`, { headers: { Authorization: `Bearer ${tk}` }, cache: 'no-store' })
       if (!res.ok) throw new Error(`Status API returned ${res.status}`)
       setNodeStatus(await res.json())
     } catch { setNodeStatus({ connected: false, last_seen: null, sensor: null }) }
@@ -222,11 +185,15 @@ export default function PrismNodePage() {
     return () => clearInterval(iv)
   }, [token, deviceId, fetchVitals, fetchSleep, fetchStatus])
 
-  // Derive current values from pulse readings
+  // Only label a reading live when it arrived during the polling window.
   const latestPulse = pulseReadings.length ? pulseReadings[pulseReadings.length - 1] : null
-  const currentBPM = latestPulse ? latestPulse.bpm.toFixed(0) : '—'
-  const currentGForce = latestPulse ? latestPulse.g_force.toFixed(2) : '—'
-  const currentAlert = latestPulse ? latestPulse.alert_status : 'OK'
+  const latestPulseFresh = latestPulse
+    ? Date.now() - new Date(latestPulse.timestamp).getTime() <= 15000
+    : false
+  const currentPulse = latestPulse
+  const currentBPM = currentPulse ? currentPulse.bpm.toFixed(0) : '—'
+  const currentGForce = currentPulse ? currentPulse.g_force.toFixed(2) : '—'
+  const currentAlert = currentPulse ? currentPulse.alert_status : 'OK'
   const alertInfo = alertBadge(currentAlert)
 
   // Count active alerts in last 60 readings
@@ -234,6 +201,7 @@ export default function PrismNodePage() {
 
   const TABS: { id: Tab; label: string }[] = [
     { id: 'vitals', label: '❤️  Live Vitals' },
+    { id: 'camera', label: '📷  Camera' },
     { id: 'sleep', label: '🌙  Sleep Windows' },
     { id: 'status', label: '📡  Device Status' },
     { id: 'about', label: 'ℹ️  About' },
@@ -321,7 +289,7 @@ export default function PrismNodePage() {
                     <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#a5b4fc', marginBottom: 4 }}>Heart Rate</p>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Analog Pulse Sensor (GPIO 34)</p>
                   </div>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(99,102,241,0.2)', color: '#c7d2fe', fontWeight: 700, height: 'fit-content' }}>LIVE</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: currentPulse ? 'rgba(22,163,74,0.2)' : 'rgba(255,255,255,0.08)', color: currentPulse ? '#86efac' : '#9ca3af', fontWeight: 700, height: 'fit-content' }}>{latestPulseFresh ? 'LIVE' : currentPulse ? 'STALE' : 'WAITING'}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 16 }}>
                   <span style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', color: '#e0e7ff', lineHeight: 1 }}>{currentBPM}</span>
@@ -338,7 +306,7 @@ export default function PrismNodePage() {
                     <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#fbbf24', marginBottom: 4 }}>Movement / G-Force</p>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>MPU6050 Accelerometer (I2C)</p>
                   </div>
-                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(245,158,11,0.2)', color: '#fbbf24', fontWeight: 700, height: 'fit-content' }}>LIVE</span>
+                  <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: currentPulse ? 'rgba(22,163,74,0.2)' : 'rgba(255,255,255,0.08)', color: currentPulse ? '#86efac' : '#9ca3af', fontWeight: 700, height: 'fit-content' }}>{latestPulseFresh ? 'LIVE' : currentPulse ? 'STALE' : 'WAITING'}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 16 }}>
                   <span style={{ fontSize: 56, fontWeight: 900, letterSpacing: '-0.04em', color: '#fef3c7', lineHeight: 1 }}>{currentGForce}</span>
@@ -354,14 +322,65 @@ export default function PrismNodePage() {
               {[
                 { label: 'Pulse Readings', value: `${pulseReadings.length}`, unit: 'pts' },
                 { label: 'Alerts Fired', value: `${alertCount}`, unit: alertCount > 0 ? '⚠' : '✓' },
-                { label: 'Node Status', value: isDemoMode ? 'Demo' : nodeStatus.connected ? 'Online' : 'Offline', unit: '' },
-                { label: 'Data Mode', value: isDemoMode ? 'Synthetic' : 'Real', unit: '' },
+                { label: 'Node Status', value: latestPulseFresh ? 'Online' : currentPulse ? 'Stale' : 'Waiting', unit: '' },
+                { label: 'Data Mode', value: currentPulse ? 'Hardware' : 'Waiting', unit: '' },
               ].map((s) => (
                 <div key={s.label} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px', backdropFilter: 'blur(8px)' }}>
                   <p style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>{s.label}</p>
                   <p style={{ fontSize: 20, fontWeight: 800 }}>{s.value}<span style={{ fontSize: 12, marginLeft: 4, color: 'var(--text-secondary)' }}>{s.unit}</span></p>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Live Camera ── */}
+        {tab === 'camera' && (
+          <div className="pn-slide">
+            <h2 style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>Live Camera Feed</h2>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24, maxWidth: 620, lineHeight: 1.6 }}>
+              Live webcam feed from the monitoring station. Connects to any USB camera on the local machine or an RTSP stream from the Raspberry Pi.
+            </p>
+            <div style={{ maxWidth: 800, margin: '0 auto' }}>
+              <div style={{ background: '#000', borderRadius: 20, overflow: 'hidden', border: '1px solid var(--border)', position: 'relative' }}>
+                <img
+                  src={token ? `${API}/camera/stream?token=${token}` : ''}
+                  alt="Live camera feed"
+                  style={{ width: '100%', display: 'block', minHeight: 400, objectFit: 'cover' }}
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement
+                    target.style.display = 'none'
+                    const parent = target.parentElement
+                    if (parent) {
+                      const fallback = document.createElement('div')
+                      fallback.style.cssText = 'display:flex;align-items:center;justify-content:center;min-height:400px;flex-direction:column;gap:12px;'
+                      fallback.innerHTML = '<div style="font-size:48px">📷</div><p style="color:#9ca3af;font-size:14px;font-weight:600">Camera not available</p><p style="color:#6b7280;font-size:12px;max-width:300px;text-align:center">Connect a USB webcam or set PRISM_CAMERA_URL to an RTSP stream from the RPi</p>'
+                      parent.appendChild(fallback)
+                    }
+                  }}
+                />
+                <div style={{ position: 'absolute', top: 16, left: 16, display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,0,0,0.6)', padding: '4px 12px', borderRadius: 20, backdropFilter: 'blur(8px)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'nodePulse 1.5s ease-in-out infinite' }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>LIVE</span>
+                </div>
+              </div>
+              <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
+                <button
+                  onClick={() => {
+                    const img = document.querySelector('img[alt="Live camera feed"]') as HTMLImageElement
+                    if (img) img.src = `${API}/camera/stream?token=${token}&t=${Date.now()}`
+                  }}
+                  style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  ↻ Refresh Stream
+                </button>
+                <button
+                  onClick={() => window.open(`${API}/camera/frame?token=${token}`, '_blank')}
+                  style={{ padding: '8px 16px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: 10, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >
+                  📸 Snapshot
+                </button>
+              </div>
             </div>
           </div>
         )}

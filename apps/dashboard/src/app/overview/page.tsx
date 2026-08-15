@@ -50,6 +50,17 @@ interface ApiBaseline {
   variance: number
 }
 
+interface PulseReading {
+  id: string
+  subject_id: string
+  ts_ms: number
+  pulse_raw: number
+  bpm: number
+  g_force: number
+  alert_status: string
+  timestamp: string
+}
+
 interface DeviceSignal {
   label: string
   icon: any
@@ -206,8 +217,9 @@ function RiskGauge({ score }: { score: number }) {
 export default function OverviewPage() {
   const router = useRouter()
   const [guardian, setGuardian] = useState({ name: 'Guardian', role: 'guardian' })
-  const [devices, setDevices] = useState<DeviceView[]>(DEVICES)
-  const [activeId, setActiveId] = useState(DEVICES[0].id)
+  const [devices, setDevices] = useState<DeviceView[]>([])
+  const [activeId, setActiveId] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
   const [alerts, setAlerts] = useState<ApiAlert[]>([])
   const [alertOpen, setAlertOpen] = useState(false)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
@@ -215,7 +227,11 @@ export default function OverviewPage() {
   const [simRunning, setSim] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('light')
   const [isLive, setIsLive] = useState(false)
+  const [liveReadings, setLiveReadings] = useState<Record<string, PulseReading | null>>({})
+  const [liveHistory, setLiveHistory] = useState<Record<string, PulseReading[]>>({})
   const wsRef = useRef<WebSocket | null>(null)
+  const tokenRef = useRef<string | null>(null)
+  const deviceListRef = useRef<string[]>([])
 
   const device = devices.find(d => d.id === activeId) ?? devices[0]
   const unread = alerts.filter(a => !a.is_viewed).length
@@ -241,7 +257,12 @@ export default function OverviewPage() {
         })
         if (!res.ok) throw new Error(`Devices API returned ${res.status}`)
         const list: ApiDevice[] = await res.json()
-        if (list.length === 0) return
+        if (list.length === 0) {
+          setDevices([])
+          setActiveId('')
+          setIsLive(false)
+          return
+        }
 
         const allAlerts: ApiAlert[] = []
         const allScores: Record<string, ApiRiskScore[]> = {}
@@ -251,10 +272,10 @@ export default function OverviewPage() {
         await Promise.all(list.map(async d => {
           const headers = { Authorization: `Bearer ${token}` }
           const [alertRes, scoreRes, baseRes, pulseRes] = await Promise.all([
-            fetch(`${API}/events/alerts/${d.id}`, { headers }),
-            fetch(`${API}/events/scores/${d.id}`, { headers }),
-            fetch(`${API}/events/baselines/${d.id}`, { headers }),
-            fetch(`${API}/physio/pulse/readings/${d.id}?limit=1`, { headers }),
+            fetch(`${API}/events/alerts/${d.id}?_t=${Date.now()}`, { headers, cache: 'no-store' }),
+            fetch(`${API}/events/scores/${d.id}?_t=${Date.now()}`, { headers, cache: 'no-store' }),
+            fetch(`${API}/events/baselines/${d.id}?_t=${Date.now()}`, { headers, cache: 'no-store' }),
+            fetch(`${API}/physio/pulse/readings/${d.id}?limit=1&_t=${Date.now()}`, { headers, cache: 'no-store' }),
           ])
           if (alertRes.ok) {
             const data = await alertRes.json()
@@ -332,15 +353,23 @@ export default function OverviewPage() {
         })
 
         setDevices(mapped)
-        setActiveId(mapped[0].id)
+        setActiveId(current => mapped.some(d => d.id === current) ? current : mapped[0].id)
+        deviceListRef.current = mapped.map(d => d.id)
         setIsLive(true)
         pushLog(`Fetched ${mapped.length} device${mapped.length > 1 ? 's' : ''} + ${allAlerts.length} alert(s) from API`)
       } catch {
-        setAlerts(INITIAL_ALERTS)
-        pushLog('Devices API unreachable — showing demo data')
+        setDevices([])
+        setActiveId('')
+        deviceListRef.current = []
+        setIsLive(false)
+        pushLog('Devices API unavailable — waiting for live hardware data')
+      } finally {
+        setIsLoading(false)
       }
     }
+    tokenRef.current = token
     loadDevices()
+    const iv = setInterval(loadDevices, 10000)
 
     try {
       const ws = new WebSocket(wsUrl('/events/ws?token=' + token))
@@ -351,9 +380,38 @@ export default function OverviewPage() {
       ws.onmessage = (ev) => {
         try { const d = JSON.parse(ev.data); if (d.type !== 'chat_message') pushLog(`Live › ${d.signal_type?.toUpperCase() ?? 'EVENT'} — ${String(d.device_id ?? '').slice(0, 8)}`) } catch {}
       }
-      return () => ws.close()
-    } catch { setWsStatus('disconnected') }
+      return () => { clearInterval(iv); ws.close() }
+    } catch { setWsStatus('disconnected'); return () => clearInterval(iv) }
   }, [router, pushLog])
+
+  // ── Fast pulse poller (every 3s) ─────────────────────────────
+  useEffect(() => {
+    const pollPulse = async () => {
+      const token = tokenRef.current
+      if (!token || deviceListRef.current.length === 0) return
+      const headers = { Authorization: `Bearer ${token}` }
+      const updates: Record<string, PulseReading | null> = {}
+      const histories: Record<string, PulseReading[]> = {}
+      await Promise.all(deviceListRef.current.map(async (did) => {
+        try {
+          const res = await fetch(`${API}/physio/pulse/readings/${did}?limit=20&_t=${Date.now()}`, { headers, cache: 'no-store' })
+          if (res.ok) {
+            const data: PulseReading[] = await res.json()
+            updates[did] = data.length > 0 ? data[0] : null
+            histories[did] = [...data].reverse()
+            if (data[0]) {
+              pushLog(`♥ ${data[0].bpm.toFixed(0)} BPM  G=${data[0].g_force.toFixed(2)}  ${data[0].alert_status}`)
+            }
+          }
+        } catch {}
+      }))
+      setLiveReadings(prev => ({ ...prev, ...updates }))
+      setLiveHistory(prev => ({ ...prev, ...histories }))
+    }
+    pollPulse()
+    const piv = setInterval(pollPulse, 3000)
+    return () => clearInterval(piv)
+  }, [pushLog])
 
   const applyTheme = (t: 'light' | 'dark') => {
     setTheme(t); localStorage.setItem('prism_theme', t)
@@ -400,6 +458,17 @@ export default function OverviewPage() {
     accentTxt: dk ? '#0A0A0A' : '#FFFFFF',
     input:  dk ? '#2C2C2E' : '#F4F4F2',
     logBg:  dk ? '#0A0A0A' : '#F9F9F8',
+  }
+
+  if (isLoading || !device) {
+    return (
+      <div style={{ minHeight: '100vh', background: C.bg, color: C.text, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <div style={{ maxWidth: 460, padding: 32, textAlign: 'center', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18 }}>
+          <p style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>{isLoading ? 'Connecting to PRISM…' : 'No paired device found'}</p>
+          <p style={{ fontSize: 13, color: C.sub, lineHeight: 1.6 }}>{isLoading ? 'Waiting for the API and live hardware registration.' : 'Register the ESP32 under this guardian account, then refresh this page.'}</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -775,105 +844,158 @@ export default function OverviewPage() {
             </div>
           </div>
 
-          {/* Signal cards — 2×2 grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, animation: 'fadeUp 0.4s 0.06s both' }}>
-            {device.signals.map((sig, i) => {
-              const Icon = sig.icon
-              const deviation = Math.abs(sig.delta)
-              const isHigh = deviation > 40
+          {/* Live biometric cards — 2×2 grid */}
+          {(() => {
+            const pulse = liveReadings[device.id] ?? null
+            const pulseFresh = pulse
+              ? Date.now() - new Date(pulse.timestamp).getTime() <= 15000
+              : false
+            const livePulse = pulse
+            const history = liveHistory[device.id] ?? []
+            const isAlert = livePulse?.alert_status && livePulse.alert_status !== 'OK'
+            const alertColor = isAlert ? '#EF4444' : '#16A34A'
+
+            // Mini sparkline from history
+            const BpmSparkline = ({ data }: { data: PulseReading[] }) => {
+              if (data.length < 2) return <span style={{ fontSize: 11, color: C.muted }}>Collecting data…</span>
+              const vals = data.map(d => d.bpm)
+              const min = Math.min(...vals) - 2
+              const max = Math.max(...vals) + 2
+              const w = 200, h = 40
+              const sx = (i: number) => (i / (vals.length - 1)) * w
+              const sy = (v: number) => h - ((v - min) / (max - min)) * h
+              const path = vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${sx(i).toFixed(1)} ${sy(v).toFixed(1)}`).join(' ')
               return (
-                <div key={sig.label} style={{
-                  background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
-                  padding: '20px 22px', animation: `fadeUp 0.4s ${i * 0.07}s both`,
-                }}>
-                  {/* Top row */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 34, height: 34, borderRadius: 10, background: C.hover, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Icon size={16} color={C.sub} />
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{sig.label}</span>
-                    </div>
-                    <div style={{
-                      display: 'flex', alignItems: 'center', gap: 5,
-                      padding: '4px 10px', borderRadius: 20,
-                      background: isHigh ? (dk ? '#2C2C2E' : '#F0F0F0') : C.hover,
-                      border: `1px solid ${isHigh ? C.border : 'transparent'}`,
-                    }}>
-                      {sig.trend === 'up' ? <TrendingUp size={11} color={C.text} /> : sig.trend === 'down' ? <TrendingDown size={11} color={C.text} /> : <Activity size={11} color={C.text} />}
-                      <span style={{ fontSize: 11, fontWeight: 800, color: C.text }}>
-                        {sig.delta > 0 ? '+' : ''}{sig.delta}%
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Value */}
-                  <div style={{ marginBottom: 16 }}>
-                    <span style={{ fontSize: 32, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, letterSpacing: '-0.02em' }}>
-                      {sig.actual.toLocaleString()}
-                    </span>
-                    <span style={{ fontSize: 13, color: C.sub, marginLeft: 6 }}>{sig.unit}</span>
-                  </div>
-
-                  {/* Dual bar */}
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ height: 6, borderRadius: 3, background: C.hover, position: 'relative', overflow: 'hidden' }}>
-                      {/* baseline */}
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 3,
-                        width: `${Math.min((sig.baseline / Math.max(sig.baseline, sig.actual)) * 100, 100)}%`,
-                        background: C.muted, transition: 'width 1s ease',
-                      }} />
-                      {/* actual */}
-                      <div style={{
-                        position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: 3,
-                        width: `${Math.min((sig.actual / Math.max(sig.baseline, sig.actual)) * 100, 100)}%`,
-                        background: C.text, transition: 'width 1s ease',
-                        opacity: 0.85,
-                      }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.muted }}>
-                    <span>Baseline: {sig.baseline.toLocaleString()} {sig.unit}</span>
-                    <span style={{ fontWeight: 700, color: deviation > 20 ? C.text : C.muted }}>
-                      {deviation > 20 ? '⚑ Flagged' : '✓ Normal'}
-                    </span>
-                  </div>
-                </div>
+                <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
+                  <path d={path} fill="none" stroke={C.text} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  <circle cx={sx(vals.length - 1)} cy={sy(vals[vals.length - 1])} r={3} fill={alertColor} />
+                </svg>
               )
-            })}
-          </div>
+            }
+
+            const cards = [
+              {
+                label: 'Heart Rate',
+                icon: <HeartPulse size={16} color={livePulse ? alertColor : C.sub} />,
+                value: livePulse ? `${livePulse.bpm.toFixed(0)}` : '—',
+                unit: 'BPM',
+                sub: livePulse ? (livePulse.bpm > 100 ? '▲ Elevated' : livePulse.bpm < 55 ? '▼ Low' : '● Normal') : 'Waiting for hardware',
+                subColor: livePulse ? (livePulse.bpm > 100 || livePulse.bpm < 55 ? '#F59E0B' : '#16A34A') : C.muted,
+                badge: livePulse ? `${(history.filter(r => r.bpm > 100).length)} spikes` : null,
+                extra: <BpmSparkline data={history} />,
+              },
+              {
+                label: 'Movement',
+                icon: <Activity size={16} color={C.sub} />,
+                value: livePulse ? `${livePulse.g_force.toFixed(2)}` : '—',
+                unit: 'G-force',
+                sub: livePulse ? (livePulse.g_force > 1.5 ? '▲ High activity' : livePulse.g_force < 0.8 ? '▼ Stationary' : '● Moving') : 'Waiting for hardware',
+                subColor: livePulse ? (livePulse.g_force > 1.5 ? '#F59E0B' : '#16A34A') : C.muted,
+                badge: null,
+                extra: null,
+              },
+              {
+                label: 'Alert Status',
+                icon: <Shield size={16} color={isAlert ? '#EF4444' : '#16A34A'} />,
+                value: livePulse ? livePulse.alert_status : '—',
+                unit: '',
+                sub: livePulse ? `${history.filter(r => r.alert_status !== 'OK').length} alerts in last ${history.length} readings` : 'Waiting for hardware',
+                subColor: isAlert ? '#EF4444' : '#16A34A',
+                badge: null,
+                extra: null,
+              },
+              {
+                label: 'Pulse Raw',
+                icon: <Radio size={16} color={C.sub} />,
+                value: livePulse ? `${livePulse.pulse_raw.toFixed(0)}` : '—',
+                unit: 'ADC',
+                sub: livePulse ? `Updated ${new Date(livePulse.timestamp).toLocaleTimeString()}` : 'Waiting for hardware',
+                subColor: C.muted,
+                badge: pulseFresh ? '● LIVE' : livePulse ? '● STALE' : null,
+                extra: null,
+              },
+            ]
+
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, animation: 'fadeUp 0.4s 0.06s both' }}>
+                {cards.map((card, i) => (
+                  <div key={card.label} style={{
+                    background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
+                    padding: '20px 22px', animation: `fadeUp 0.4s ${i * 0.07}s both`,
+                    transition: 'border-color 0.3s',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 9, background: C.hover, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {card.icon}
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{card.label}</span>
+                      </div>
+                      {card.badge && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: isLive ? 'rgba(22,163,74,0.1)' : C.hover, color: isLive ? '#16A34A' : C.muted, border: `1px solid ${isLive ? 'rgba(22,163,74,0.3)' : C.border}` }}>
+                          {card.badge}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ marginBottom: 10 }}>
+                      <span style={{ fontSize: 36, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: C.text, letterSpacing: '-0.02em', transition: 'all 0.4s' }}>
+                        {card.value}
+                      </span>
+                      {card.unit && <span style={{ fontSize: 13, color: C.sub, marginLeft: 6 }}>{card.unit}</span>}
+                    </div>
+                    {card.extra && <div style={{ marginBottom: 10 }}>{card.extra}</div>}
+                    <p style={{ fontSize: 11, color: card.subColor, fontWeight: 600 }}>{card.sub}</p>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* Chart card */}
           <div style={{
             background: C.card, border: `1px solid ${C.border}`, borderRadius: 18,
             padding: '24px 28px', animation: 'fadeUp 0.4s 0.15s both',
           }}>
+            {/* Live BPM chart header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
-                <p style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 3 }}>7-Day Screen Time</p>
-                <p style={{ fontSize: 12, color: C.sub }}>Daily actual <span style={{ color: C.text, fontWeight: 600 }}>— vs —</span> baseline <span style={{ color: C.muted, fontWeight: 600 }}>- -</span></p>
+                <p style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 3 }}>Live BPM — Last 20 Readings</p>
+                <p style={{ fontSize: 12, color: C.sub }}>Real-time heart rate from <span style={{ color: C.text, fontWeight: 600 }}>PRISM PULSE ESP32</span> · updates every 3s</p>
               </div>
-              <div style={{ display: 'flex', gap: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.sub }}>
-                  <div style={{ width: 18, height: 2, borderTop: '2px dashed #D1D1D6' }} /> Baseline
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.text, fontWeight: 600 }}>
-                  <div style={{ width: 18, height: 2.5, background: C.text, borderRadius: 2 }} /> Actual
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                {liveReadings[device.id] && (
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#16A34A' }}>
+                    ♥ {liveReadings[device.id]!.bpm.toFixed(0)} BPM now
+                  </span>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.sub }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: isLive ? '#16A34A' : C.muted, animation: isLive ? 'pulse 2s infinite' : 'none' }} />
+                  {isLive ? 'Live' : 'Loading'}
                 </div>
               </div>
             </div>
 
-            <SparkLine data={device.weeklyData} w={680} h={90} />
-
-            <div style={{
-              display: 'grid', gridTemplateColumns: `repeat(${device.weeklyData.length}, 1fr)`,
-              marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10,
-            }}>
-              {device.weeklyData.map(d => (
-                <span key={d.day} style={{ textAlign: 'center', fontSize: 11, color: C.muted, fontWeight: 600 }}>{d.day}</span>
-              ))}
-            </div>
+            {(() => {
+              const history = liveHistory[device.id] ?? []
+              if (history.length < 2) {
+                return <div style={{ height: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.muted, fontSize: 13 }}>Collecting live readings…</div>
+              }
+              const chartData = history.map((r, i) => ({
+                day: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                baseline: 72,
+                actual: r.bpm,
+              }))
+              return (
+                <>
+                  <SparkLine data={chartData} w={680} h={90} />
+                  <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(chartData.length, 10)}, 1fr)`, marginTop: 10, borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                    {chartData.filter((_, i) => i % Math.max(1, Math.floor(chartData.length / 10)) === 0).slice(0, 10).map((d, i) => (
+                      <span key={i} style={{ textAlign: 'center', fontSize: 9, color: C.muted, fontWeight: 600 }}>{d.day}</span>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
           </div>
 
           {/* Alerts strip + Live log — two columns */}

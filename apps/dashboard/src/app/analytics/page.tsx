@@ -7,7 +7,7 @@ import {
   BookOpen, FileText, Stethoscope, MessageSquare, Calendar, AlertTriangle,
   CheckCircle2, Info, Clock, ChevronRight, X, Search, Sparkles,
 } from 'lucide-react'
-import { API, authFetch } from '@/lib/api'
+import { API, authFetch, fetchPrismPrediction, PrismPrediction } from '@/lib/api'
 
 /* ─── Types ──────────────────────────────────────────────── */
 
@@ -158,6 +158,8 @@ export default function AnalyticsPage() {
   const [chatTurns, setChatTurns] = useState<ChatTurn[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [prismData, setPrismData] = useState<PrismPrediction | null>(null)
+  const [prismError, setPrismError] = useState<string | null>(null)
   const [pdfUrl, setPdfUrl] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
@@ -196,11 +198,21 @@ export default function AnalyticsPage() {
     const loadAll = async () => {
       const headers = { Authorization: `Bearer ${token}` }
       try {
-        const [tRes, aRes, cRes] = await Promise.all([
+        const [tRes, aRes, cRes, pRes] = await Promise.all([
           fetch(`${API}/events/trends/${deviceId}?granularity=${granularity}`, { headers }),
           fetch(`${API}/events/alerts/${deviceId}`, { headers }),
           fetch(`${API}/events/chat/history`, { headers }),
+          fetchPrismPrediction(deviceId, token)
         ])
+        
+        if (!('error' in pRes)) {
+           setPrismData(pRes)
+           setPrismError(null)
+        } else {
+           setPrismData(null)
+           setPrismError(pRes.error || 'Failed to load Prism prediction')
+        }
+
         if (tRes.ok) setTrend(await tRes.json())
         if (aRes.ok) {
           const data = await aRes.json()
@@ -336,6 +348,72 @@ export default function AnalyticsPage() {
                   {alerts.length}<span style={{ fontSize: 14, color: 'var(--text-muted)' }}> total</span>
                 </p>
               </div>
+            </div>
+
+
+            {/* PRISM 57-Feature Prediction */}
+            <div className="card" style={{ padding: 22, borderRadius: 16, marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <Sparkles size={16} color="#8B5CF6" />
+                <p style={{ margin: 0, fontWeight: 700, fontSize: 14 }}>Prism 57-feature prediction</p>
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }} title="Prism 57-feature model">
+                  <Info size={13} /> Model trained with scikit-learn 1.6.1
+                </div>
+              </div>
+
+              {prismError ? (
+                <div style={{ padding: 14, borderRadius: 12, background: 'rgba(239,68,68,0.08)', color: '#EF4444', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <AlertTriangle size={15} /> {prismError}
+                </div>
+              ) : prismData ? (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                  {/* Classifier */}
+                  <div>
+                    <p style={{ margin: '0 0 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Classifier Output</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Space Grotesk', monospace" }}>{prismData.classifier.label}</span>
+                      <span style={{ fontSize: 10, background: 'rgba(245,158,11,0.1)', color: '#F59E0B', padding: '3px 8px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4 }} title="Labels are placeholders pending confirmation against the model's training documentation.">
+                        <AlertTriangle size={10} /> Requires confirmation
+                      </span>
+                    </div>
+                    {/* Probabilities stacked bar */}
+                    <div style={{ height: 8, borderRadius: 4, display: 'flex', overflow: 'hidden', marginBottom: 6 }}>
+                      {Object.entries(prismData.classifier.probabilities).map(([label, prob], i) => (
+                        <div key={label} style={{ width: `${prob * 100}%`, background: i === 0 ? '#10B981' : i === 1 ? '#F59E0B' : '#EF4444' }} />
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', gap: 12, fontSize: 10, color: 'var(--text-muted)' }}>
+                      {Object.entries(prismData.classifier.probabilities).map(([label, prob], i) => (
+                        <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: i === 0 ? '#10B981' : i === 1 ? '#F59E0B' : '#EF4444' }} />
+                          {label}: {Math.round(prob * 100)}%
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Regressor */}
+                  <div>
+                    <p style={{ margin: '0 0 8px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Regressor Score</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 22, fontWeight: 800, fontFamily: "'Space Grotesk', monospace", color: prismData.regressor.label === 'low' ? '#10B981' : prismData.regressor.label === 'moderate' ? '#F59E0B' : '#EF4444' }}>
+                        {prismData.regressor.score.toFixed(2)}
+                      </span>
+                      <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: prismData.regressor.label === 'low' ? '#10B981' : prismData.regressor.label === 'moderate' ? '#F59E0B' : '#EF4444' }}>
+                        {prismData.regressor.label}
+                      </span>
+                    </div>
+                    <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--text-secondary)' }}>
+                      14d window coverage: {Object.values(prismData.data_sufficiency || {}).reduce((a, b) => a + b, 0)} rows available
+                    </p>
+                    <p style={{ margin: '4px 0 0', fontSize: 10, color: 'var(--text-muted)' }}>
+                      Last generated: {new Date(prismData.generated_at).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>Loading prediction...</p>
+              )}
             </div>
 
             {/* Risk meter + trend chart */}
