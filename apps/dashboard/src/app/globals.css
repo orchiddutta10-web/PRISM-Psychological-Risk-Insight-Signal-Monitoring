@@ -4,11 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-<<<<<<< HEAD
-=======
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
->>>>>>> feature/dashboard-ui
 :root {
   --black: #0A0A0A;
   --white: #FFFFFF;
@@ -57,10 +53,7 @@
   --accent-text: #000000;
 }
 
-<<<<<<< HEAD
-=======
 /* --- Base reset ---------------------------------------------- */
->>>>>>> feature/dashboard-ui
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
@@ -71,16 +64,10 @@ body {
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-<<<<<<< HEAD
 ::-webkit-scrollbar-thumb { background: var(--gray-300); border-radius: 4px; }
 [data-theme='dark'] ::-webkit-scrollbar-thumb { background: var(--gray-600); }
 
-=======
-::-webkit-scrollbar-thumb { background: #D1D1D6; border-radius: 4px; }
-.dark ::-webkit-scrollbar-thumb { background: #636366; }
-
 /* --- Animations ---------------------------------------------- */
->>>>>>> feature/dashboard-ui
 @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes pulse-soft { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
@@ -149,10 +136,7 @@ body {
 .presentation-mode .presentation-hide-footer { display: none !important; }
 .presentation-mode * { transition: all 0.3s ease-in-out; }
 
-<<<<<<< HEAD
-=======
 /* --- Reduced motion ----------------------------------------- */
->>>>>>> feature/dashboard-ui
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

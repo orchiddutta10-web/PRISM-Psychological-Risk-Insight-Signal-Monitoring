@@ -1,9 +1,3 @@
-<<<<<<< HEAD
-import { redirect } from 'next/navigation'
-
-export default function CompanionPage() {
-  redirect('/companion/chat')
-=======
 'use client'
 
 import React from 'react'
@@ -232,5 +226,4 @@ export default function CompanionDashboard() {
       </div>
     </PageContainer>
   )
->>>>>>> feature/dashboard-ui
 }

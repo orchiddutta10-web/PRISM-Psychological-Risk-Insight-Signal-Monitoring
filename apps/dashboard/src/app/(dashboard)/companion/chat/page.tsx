@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-export { default } from '../../chatbot/page'
-=======
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
@@ -188,4 +185,3 @@ export default function CompanionChatPage() {
     </div>
   )
 }
->>>>>>> feature/dashboard-ui
